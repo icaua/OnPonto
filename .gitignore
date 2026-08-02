@@ -1,0 +1,50 @@
+# Ambientes Python
+.venv/
+venv/
+backend/.venv/
+backend/.venv-linux/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.cache/
+.coverage
+htmlcov/
+
+# Logs
+logs/
+*.log
+
+# SQLite validado e arquivos transitórios
+backend/onponto.db
+*.db-wal
+*.db-shm
+*.db-journal
+
+# Bancos de teste, temporários e backups
+backend/onponto.db.backup-inicial
+*.db.backup-*
+*.backup.db
+*.test.db
+*.tmp.db
+test*.db
+*-test.db
+tmp*.db
+backend/.test-data/
+
+# Uploads locais
+backend/uploads/*
+!backend/uploads/.gitkeep
+
+# Artefatos recriáveis das fixtures
+fixtures/generated/
+
+# Relatórios locais de ativação
+RELATORIO-ATIVACAO-LINUX.md
+
+# Sistema operacional
+.DS_Store
+Thumbs.db

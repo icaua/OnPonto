@@ -1,0 +1,305 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>On Ponto</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="app-header">
+      <div>
+        <strong class="brand">On Ponto</strong>
+        <span id="connectionStatus" class="status-pill">API</span>
+      </div>
+      <label class="api-field">
+        <span>API</span>
+        <input id="apiBase" type="url" value="http://127.0.0.1:8000">
+      </label>
+    </header>
+
+    <div class="app-shell">
+      <nav class="sidebar" aria-label="Navegação principal">
+        <button class="nav-button active" data-view="empresas">Empresas</button>
+        <button class="nav-button" data-view="funcionarios">Funcionários</button>
+        <button class="nav-button" data-view="competencias">Competências</button>
+        <button class="nav-button" data-view="arquivos">Arquivos</button>
+        <button class="nav-button" data-view="importar">Importar XLSX</button>
+        <button class="nav-button" data-view="conferencia">Conferência</button>
+        <button class="nav-button" data-view="apuracao">Apuração</button>
+        <button class="nav-button" data-view="relatorios">Relatórios</button>
+      </nav>
+
+      <main class="content">
+        <div id="notice" class="notice" hidden></div>
+
+        <section id="view-empresas" class="view active">
+          <div class="section-heading">
+            <h1>Empresas</h1>
+            <button id="empresaNovo" type="button">Novo</button>
+          </div>
+          <div class="two-column">
+            <form id="empresaForm" class="panel form-grid">
+              <input type="hidden" id="empresaId">
+              <label>Nome <input id="empresaNome" required></label>
+              <label>CNPJ <input id="empresaCnpj"></label>
+              <label>Jornada seg-sex <input id="empresaJornadaSemana" type="number" step="0.25" value="8"></label>
+              <label>Jornada sábado <input id="empresaJornadaSabado" type="number" step="0.25" value="4"></label>
+              <label>Tolerância atraso (min) <input id="empresaTolAtraso" type="number" value="5"></label>
+              <label>Tolerância extra (min) <input id="empresaTolExtra" type="number" value="10"></label>
+              <label class="check-line"><input id="empresaAtiva" type="checkbox" checked> Ativa</label>
+              <label class="span-2">Observações <textarea id="empresaObs" rows="3"></textarea></label>
+              <div class="actions span-2">
+                <button type="submit">Salvar empresa</button>
+              </div>
+            </form>
+            <div class="panel table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Nome</th>
+                    <th>CNPJ</th>
+                    <th>Ativa</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody id="empresasTable"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <section id="view-funcionarios" class="view">
+          <div class="section-heading">
+            <h1>Funcionários</h1>
+            <select id="funcEmpresaSelect"></select>
+          </div>
+          <div class="two-column">
+            <form id="funcionarioForm" class="panel form-grid">
+              <input type="hidden" id="funcionarioId">
+              <label>Código <input id="funcCodigo"></label>
+              <label>Nome <input id="funcNome" required></label>
+              <label>Cargo <input id="funcCargo"></label>
+              <label>Jornada seg-sex <input id="funcJornadaSemana" type="number" step="0.25"></label>
+              <label>Jornada sábado <input id="funcJornadaSabado" type="number" step="0.25"></label>
+              <label class="check-line"><input id="funcAtivo" type="checkbox" checked> Ativo</label>
+              <label class="span-2">Observações <textarea id="funcObs" rows="3"></textarea></label>
+              <div class="actions span-2">
+                <button type="submit">Salvar funcionário</button>
+                <button id="funcNovo" type="button" class="ghost">Novo</button>
+              </div>
+            </form>
+            <div class="panel table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Código</th>
+                    <th>Nome</th>
+                    <th>Cargo</th>
+                    <th>Ativo</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody id="funcionariosTable"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <section id="view-competencias" class="view">
+          <div class="section-heading">
+            <h1>Competências</h1>
+            <select id="compEmpresaSelect"></select>
+          </div>
+          <div class="two-column">
+            <form id="competenciaForm" class="panel form-grid">
+              <input type="hidden" id="competenciaId">
+              <label>Mês <input id="compMes" type="number" min="1" max="12" required></label>
+              <label>Ano <input id="compAno" type="number" min="2000" max="2100" required></label>
+              <label>Status
+                <select id="compStatus">
+                  <option value="aberta">Aberta</option>
+                  <option value="em_conferencia">Em conferência</option>
+                  <option value="fechada">Fechada</option>
+                </select>
+              </label>
+              <label>Recebimento <input id="compRecebimento" type="date"></label>
+              <label>Fechamento <input id="compFechamento" type="date"></label>
+              <label class="span-2">Observações <textarea id="compObs" rows="3"></textarea></label>
+              <div class="actions span-2">
+                <button type="submit">Salvar competência</button>
+                <button id="compNovo" type="button" class="ghost">Nova</button>
+              </div>
+            </form>
+            <div class="panel table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Competência</th>
+                    <th>Status</th>
+                    <th>Recebimento</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody id="competenciasTable"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <section id="view-arquivos" class="view">
+          <div class="section-heading">
+            <h1>Arquivos recebidos</h1>
+            <div class="inline-selects">
+              <select id="arqEmpresaSelect"></select>
+              <select id="arqCompetenciaSelect"></select>
+            </div>
+          </div>
+          <div class="two-column">
+            <form id="arquivoForm" class="panel form-grid">
+              <label class="span-2">Arquivo <input id="arquivoInput" type="file" accept=".pdf,.png,.jpg,.jpeg,.xlsx,.csv" required></label>
+              <label class="span-2">Observações <textarea id="arquivoObs" rows="3"></textarea></label>
+              <div class="actions span-2">
+                <button type="submit">Enviar arquivo</button>
+              </div>
+            </form>
+            <div class="panel table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Arquivo</th>
+                    <th>Tipo</th>
+                    <th>Enviado em</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody id="arquivosTable"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <section id="view-importar" class="view">
+          <div class="section-heading">
+            <h1>Importar ponto XLSX</h1>
+            <div class="inline-selects">
+              <select id="impEmpresaSelect"></select>
+              <select id="impCompetenciaSelect"></select>
+            </div>
+          </div>
+          <form id="importadorForm" class="panel form-grid">
+            <label class="span-2">Arquivo XLSX <input id="importadorArquivo" type="file" accept=".xlsx" required></label>
+            <div class="actions span-2">
+              <button type="submit">Importar</button>
+              <button id="salvarImportacao" type="button" class="ghost" disabled>Salvar marcações</button>
+            </div>
+          </form>
+          <div class="panel table-wrap wide-table import-preview">
+            <h2>Prévia</h2>
+            <table>
+              <thead>
+                <tr>
+                  <th>Funcionário</th>
+                  <th>Data</th>
+                  <th>Entrada</th>
+                  <th>Saída almoço</th>
+                  <th>Retorno almoço</th>
+                  <th>Saída</th>
+                  <th>Status</th>
+                  <th>Observações</th>
+                </tr>
+              </thead>
+              <tbody id="importadorPreviewTable"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section id="view-conferencia" class="view">
+          <div class="section-heading">
+            <h1>Conferência de ponto</h1>
+            <div class="inline-selects">
+              <select id="confEmpresaSelect"></select>
+              <select id="confCompetenciaSelect"></select>
+              <select id="confFuncionarioSelect"></select>
+            </div>
+          </div>
+          <div class="panel table-wrap wide-table">
+            <table>
+              <thead>
+                <tr>
+                  <th>Data</th>
+                  <th>Entrada</th>
+                  <th>Saída almoço</th>
+                  <th>Retorno almoço</th>
+                  <th>Saída</th>
+                  <th>Status</th>
+                  <th>Conferido</th>
+                  <th>Observações</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="marcacoesTable"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section id="view-apuracao" class="view">
+          <div class="section-heading">
+            <h1>Apuração</h1>
+            <div class="inline-selects">
+              <select id="apuEmpresaSelect"></select>
+              <select id="apuCompetenciaSelect"></select>
+              <button id="apuAtualizar" type="button">Atualizar</button>
+            </div>
+          </div>
+          <div class="panel table-wrap">
+            <h2>Resumo</h2>
+            <table>
+              <thead>
+                <tr>
+                  <th>Funcionário</th>
+                  <th>Atrasos</th>
+                  <th>Extras</th>
+                  <th>Faltas</th>
+                  <th>Atestados</th>
+                  <th>Pendências</th>
+                </tr>
+              </thead>
+              <tbody id="apuracaoResumoTable"></tbody>
+            </table>
+          </div>
+          <div class="panel table-wrap">
+            <h2>Pendências</h2>
+            <table>
+              <thead>
+                <tr>
+                  <th>Data</th>
+                  <th>Funcionário</th>
+                  <th>Motivo</th>
+                  <th>Observações</th>
+                </tr>
+              </thead>
+              <tbody id="apuracaoPendenciasTable"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section id="view-relatorios" class="view">
+          <div class="section-heading">
+            <h1>Relatórios</h1>
+            <div class="inline-selects">
+              <select id="relEmpresaSelect"></select>
+              <select id="relCompetenciaSelect"></select>
+            </div>
+          </div>
+          <div class="panel report-actions">
+            <button id="exportExcel" type="button">Exportar Excel</button>
+            <button id="openPrintReport" type="button">Abrir relatório imprimível</button>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
+</html>
