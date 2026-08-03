@@ -13,6 +13,37 @@ O On Ponto não é um sistema oficial de registro de ponto, não substitui reló
 - Excel: openpyxl
 - PDF: relatório HTML imprimível com `window.print()`
 
+## Protótipo de interface
+
+O frontend atual é um protótipo desktop-first que funciona com dados simulados e não envia arquivos ou alterações ao backend. Essa separação é intencional: toda importação passa por uma prévia explícita antes de qualquer confirmação.
+
+O protótipo permite:
+
+- iniciar pela lista de empresas e navegar por visão geral, funcionários, competências, relatórios e configurações da empresa;
+- abrir uma competência e acessar Resumo, Importações, Conferência, Arquivos, Histórico e Exportações sem perder o contexto;
+- simular a análise de TXT, XLS, XLSX, PDF ou imagem e revisar a prévia sem salvar automaticamente;
+- editar horários na grade de Conferência com normalização, validação, navegação por teclado e autosave simulado;
+- comparar batidas originais, interpretação sugerida, edição atual e resultado conferido;
+- selecionar dias, aplicar ações em massa com confirmação e abrir a comparação visual de OCR;
+- demonstrar todos os estados de dia pedidos com 248 registros fictícios de julho de 2026.
+
+Como o frontend continua sendo um protótipo estático, a hierarquia usa rotas hash, por exemplo
+`#/empresas/1/competencias/1001/conferencia`. Isso preserva deep links e recarregamento com
+`python -m http.server`, que não oferece fallback de SPA para caminhos físicos.
+
+Os dados detalhados da Conferência (dias, batidas, painel e autosave) estão simulados para
+Queen · 07/2026. As demais empresas e competências mantêm seus resumos e podem apresentar
+estados vazios nas áreas em que os mocks não possuem registros detalhados.
+
+Atalhos principais na Conferência:
+
+- `Ctrl + S`: salvar imediatamente;
+- `Ctrl + Z`: desfazer a última alteração confirmada;
+- `Alt + ↑` / `Alt + ↓`: navegar entre funcionários;
+- `N`, `F`, `A`, `R` e `C`: situação normal, falta, atestado, revisar e conferir.
+
+Os atalhos de uma tecla ficam desativados durante a edição de campos de texto.
+
 ## Estrutura
 
 ```txt
@@ -33,6 +64,11 @@ frontend/
   index.html
   styles.css
   app.js
+  js/
+    mocks.js
+    utils.js
+    components.js
+    screens.js
 ```
 
 ## Como rodar
@@ -49,7 +85,7 @@ uvicorn app.main:app --reload
 
 2. Abra o frontend:
 
-Abra `frontend/index.html` no navegador.
+Abra `frontend/index.html` no navegador. Para a validação mais fiel, prefira servi-lo por HTTP:
 
 Se preferir servir por HTTP:
 
@@ -59,6 +95,8 @@ python -m http.server 5500
 ```
 
 Depois acesse http://127.0.0.1:5500.
+
+O backend não precisa estar ligado para usar o protótipo. O modo de demonstração aparece de forma explícita em todas as telas.
 
 ## Fixtures para testes
 
