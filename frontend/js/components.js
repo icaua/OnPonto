@@ -114,9 +114,11 @@
     conferido: "confirmed", confirmed: "confirmed", concluido: "confirmed", done: "confirmed",
     salvando: "saving", saving: "saving",
     salvo: "saved", saved: "saved", alteracoes_salvas: "saved",
+    nao_salvo: "unsaved", unsaved: "unsaved", pending_save: "unsaved",
     erro_ao_salvar: "save_error", save_error: "save_error",
     aberta: "open", aberto: "open", open: "open",
     em_conferencia: "in_review", in_review: "in_review",
+    conferida: "ready", pronta: "ready", ready: "ready",
     fechada: "closed", fechado: "closed", closed: "closed",
     atencao: "warning", warning: "warning",
   };
@@ -125,20 +127,22 @@
     normal: { label: "Normal", tone: "success", icon: "check_circle" },
     needs_review: { label: "Conferir", tone: "warning", icon: "alert" },
     inconsistent: { label: "Inconsistente", tone: "danger", icon: "x_circle" },
-    absence: { label: "Falta", tone: "danger", icon: "minus_circle" },
-    medical_leave: { label: "Atestado", tone: "info", icon: "heart" },
+    absence: { label: "Falta", tone: "warning", icon: "minus_circle" },
+    medical_leave: { label: "Atestado", tone: "neutral", icon: "heart" },
     day_off: { label: "Folga", tone: "neutral", icon: "calendar" },
     holiday: { label: "Feriado", tone: "neutral", icon: "calendar" },
     sunday: { label: "Domingo", tone: "neutral", icon: "sun" },
     off_schedule: { label: "Sem expediente", tone: "neutral", icon: "calendar_off" },
-    external_work: { label: "Trabalho externo", tone: "info", icon: "briefcase" },
+    external_work: { label: "Trabalho externo", tone: "neutral", icon: "briefcase" },
     leave: { label: "Afastamento", tone: "neutral", icon: "clock" },
     confirmed: { label: "Conferido", tone: "success", icon: "check_circle" },
-    saving: { label: "Salvando...", tone: "info", icon: "clock" },
+    saving: { label: "Salvando...", tone: "neutral", icon: "clock" },
     saved: { label: "Alterações salvas", tone: "success", icon: "check" },
+    unsaved: { label: "Alterações não salvas", tone: "warning", icon: "alert" },
     save_error: { label: "Erro ao salvar", tone: "danger", icon: "x_circle" },
-    open: { label: "Aberta", tone: "info", icon: "folder" },
+    open: { label: "Aberta", tone: "neutral", icon: "folder" },
     in_review: { label: "Em conferência", tone: "warning", icon: "alert" },
+    ready: { label: "Conferida", tone: "success", icon: "check_circle" },
     closed: { label: "Fechada", tone: "success", icon: "check_circle" },
     warning: { label: "Atenção", tone: "warning", icon: "alert" },
     unknown: { label: "Não informado", tone: "neutral", icon: "info" },
@@ -207,7 +211,7 @@
     var secondary = settings.secondaryItems || DEFAULT_SECONDARY_NAV;
     var secondaryMarkup = secondary.length ? '<div class="sidebar-secondary"><span class="sidebar-section-label">' + text(settings.secondaryLabel || "Administração") + '</span><nav aria-label="Navegação secundária"><ul>' + secondary.map(function (item) { return navItem(item, active, collapsed); }).join("") + "</ul></nav></div>" : "";
     return '<div class="op-sidebar' + (collapsed ? " is-collapsed" : "") + '" data-component="sidebar">' +
-      '<div class="sidebar-brand"><span class="sidebar-brand-mark" aria-hidden="true">OP</span><span class="sidebar-brand-name">' + text(settings.brand || "On Ponto") + "</span></div>" +
+      '<div class="sidebar-brand" role="img" aria-label="ON PONTO."><span class="sidebar-brand-mark" aria-hidden="true"><svg viewBox="0 0 48 48" focusable="false"><circle class="brand-symbol-ring" cx="24" cy="24" r="11"></circle><path class="brand-symbol-axis" d="M24 5v6M24 37v6M5 24h6M37 24h6"></path><circle class="brand-symbol-point" cx="24" cy="24" r="3.5"></circle></svg></span><span class="sidebar-brand-name">' + text(settings.brand || "ON PONTO.") + "</span></div>" +
       '<nav class="sidebar-nav" aria-label="Navegação principal"><ul>' + primary.map(function (item) { return navItem(item, active, collapsed); }).join("") + "</ul></nav>" +
       secondaryMarkup +
       '<button type="button" class="sidebar-collapse" data-action="toggle-sidebar" aria-expanded="' + (collapsed ? "false" : "true") + '" aria-label="' + text(collapsed ? "Expandir menu" : "Recolher menu") + '">' +
@@ -322,6 +326,8 @@
 
   function AttendanceTable(props) {
     var settings = props || {};
+    var readonly = settings.readonly === true || settings.disabled === true;
+    var selectable = settings.selectable !== false && !readonly;
     var days = array(valueOf(settings.days, settings.rows, settings.records));
     var selectedIds = valueOf(settings.selectedIds, settings.bulkSelection, []);
     var selectedDayId = valueOf(settings.selectedDayId, settings.activeDayId);
@@ -356,8 +362,8 @@
           value: slots[column.slot],
           active: active,
           editing: editing,
-          tabIndex: active ? 0 : -1,
-          disabled: confirmed && settings.lockConfirmed !== false,
+          tabIndex: readonly ? -1 : active ? 0 : -1,
+          disabled: readonly || (confirmed && settings.lockConfirmed !== false),
           invalid: validation.valid === false,
           error: validation.error,
           warning: validation.warning,
@@ -365,17 +371,17 @@
       }).join("");
       var note = valueOf(current.observation, current.observacao, day.observation, day.observacao, "");
       return '<tr class="attendance-row' + (isSelected ? " is-selected" : "") + (confirmed ? " is-confirmed" : "") + '" data-day-id="' + text(dayId) + '">' +
-        (settings.selectable === false ? "" : '<td class="selection-cell"><input type="checkbox" data-action="toggle-day-selection" data-day-id="' + text(dayId) + '" aria-label="Incluir ' + text(Utils.formatDate(date)) + ' nas ações em massa"' + boolAttr("checked", isBulkSelected) + "></td>") +
+        (selectable ? '<td class="selection-cell"><input type="checkbox" data-action="toggle-day-selection" data-day-id="' + text(dayId) + '" aria-label="Incluir ' + text(Utils.formatDate(date)) + ' nas ações em massa"' + boolAttr("checked", isBulkSelected) + "></td>" : "") +
         '<th scope="row" class="day-cell"><button type="button" class="day-select-button" data-action="select-day" data-day-id="' + text(dayId) + '" aria-controls="day-details-panel" aria-label="Ver detalhes de ' + text(Utils.formatDate(date)) + (confirmed ? ", dia conferido" : "") + '"' + (isSelected ? ' aria-current="date"' : "") + '><span class="day-number">' + text(Utils.formatDayLabel(date)) + "</span>" + (confirmed ? Icon("check_circle", { label: "Dia conferido" }) : "") + "</button></th>" +
         editableCells + '<td class="journey-cell">' + text(formatMinutesOrValue(worked, false)) + '</td><td class="balance-cell' + (Number(balance) > 0 ? " is-positive" : Number(balance) < 0 ? " is-negative" : "") + '">' + text(formatMinutesOrValue(balance, true)) + "</td>" +
-        '<td class="situation-cell"><button type="button" class="chip-button" data-action="choose-situation" data-day-id="' + text(dayId) + '" aria-label="Situação de ' + text(Utils.formatDate(date)) + ": " + text(resolveStatus(dayStatus(day)).meta.label) + '. Alterar situação">' + StatusChip(dayStatus(day), { compact: true }) + "</button></td>" +
-        '<td class="observation-cell"><button type="button" class="observation-button' + (note ? " has-content" : "") + '" data-action="edit-observation" data-day-id="' + text(dayId) + '" aria-label="' + text((note ? "Editar observação de " : "Adicionar observação em ") + Utils.formatDate(date) + (note ? ": " + note : "")) + '">' + (note ? Icon("note") + '<span class="observation-text">' + text(note) + "</span>" : '<span class="empty-value">—</span>') + "</button></td></tr>";
+        '<td class="situation-cell"><button type="button" class="chip-button" data-action="choose-situation" data-day-id="' + text(dayId) + '" aria-label="Situação de ' + text(Utils.formatDate(date)) + ": " + text(resolveStatus(dayStatus(day)).meta.label) + (readonly ? '" disabled' : '. Alterar situação"') + ">" + StatusChip(dayStatus(day), { compact: true }) + "</button></td>" +
+        '<td class="observation-cell"><button type="button" class="observation-button' + (note ? " has-content" : "") + '" data-action="edit-observation" data-day-id="' + text(dayId) + '" aria-label="' + text((readonly ? "Observação de " : note ? "Editar observação de " : "Adicionar observação em ") + Utils.formatDate(date) + (note ? ": " + note : "")) + '"' + boolAttr("disabled", readonly) + ">" + (note ? Icon("note") + '<span class="observation-text">' + text(note) + "</span>" : '<span class="empty-value">—</span>') + "</button></td></tr>";
     }).join("");
-    var columnCount = settings.selectable === false ? 9 : 10;
+    var columnCount = selectable ? 10 : 9;
     var selectedCount = days.filter(function (day) { return containsId(selectedIds, valueOf(day.id, day.dayId, day.data)); }).length;
     var allSelected = days.length > 0 && selectedCount === days.length;
     var mixed = selectedCount > 0 && !allSelected;
-    var selectionHead = settings.selectable === false ? "" : '<th scope="col" class="selection-cell"><input type="checkbox" data-action="toggle-all-days" aria-label="Selecionar todos os dias visíveis"' + boolAttr("checked", allSelected) + (mixed ? ' aria-checked="mixed" data-indeterminate="true"' : "") + "></th>";
+    var selectionHead = selectable ? '<th scope="col" class="selection-cell"><input type="checkbox" data-action="toggle-all-days" aria-label="Selecionar todos os dias visíveis"' + boolAttr("checked", allSelected) + (mixed ? ' aria-checked="mixed" data-indeterminate="true"' : "") + "></th>" : "";
     return '<div class="attendance-table-wrap" data-component="attendance-table"><table class="attendance-table" data-density="compact" aria-label="' + text(settings.ariaLabel || "Conferência dos dias do funcionário") + '"><caption class="sr-only">' + text(settings.caption || "Horários interpretados, jornada, saldo e situação por dia") + "</caption><thead><tr>" +
       selectionHead + '<th scope="col" class="attendance-table__day-heading">Dia</th><th scope="col" class="attendance-table__time-heading">Entrada</th><th scope="col" class="attendance-table__time-heading">Saída intervalo</th><th scope="col" class="attendance-table__time-heading">Retorno</th><th scope="col" class="attendance-table__time-heading">Saída</th><th scope="col" class="attendance-table__number-heading">Jornada</th><th scope="col" class="attendance-table__number-heading">Saldo</th><th scope="col">Situação</th><th scope="col">Observação</th></tr></thead><tbody>' +
       (rows || '<tr><td colspan="' + columnCount + '">' + EmptyState({ compact: true, title: settings.emptyTitle || "Nenhum dia encontrado", description: settings.emptyDescription || "Ajuste os filtros para ver outros registros." }) + "</td></tr>") + "</tbody></table></div>";
@@ -443,9 +449,10 @@
 
   function DayDetailsPanel(props) {
     var settings = props || {};
+    var readonly = settings.readonly === true || settings.disabled === true;
     var day = settings.day || settings.record;
     if (!day) {
-      return '<aside id="day-details-panel" class="day-details-panel is-empty" data-component="day-details-panel" aria-label="Detalhes do dia">' + EmptyState({ icon: "calendar", title: "Selecione um dia", description: "As batidas originais, pendências e o histórico aparecerão aqui." }) + "</aside>";
+      return '<aside id="day-details-panel" class="day-details-panel is-empty" data-component="day-details-panel" aria-label="Detalhes do dia">' + EmptyState({ icon: "calendar", title: "Selecione um dia", description: "As batidas originais, pendências e atividades desta sessão aparecerão aqui." }) + "</aside>";
     }
     var dayId = valueOf(day.id, day.dayId, day.data);
     var date = valueOf(day.date, day.data);
@@ -468,7 +475,7 @@
     var importedAt = valueOf(file.importedAt, file.uploadedAt, file.importadoEm, source.importedAt, source.importadoEm, original.importedAt, original.importadoEm);
     var sourceLines = valueOf(source.sourceLines, source.linhasOrigem, original.lines, original.linhas, punches.map(function (punch) { return valueOf(punch.line, punch.linha, punch.sourceLine, punch.linhaOrigem); }).filter(function (line) { return line != null; }));
     var hasRegion = Boolean(valueOf(source.region, source.regiao, original.region, original.regiao, punches.some(function (punch) { return punch.region || punch.regiao; })));
-    var actions = valueOf(settings.actions, defaultDayActions(day, punches));
+    var actions = readonly ? [] : valueOf(settings.actions, defaultDayActions(day, punches));
     return '<aside id="day-details-panel" class="day-details-panel" data-component="day-details-panel" data-day-id="' + text(dayId) + '" aria-labelledby="day-details-title">' +
       '<header class="details-header day-details-panel__header"><div><p class="details-eyebrow">' + text(Utils.formatWeekday(date, { long: true })) + '</p><h2 id="day-details-title">' + text(Utils.formatDate(date)) + "</h2></div>" + StatusChip(dayStatus(day)) + "</header>" +
       OriginalPunchesList({ punches: punches }) +
@@ -478,8 +485,10 @@
       '<section class="details-section origin-section"><h3>Origem</h3><dl>' + detailRow("Arquivo", sourceFile) + detailRow("Importado em", importedAt ? Utils.formatDateTime(importedAt) : "—") + detailRow("Linhas de origem", array(sourceLines).join(", ") || "—") + '</dl><div class="context-buttons">' +
       actionButton("open-original-file", "Ver arquivo original", { icon: "file", variant: "secondary", fileId: valueOf(file.id, source.fileId, original.fileId), disabled: sourceFile === "—" }) +
       actionButton("open-source-region", "Ver região de origem", { icon: "eye", variant: "ghost", fileId: valueOf(file.id, source.fileId, original.fileId), disabled: !hasRegion }) + "</div></section>" +
-      ActivityTimeline({ items: valueOf(day.history, day.historico, []), title: "Histórico do dia" }) +
-      '<footer class="details-actions" aria-label="Ações para o dia">' + array(actions).map(function (action) { return actionButton(action.action || action.id, action.label, Object.assign({}, action, { dayId: dayId })); }).join("") + "</footer></aside>";
+      ActivityTimeline({ items: valueOf(day.history, day.historico, []), title: "Atividades desta sessão" }) +
+      '<footer class="details-actions" aria-label="Ações para o dia">' + (readonly
+        ? '<p class="muted-text" role="note">Competência fechada: este dia está disponível somente para consulta.</p>'
+        : array(actions).map(function (action) { return actionButton(action.action || action.id, action.label, Object.assign({}, action, { dayId: dayId })); }).join("")) + "</footer></aside>";
   }
 
   function ImportDropzone(props) {

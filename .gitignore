@@ -1,5 +1,6 @@
 # Ambientes Python
 .venv/
+.venv-linux/
 venv/
 backend/.venv/
 backend/.venv-linux/

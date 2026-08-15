@@ -1,0 +1,50 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  viewBox="0 0 128 128"
+  fill="none"
+>
+  <!-- círculo -->
+  <circle
+    cx="64"
+    cy="64"
+    r="40"
+    stroke="#16845B"
+    stroke-width="8"
+  />
+
+  <!-- ponto central -->
+  <circle
+    cx="64"
+    cy="64"
+    r="10"
+    fill="#16845B"
+  />
+
+  <!-- marca superior -->
+  <path
+    d="M64 12V32"
+    stroke="#16845B"
+    stroke-width="8"
+  />
+
+  <!-- marca inferior -->
+  <path
+    d="M64 96V116"
+    stroke="#16845B"
+    stroke-width="8"
+  />
+
+  <!-- marca esquerda -->
+  <path
+    d="M12 64H32"
+    stroke="#16845B"
+    stroke-width="8"
+  />
+
+  <!-- marca direita -->
+  <path
+    d="M96 64H116"
+    stroke="#16845B"
+    stroke-width="8"
+  />
+</svg>

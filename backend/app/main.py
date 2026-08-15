@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.arquivos.routes import router as arquivos_router
 from app.apuracao.routes import router as apuracao_router
 from app.competencias.routes import router as competencias_router
+from app.database.migrations import aplicar_migracoes_compativeis
 from app.database.session import Base, engine
 from app.empresas.routes import router as empresas_router
 from app.funcionarios.routes import router as funcionarios_router
@@ -16,7 +17,7 @@ from app.database import models  # noqa: F401
 app = FastAPI(
     title="On Ponto API",
     description="MVP para conferência e apuração de ponto recebido por escritório contábil.",
-    version="0.1.0",
+    version="1.0.0-rc.1",
 )
 
 app.add_middleware(
@@ -24,12 +25,14 @@ app.add_middleware(
     allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["Content-Disposition"],
 )
 
 
 @app.on_event("startup")
 def criar_tabelas() -> None:
     Base.metadata.create_all(bind=engine)
+    aplicar_migracoes_compativeis(engine)
 
 
 @app.get("/")

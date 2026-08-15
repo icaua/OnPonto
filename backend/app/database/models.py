@@ -76,6 +76,7 @@ class ArquivoRecebido(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     competencia = relationship("Competencia", back_populates="arquivos")
+    marcacoes = relationship("MarcacaoPonto", back_populates="arquivo_origem")
 
 
 class MarcacaoPonto(Base, TimestampMixin):
@@ -94,6 +95,15 @@ class MarcacaoPonto(Base, TimestampMixin):
     origem: Mapped[str] = mapped_column(String(30), default="manual")
     conferido: Mapped[bool] = mapped_column(Boolean, default=False)
     observacoes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    batidas_originais: Mapped[str | None] = mapped_column(Text, nullable=True)
+    arquivo_origem_id: Mapped[int | None] = mapped_column(
+        ForeignKey("arquivos_recebidos.id"), nullable=True, index=True
+    )
 
     competencia = relationship("Competencia", back_populates="marcacoes")
     funcionario = relationship("Funcionario", back_populates="marcacoes")
+    arquivo_origem = relationship("ArquivoRecebido", back_populates="marcacoes")
+
+    @property
+    def arquivo_origem_nome(self) -> str | None:
+        return self.arquivo_origem.nome_original if self.arquivo_origem else None

@@ -3,7 +3,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app.database.models import Competencia, Empresa, Funcionario, MarcacaoPonto
+from app.database.models import ArquivoRecebido, Competencia, Empresa, Funcionario, MarcacaoPonto
 
 
 def minutos_hora(valor: time) -> int:
@@ -72,7 +72,7 @@ def detalhe_marcacao(
     trabalhadas = 0
     atraso = 0
     extra = 0
-    pendente = False
+    pendente_calculo = False
     motivo_pendencia = None
 
     if marcacao.status_dia == "falta":
@@ -85,13 +85,24 @@ def detalhe_marcacao(
         falta = 0
         atestado = 0
 
-    if marcacao.status_dia in {"atestado", "folga", "feriado", "falta"}:
+    if marcacao.status_dia in {
+        "atestado",
+        "folga",
+        "feriado",
+        "falta",
+        "afastamento",
+        "domingo",
+        "sem_expediente",
+    }:
         trabalhadas = 0
     else:
         trabalhadas, motivo_pendencia = calcular_trabalhado(marcacao)
-        pendente = marcacao.status_dia in {"pendente", "pendente_conferencia"} or motivo_pendencia is not None
+        pendente_calculo = (
+            marcacao.status_dia in {"pendente", "pendente_conferencia"}
+            or motivo_pendencia is not None
+        )
 
-        if not pendente:
+        if not pendente_calculo:
             if trabalhadas < prevista:
                 atraso = prevista - trabalhadas
                 if atraso <= empresa.tolerancia_atraso_minutos:
@@ -100,6 +111,16 @@ def detalhe_marcacao(
                 extra = trabalhadas - prevista
                 if extra <= empresa.tolerancia_extra_minutos:
                     extra = 0
+
+    pendente_operacional = pendente_calculo or not marcacao.conferido
+    if motivo_pendencia:
+        pendencia_motivo = motivo_pendencia
+    elif marcacao.status_dia in {"pendente", "pendente_conferencia"}:
+        pendencia_motivo = "Dia pendente."
+    elif not marcacao.conferido:
+        pendencia_motivo = "Registro ainda não conferido."
+    else:
+        pendencia_motivo = None
 
     return {
         "id": marcacao.id,
@@ -123,8 +144,10 @@ def detalhe_marcacao(
         "extra": formatar_minutos(extra),
         "falta": falta,
         "atestado": atestado,
-        "pendente": pendente,
-        "pendencia_motivo": motivo_pendencia or ("Dia pendente." if marcacao.status_dia in {"pendente", "pendente_conferencia"} else None),
+        "pendente": pendente_operacional,
+        "pendente_calculo": pendente_calculo,
+        "pendente_operacional": pendente_operacional,
+        "pendencia_motivo": pendencia_motivo,
         "observacoes": marcacao.observacoes,
     }
 
@@ -148,6 +171,7 @@ def apurar_competencia(db: Session, competencia_id: int) -> dict[str, Any] | Non
             "funcionario_id": funcionario.id,
             "funcionario": funcionario.nome,
             "codigo": funcionario.codigo,
+            "dias_processados": 0,
             "atrasos_minutos": 0,
             "extras_minutos": 0,
             "atrasos": "00:00",
@@ -155,7 +179,9 @@ def apurar_competencia(db: Session, competencia_id: int) -> dict[str, Any] | Non
             "faltas": 0,
             "atestados": 0,
             "pendencias": 0,
+            "situacao": "indisponivel",
             "observacoes": "",
+            "_duracoes_disponiveis": True,
         }
         for funcionario in funcionarios
     }
@@ -169,6 +195,7 @@ def apurar_competencia(db: Session, competencia_id: int) -> dict[str, Any] | Non
 
     detalhes = []
     pendencias = []
+    dias_com_pendencia: set[tuple[int, date]] = set()
 
     for marcacao in marcacoes:
         funcionario = funcionarios_por_id.get(marcacao.funcionario_id)
@@ -179,17 +206,52 @@ def apurar_competencia(db: Session, competencia_id: int) -> dict[str, Any] | Non
         detalhes.append(detalhe)
 
         item_resumo = resumo[funcionario.id]
+        item_resumo["dias_processados"] += 1
         item_resumo["atrasos_minutos"] += detalhe["atraso_minutos"]
         item_resumo["extras_minutos"] += detalhe["extra_minutos"]
         item_resumo["faltas"] += detalhe["falta"]
         item_resumo["atestados"] += detalhe["atestado"]
+        if detalhe["pendente_calculo"]:
+            item_resumo["_duracoes_disponiveis"] = False
         if detalhe["pendente"]:
             item_resumo["pendencias"] += 1
             pendencias.append(detalhe)
+            dias_com_pendencia.add((funcionario.id, marcacao.data))
 
     for item in resumo.values():
-        item["atrasos"] = formatar_minutos(item["atrasos_minutos"])
-        item["extras"] = formatar_minutos(item["extras_minutos"])
+        if item["dias_processados"] == 0:
+            item["atrasos_minutos"] = None
+            item["extras_minutos"] = None
+            item["atrasos"] = None
+            item["extras"] = None
+            item["faltas"] = None
+            item["atestados"] = None
+            item["pendencias"] = None
+            item["situacao"] = "indisponivel"
+        else:
+            if item["_duracoes_disponiveis"]:
+                item["atrasos"] = formatar_minutos(item["atrasos_minutos"])
+                item["extras"] = formatar_minutos(item["extras_minutos"])
+            else:
+                item["atrasos_minutos"] = None
+                item["extras_minutos"] = None
+                item["atrasos"] = None
+                item["extras"] = None
+            item["situacao"] = "pendente" if item["pendencias"] else "conferido"
+        del item["_duracoes_disponiveis"]
+
+    resumo_funcionarios = list(resumo.values())
+    resumo_geral = {
+        "funcionarios": len(resumo_funcionarios),
+        "conferidos": sum(1 for item in resumo_funcionarios if item["situacao"] == "conferido"),
+        "pendentes": sum(1 for item in resumo_funcionarios if item["situacao"] == "pendente"),
+        "dias_com_pendencia": len(dias_com_pendencia),
+        "total_arquivos": (
+            db.query(ArquivoRecebido)
+            .filter(ArquivoRecebido.competencia_id == competencia.id)
+            .count()
+        ),
+    }
 
     return {
         "empresa": {
@@ -205,7 +267,8 @@ def apurar_competencia(db: Session, competencia_id: int) -> dict[str, Any] | Non
             "status": competencia.status,
         },
         "gerado_em": datetime.now().isoformat(timespec="seconds"),
-        "resumo": list(resumo.values()),
+        "resumo_geral": resumo_geral,
+        "resumo": resumo_funcionarios,
         "marcacoes": detalhes,
         "pendencias": pendencias,
     }

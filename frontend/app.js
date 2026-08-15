@@ -115,9 +115,43 @@
     exit: ["exit", "saida"],
   };
 
+  var CLOSED_COMPETENCE_ACTIONS = {
+    "analyze-import": true,
+    "save-import-start-review": true,
+    "edit-time": true,
+    "choose-situation": true,
+    "edit-observation": true,
+    "focus-observation": true,
+    "confirm-day": true,
+    "reopen-day": true,
+    "set-day-absence": true,
+    "set-day-certificate": true,
+    "set-day-dayoff": true,
+    "set-day-no-schedule": true,
+    "focus-first-time": true,
+    "keep-interpretation": true,
+    "bulk-confirm": true,
+    "bulk-set-status": true,
+    "bulk-add-observation": true,
+    "save-now": true,
+    "retry-save": true,
+    "accept-ocr-preview": true,
+  };
+
+  var DEFAULT_API_BASE = "http://127.0.0.1:8000";
+
   var data = Mocks.getFreshData();
   var state = createInitialState();
   var autosaveTimer = null;
+  var autosaveFlushPromise = null;
+  var pendingDaySaves = Object.create(null);
+  var loadedCompetenceDays = Object.create(null);
+  var loadedCompetenceFiles = Object.create(null);
+  var loadedCompetenceSummaries = Object.create(null);
+  var competenceSummarySequences = Object.create(null);
+  var importAnalysisSequence = 0;
+  var routeLoadSequence = 0;
+  var exportExcelSequence = 0;
   var toastSequence = 0;
   var pendingDialog = null;
   var editSession = null;
@@ -134,6 +168,163 @@
 
   function idsEqual(left, right) {
     return left !== null && left !== undefined && right !== null && right !== undefined && String(left) === String(right);
+  }
+
+  function configuredApiBase() {
+    var configured = "";
+    try {
+      configured = localStorage.getItem("onponto.apiBase") || "";
+    } catch (error) {
+      configured = "";
+    }
+    return String(configured || DEFAULT_API_BASE).trim().replace(/\/+$/, "");
+  }
+
+  function apiErrorMessage(payload, fallback) {
+    var detail = payload && (payload.detail || payload.message || payload.erro || payload.error);
+    if (Array.isArray(detail)) {
+      detail = detail.map(function (item) {
+        return typeof item === "string" ? item : item && (item.msg || item.message) || "Dados inválidos.";
+      }).join(" ");
+    }
+    if (detail && typeof detail === "object") detail = detail.message || detail.mensagem || detail.msg || JSON.stringify(detail);
+    return String(detail || fallback || "Não foi possível concluir a operação.");
+  }
+
+  function isClosedCompetenceError(error) {
+    if (!error || error.status !== 409) return false;
+    var detail = error.payload && error.payload.detail;
+    return /compet[eê]ncia[^.]*fechad|competencia_fechada/i.test(typeof detail === "string" ? detail : JSON.stringify(detail || {}));
+  }
+
+  function apiRequest(path, options) {
+    var settings = options || {};
+    var controller = typeof AbortController === "function" ? new AbortController() : null;
+    var timeout = root.setTimeout(function () {
+      if (controller) controller.abort();
+    }, settings.timeout || 8000);
+    var requestOptions = Object.assign({}, settings);
+    delete requestOptions.timeout;
+    if (controller) requestOptions.signal = controller.signal;
+    requestOptions.headers = Object.assign({ Accept: "application/json" }, requestOptions.headers || {});
+    if (requestOptions.body && typeof FormData !== "undefined" && requestOptions.body instanceof FormData) {
+      delete requestOptions.headers["Content-Type"];
+    } else if (requestOptions.body && typeof requestOptions.body !== "string") {
+      requestOptions.headers["Content-Type"] = "application/json";
+      requestOptions.body = JSON.stringify(requestOptions.body);
+    }
+
+    return root.fetch(configuredApiBase() + path, requestOptions).then(function (response) {
+      return response.text().then(function (textValue) {
+        var payload = null;
+        if (textValue) {
+          try { payload = JSON.parse(textValue); }
+          catch (error) { payload = { detail: textValue }; }
+        }
+        if (!response.ok) {
+          var requestError = new Error(apiErrorMessage(payload, "A API respondeu com erro " + response.status + "."));
+          requestError.status = response.status;
+          requestError.payload = payload;
+          throw requestError;
+        }
+        return payload;
+      });
+    }).catch(function (error) {
+      if (error && error.name === "AbortError") throw new Error("A API demorou mais que o esperado para responder.");
+      throw error;
+    }).finally(function () {
+      root.clearTimeout(timeout);
+    });
+  }
+
+  function apiCollection(payload, aliases) {
+    if (Array.isArray(payload)) return payload;
+    var source = payload && payload.data && typeof payload.data === "object" ? payload.data : payload || {};
+    for (var index = 0; index < aliases.length; index += 1) {
+      if (Array.isArray(source[aliases[index]])) return source[aliases[index]];
+    }
+    if (Array.isArray(source.items)) return source.items;
+    return [];
+  }
+
+  function statusFromBackend(value) {
+    var key = String(value || "conferir").trim().toLowerCase().replace(/[^a-z0-9]+/g, "_");
+    return {
+      pendente: "conferir",
+      pendente_conferencia: "conferir",
+      nao_conferido: "conferir",
+      needs_review: "conferir",
+      inconsistency: "inconsistente",
+    }[key] || key || "conferir";
+  }
+
+  function statusToBackend(value) {
+    var key = statusFromBackend(value);
+    return key === "conferir" || key === "inconsistente" ? "pendente_conferencia" : key;
+  }
+
+  function statusLabel(value) {
+    var normalized = statusFromBackend(value);
+    return STATUS_LABELS[normalized] || normalized;
+  }
+
+  function normalizeCompany(item) {
+    var source = item || {};
+    return Object.assign({}, source, {
+      id: source.id,
+      name: source.name || source.nome || "Empresa",
+      nome: source.nome || source.name || "Empresa",
+      legalName: source.legalName || source.razao_social || source.razaoSocial || source.nome || source.name || "Empresa",
+      active: source.active !== undefined ? source.active : source.ativa !== false,
+      ativa: source.ativa !== undefined ? source.ativa : source.active !== false,
+      updatedAt: source.updatedAt || source.updated_at || null,
+    });
+  }
+
+  function normalizeEmployee(item) {
+    var source = item || {};
+    return Object.assign({}, source, {
+      id: source.id,
+      companyId: source.companyId !== undefined ? source.companyId : source.empresa_id,
+      empresa_id: source.empresa_id !== undefined ? source.empresa_id : source.companyId,
+      name: source.name || source.nome || "Funcionário",
+      nome: source.nome || source.name || "Funcionário",
+      code: source.code !== undefined ? source.code : source.codigo,
+      codigo: source.codigo !== undefined ? source.codigo : source.code,
+      role: source.role || source.cargo || "",
+      cargo: source.cargo || source.role || "",
+      active: source.active !== undefined ? source.active : source.ativo !== false,
+      ativo: source.ativo !== undefined ? source.ativo : source.active !== false,
+    });
+  }
+
+  function normalizeCompetence(item, employeeList) {
+    var source = item || {};
+    var companyId = source.companyId !== undefined ? source.companyId : source.empresa_id;
+    var month = Number(source.month !== undefined ? source.month : source.mes);
+    var year = Number(source.year !== undefined ? source.year : source.ano);
+    var count = (employeeList || []).filter(function (employee) { return idsEqual(employee.companyId || employee.empresa_id, companyId); }).length;
+    return Object.assign({}, source, {
+      id: source.id,
+      companyId: companyId,
+      empresa_id: companyId,
+      month: month,
+      mes: month,
+      year: year,
+      ano: year,
+      label: source.label || (String(month).padStart(2, "0") + "/" + year),
+      status: statusFromBackend(source.status || "aberta"),
+      statusLabel: source.statusLabel || ({ aberta: "Aberta", em_conferencia: "Em conferência", conferida: "Conferida", fechada: "Fechada" }[source.status] || source.status || "Aberta"),
+      employeeCount: source.employeeCount !== undefined ? source.employeeCount : count,
+      pendingCount: source.pendingCount !== undefined ? source.pendingCount : 0,
+      fileCount: source.fileCount !== undefined ? source.fileCount : 0,
+      progress: source.progress !== undefined ? source.progress : 0,
+      confirmedEmployees: source.confirmedEmployees !== undefined ? source.confirmedEmployees : 0,
+      pendingEmployees: source.pendingEmployees !== undefined ? source.pendingEmployees : count,
+      updatedAt: source.updatedAt || source.updated_at || null,
+      receivedAt: source.receivedAt || source.data_recebimento || null,
+      closedAt: source.closedAt || source.data_fechamento || null,
+    });
   }
 
   function emptyRoute() {
@@ -272,6 +463,9 @@
 
     return {
       route: "companies",
+      apiMode: "loading",
+      apiBase: configuredApiBase(),
+      apiError: "",
       sidebarCollapsed: savedCollapsed,
       selectedCompanyId: null,
       selectedCompetenceId: null,
@@ -287,8 +481,20 @@
       importType: "auto",
       selectedImportFile: null,
       importAnalysis: false,
+      importLoading: false,
+      importConfirming: false,
+      importError: "",
+      importConflicts: [],
       importPreviewFilter: "all",
       importPreviewEmployeeId: "",
+      selectedImportRowIds: [],
+      reviewLoading: false,
+      competenceSummaryLoading: false,
+      competenceSummaryError: "",
+      exportExcelLoading: false,
+      competenceLifecycleLoading: false,
+      competenceLifecycleAction: "",
+      competenceLifecycleError: "",
       autosaveStatus: "saved",
       autosaveRevision: 0,
       undoStack: [],
@@ -321,13 +527,542 @@
     return data.files || data.arquivos || [];
   }
 
+  function firstValue() {
+    for (var index = 0; index < arguments.length; index += 1) {
+      if (arguments[index] !== undefined && arguments[index] !== null) return arguments[index];
+    }
+    return null;
+  }
+
+  function normalizedTime(value) {
+    if (value === null || value === undefined || value === "" || value === "?") return "";
+    var match = String(value).match(/^(\d{1,2}):(\d{2})/);
+    return match ? String(match[1]).padStart(2, "0") + ":" + match[2] : String(value);
+  }
+
+  function normalizeOriginalPunches(value) {
+    var punches = value;
+    if (typeof punches === "string") {
+      try { punches = JSON.parse(punches); }
+      catch (error) { punches = punches.split(/\s*[,;]\s*/).filter(Boolean); }
+    }
+    if (!Array.isArray(punches)) return [];
+    return punches.map(function (punch) {
+      if (punch && typeof punch === "object") return String(firstValue(punch.value, punch.time, punch.horario, punch.raw, ""));
+      return String(punch == null ? "" : punch);
+    }).filter(Boolean);
+  }
+
+  function normalizeIssues(value) {
+    var source = value;
+    if (typeof source === "string") {
+      try { source = JSON.parse(source); }
+      catch (error) { source = [source]; }
+    }
+    if (!Array.isArray(source)) return [];
+    return source.map(function (issue, index) {
+      if (typeof issue === "string") return { id: "issue-api-" + index, type: "review", severity: "warning", message: issue, resolved: false };
+      return Object.assign({}, issue, {
+        id: issue.id || "issue-api-" + index,
+        message: issue.message || issue.mensagem || issue.detail || "Revisão necessária.",
+        severity: issue.severity || issue.gravidade || "warning",
+        resolved: issue.resolved === true || issue.resolvida === true,
+      });
+    });
+  }
+
+  function normalizePreviewRow(item, index, analysisSource) {
+    var source = item || {};
+    var employee = source.funcionario || source.employee || {};
+    var interpretation = source.interpretacao || source.suggestion || source.suggested || {};
+    var origin = source.origem || {};
+    var employeeFound = employee.encontrado !== undefined ? employee.encontrado === true : firstValue(employee.id, source.funcionario_id, source.employeeId) !== null;
+    var outsideCompetence = source.fora_da_competencia === true || source.outsideCompetence === true;
+    var rowId = firstValue(source.id, source.registro_id, source.preview_id, "preview-api-" + index);
+    var originalPunches = normalizeOriginalPunches(firstValue(source.batidas_originais, source.originalPunches, []));
+    var issues = normalizeIssues(firstValue(source.pendencias, source.issues, []));
+    var rawStatus = source.status || source.status_dia || (issues.length ? "conferir" : "nao_conferido");
+    var rawStatusKey = String(rawStatus).trim().toLowerCase().replace(/[^a-z0-9]+/g, "_");
+    var normalizedStatus = rawStatusKey === "nao_conferido" ? "nao_conferido" : statusFromBackend(rawStatus);
+    var selected = source.selecionado !== undefined ? source.selecionado === true : employeeFound && !outsideCompetence;
+    var employeeId = firstValue(employee.id, source.funcionario_id, source.employeeId);
+    var employeeName = firstValue(employee.nome_cadastrado, employee.nome_origem, employee.nome, source.funcionario_nome, source.employeeName, "Funcionário não identificado");
+    return Object.assign({}, source, {
+      id: rowId,
+      companyId: firstValue(source.empresa_id, source.companyId, analysisSource && analysisSource.companyId, state.selectedCompanyId),
+      empresa_id: firstValue(source.empresa_id, source.companyId, analysisSource && analysisSource.companyId, state.selectedCompanyId),
+      competenceId: firstValue(source.competencia_id, source.competenceId, analysisSource && analysisSource.competenceId, state.selectedCompetenceId),
+      competencia_id: firstValue(source.competencia_id, source.competenceId, analysisSource && analysisSource.competenceId, state.selectedCompetenceId),
+      employeeId: employeeId,
+      funcionario_id: employeeId,
+      employeeName: employeeName,
+      funcionario: employeeName,
+      employeeCode: firstValue(employee.codigo_origem, employee.codigo, source.codigo_origem, ""),
+      employeeSourceName: firstValue(employee.nome_origem, employeeName),
+      employeeRegisteredName: firstValue(employee.nome_cadastrado, employee.nome, ""),
+      employeeFound: employeeFound,
+      funcionarioEncontrado: employeeFound,
+      date: source.data || source.date,
+      data: source.data || source.date,
+      originalPunches: originalPunches,
+      batidasOriginais: originalPunches,
+      suggestion: {
+        entry: normalizedTime(firstValue(interpretation.entrada, interpretation.entry)),
+        breakStart: normalizedTime(firstValue(interpretation.saida_intervalo, interpretation.saida_almoco, interpretation.breakStart, interpretation.breakOut)),
+        breakEnd: normalizedTime(firstValue(interpretation.retorno_intervalo, interpretation.retorno_almoco, interpretation.breakEnd, interpretation.breakIn)),
+        exit: normalizedTime(firstValue(interpretation.saida, interpretation.exit)),
+      },
+      status: normalizedStatus,
+      statusLabel: rawStatusKey === "nao_conferido" ? "Não conferido" : statusLabel(normalizedStatus),
+      issues: issues,
+      pendencias: issues,
+      observation: issues.map(function (issue) { return issue.message; }).join(" ") || source.observacao || source.observation || "",
+      hasPendingIssue: issues.length > 0 || normalizedStatus === "conferir" || normalizedStatus === "inconsistente" || !employeeFound || outsideCompetence,
+      outsideCompetence: outsideCompetence,
+      foraDaCompetencia: outsideCompetence,
+      selected: selected,
+      selecionado: selected,
+      source: {
+        fileId: firstValue(origin.arquivo_id, origin.fileId, analysisSource && analysisSource.fileId),
+        fileName: firstValue(origin.arquivo, origin.fileName, analysisSource && analysisSource.fileName),
+        type: firstValue(origin.tipo, origin.type, "txt_log_relogio"),
+        sourceLines: firstValue(origin.linhas, origin.sourceLines, []),
+      },
+    });
+  }
+
+  function normalizeImportAnalysis(payload) {
+    var source = payload && payload.data && typeof payload.data === "object" ? payload.data : payload || {};
+    var file = source.arquivo && typeof source.arquivo === "object" ? source.arquivo : {};
+    var fileId = firstValue(source.arquivo_id, source.fileId, file.id);
+    var fileName = firstValue(source.nome_arquivo, source.fileName, file.nome_original, file.nome, file.name, state.selectedImportFile && state.selectedImportFile.name, "Arquivo TXT");
+    var rawRows = firstValue(source.preview, source.rows, source.registros, []);
+    if (!Array.isArray(rawRows)) rawRows = [];
+    var analysisContext = {
+      fileId: fileId,
+      fileName: fileName,
+      companyId: firstValue(source.empresa_id, source.companyId, state.selectedCompanyId),
+      competenceId: firstValue(source.competencia_id, source.competenceId, state.selectedCompetenceId),
+    };
+    var rows = rawRows.map(function (row, index) { return normalizePreviewRow(row, index, analysisContext); });
+    var foundEmployees = {};
+    rows.forEach(function (row) { if (row.employeeFound && row.employeeId !== null) foundEmployees[String(row.employeeId)] = true; });
+    var unmatchedValue = firstValue(source.total_funcionarios_nao_cadastrados, source.funcionarios_nao_encontrados, source.unmatchedEmployeeCount);
+    var unmatched = unmatchedValue === null || unmatchedValue === "" ? NaN : Number(unmatchedValue);
+    if (!Number.isFinite(unmatched)) unmatched = rows.filter(function (row) { return !row.employeeFound; }).length;
+    var outsideValue = firstValue(source.total_fora_da_competencia, source.registros_fora_da_competencia, source.registros_fora_competencia, source.outsideCompetenceCount);
+    var outside = outsideValue === null || outsideValue === "" ? NaN : Number(outsideValue);
+    if (!Number.isFinite(outside)) outside = rows.filter(function (row) { return row.outsideCompetence; }).length;
+    var punchCountValue = firstValue(source.total_batidas, source.punchCount);
+    var punchCount = punchCountValue === null || punchCountValue === "" ? NaN : Number(punchCountValue);
+    if (!Number.isFinite(punchCount)) punchCount = rows.reduce(function (sum, row) { return sum + row.originalPunches.length; }, 0);
+    var pendingCountValue = firstValue(source.total_pendencias, source.pendingCount);
+    var pendingCount = pendingCountValue === null || pendingCountValue === "" ? NaN : Number(pendingCountValue);
+    if (!Number.isFinite(pendingCount)) pendingCount = rows.filter(function (row) { return row.hasPendingIssue; }).length;
+    return Object.assign({}, source, {
+      id: firstValue(source.id, source.analise_id, source.importacao_id),
+      analysisId: firstValue(source.analise_id, source.importacao_id, source.id),
+      fileId: fileId,
+      arquivoId: fileId,
+      fileName: fileName,
+      companyId: firstValue(source.empresa_id, source.companyId, state.selectedCompanyId),
+      companyName: firstValue(source.empresa_nome, source.companyName, currentCompany() && (currentCompany().name || currentCompany().nome)),
+      competenceId: firstValue(source.competencia_id, source.competenceId, state.selectedCompetenceId),
+      competenceLabel: firstValue(source.competencia_label, source.competenceLabel, currentCompetency() && (currentCompetency().label || Utils.formatCompetence(currentCompetency()))),
+      requestedType: "txt_clock",
+      detectedType: "txt_clock",
+      detectedFormat: ({ txt_log_relogio: "TXT estruturado" }[firstValue(source.tipo_detectado, source.formato_detectado, source.detectedFormat)] || firstValue(source.tipo_detectado, source.formato_detectado, source.detectedFormat, "TXT estruturado")),
+      validLineCount: Number(firstValue(source.total_linhas_validas, source.validLineCount, rows.length)) || 0,
+      employeeCount: Number(firstValue(source.total_funcionarios_encontrados, source.employeeCount, Object.keys(foundEmployees).length)) || 0,
+      unmatchedEmployeeCount: unmatched,
+      punchCount: punchCount,
+      dayCount: Number(firstValue(source.total_dias, source.dayCount, rows.length)) || 0,
+      recordCount: Number(firstValue(source.total_registros, source.recordCount, rows.length)) || 0,
+      pendingCount: pendingCount,
+      outsideCompetenceCount: outside,
+      rows: rows,
+      linhas: rows,
+      saved: false,
+    });
+  }
+
+  function normalizeMarking(item) {
+    var source = item || {};
+    var interpretation = source.interpretacao || source.current || source.interpretacao_atual || {};
+    var competenceId = firstValue(source.competencia_id, source.competenceId);
+    var employeeId = firstValue(source.funcionario_id, source.employeeId);
+    var competence = competencies().find(function (entry) { return idsEqual(entry.id, competenceId); }) || {};
+    var employee = employees().find(function (entry) { return idsEqual(entry.id, employeeId); }) || {};
+    var company = companies().find(function (entry) { return idsEqual(entry.id, competence.companyId || competence.empresa_id); }) || {};
+    var originalPunches = normalizeOriginalPunches(firstValue(source.batidas_originais, source.originalPunches, []));
+    var sourceLines = firstValue(source.linhas_origem, source.sourceLines, []);
+    if (!Array.isArray(sourceLines)) sourceLines = [];
+    var fileId = firstValue(source.arquivo_origem_id, source.origem_arquivo_id, source.fileId);
+    var fileName = firstValue(source.arquivo_origem_nome, source.nome_arquivo_origem, source.fileName, source.arquivo_nome, "Arquivo TXT");
+    var current = {
+      entry: normalizedTime(firstValue(interpretation.entrada, interpretation.entry, source.entrada)),
+      breakStart: normalizedTime(firstValue(interpretation.saida_intervalo, interpretation.saida_almoco, interpretation.breakStart, source.saida_intervalo, source.saida_almoco)),
+      breakEnd: normalizedTime(firstValue(interpretation.retorno_intervalo, interpretation.retorno_almoco, interpretation.breakEnd, source.retorno_intervalo, source.retorno_almoco)),
+      exit: normalizedTime(firstValue(interpretation.saida, interpretation.exit, source.saida)),
+    };
+    var normalizedStatus = statusFromBackend(firstValue(source.status_dia, source.status, interpretation.status, "pendente"));
+    current.situation = normalizedStatus;
+    current.status = normalizedStatus;
+    current.observation = firstValue(source.observacoes, source.observacao, source.observation, "");
+    var dateValue = source.data || source.date;
+    var weekday = dateValue ? new Date(String(dateValue).slice(0, 10) + "T12:00:00Z").getUTCDay() : null;
+    var backendExpected = firstValue(source.jornada_prevista_minutos, source.expectedMinutes);
+    var expectedMinutes = backendExpected !== null ? Number(backendExpected) : null;
+    if (!Number.isFinite(expectedMinutes)) expectedMinutes = null;
+    if (expectedMinutes === null && weekday !== null) {
+      if (weekday === 0) expectedMinutes = 0;
+      else {
+        var hours = weekday === 6
+          ? firstValue(employee.jornada_especifica_sabado_horas, company.jornada_sabado_horas, 4)
+          : firstValue(employee.jornada_especifica_seg_sex_horas, company.jornada_seg_sex_horas, 8);
+        expectedMinutes = Number.isFinite(Number(hours)) ? Math.round(Number(hours) * 60) : null;
+      }
+    }
+    var calculatedJourney = Utils.calculateJourney(current, expectedMinutes);
+    var backendWorked = firstValue(source.jornada_apurada_minutos, source.workedMinutes);
+    var backendBalance = firstValue(source.saldo_minutos, source.balanceMinutes);
+    var workedMinutes = backendWorked !== null && Number.isFinite(Number(backendWorked)) ? Number(backendWorked) : calculatedJourney.workedMinutes;
+    var balanceMinutes = backendBalance !== null && Number.isFinite(Number(backendBalance)) ? Number(backendBalance) : (workedMinutes == null || expectedMinutes == null ? null : workedMinutes - expectedMinutes);
+    var issues = normalizeIssues(firstValue(source.pendencias, source.issues, []));
+    if (!issues.length && normalizedStatus === "conferir") {
+      issues.push({
+        id: "issue-api-mark-" + source.id,
+        type: "review",
+        severity: "warning",
+        message: current.observation || "Esta marcação precisa de conferência.",
+        resolved: false,
+      });
+    }
+    var confirmed = source.conferido === true || source.confirmed === true;
+    var details = originalPunches.map(function (punch, index) {
+      return { id: "mark-" + source.id + "-punch-" + index, time: punch, horario: punch, sourceLine: sourceLines[index], fileId: fileId };
+    });
+    var origin = {
+      fileId: fileId,
+      fileName: fileName,
+      arquivo: fileName,
+      importedAt: firstValue(source.importado_em, source.created_at, source.createdAt),
+      sourceLines: sourceLines,
+      linhasOrigem: sourceLines,
+      type: firstValue(source.origem, "txt_log_relogio"),
+      canOpenOriginal: Boolean(fileId),
+      canOpenRegion: false,
+    };
+    return Object.assign({}, source, {
+      id: source.id,
+      companyId: firstValue(source.empresa_id, source.companyId, competence.companyId, competence.empresa_id),
+      empresa_id: firstValue(source.empresa_id, source.companyId, competence.companyId, competence.empresa_id),
+      competenceId: competenceId,
+      competencia_id: competenceId,
+      employeeId: employeeId,
+      funcionario_id: employeeId,
+      employeeName: firstValue(source.funcionario_nome, source.employeeName, employee.name, employee.nome, "Funcionário"),
+      funcionario: firstValue(source.funcionario_nome, source.employeeName, employee.name, employee.nome, "Funcionário"),
+      date: dateValue,
+      data: dateValue,
+      originalPunches: Object.freeze(originalPunches.slice()),
+      batidasOriginais: Object.freeze(originalPunches.slice()),
+      originalPunchDetails: Object.freeze(details),
+      original: Object.freeze({ punches: Object.freeze(originalPunches.slice()), punchDetails: Object.freeze(details.slice()), source: origin }),
+      suggestion: Object.assign({}, current),
+      current: current,
+      currentInterpretation: current,
+      interpretacaoAtual: current,
+      status: normalizedStatus,
+      statusLabel: statusLabel(normalizedStatus),
+      confirmed: confirmed,
+      conferido: confirmed,
+      reviewState: confirmed ? "confirmed" : "suggested",
+      review: { state: confirmed ? "confirmed" : "suggested", status: normalizedStatus, confirmed: confirmed, issues: issues },
+      observation: current.observation,
+      observacao: current.observation,
+      issues: issues,
+      pendencias: issues,
+      source: origin,
+      origem: origin,
+      history: Array.isArray(source.historico) ? source.historico : Array.isArray(source.history) ? source.history : [],
+      historico: Array.isArray(source.historico) ? source.historico : Array.isArray(source.history) ? source.history : [],
+      expectedMinutes: expectedMinutes,
+      jornadaPrevistaMinutos: expectedMinutes,
+      workedMinutes: workedMinutes,
+      jornadaApuradaMinutos: workedMinutes,
+      balanceMinutes: balanceMinutes,
+      saldoMinutos: balanceMinutes,
+    });
+  }
+
+  function replaceAttendanceForCompetence(competenceId, markings) {
+    var remaining = days().filter(function (day) { return !idsEqual(day.competenceId || day.competencia_id, competenceId); });
+    var merged = remaining.concat(markings);
+    data.attendanceDays = merged;
+    data.dias = merged;
+  }
+
+  function normalizeReceivedFile(item) {
+    var source = item || {};
+    var name = firstValue(source.nome_original, source.name, source.nome, "Arquivo");
+    var type = firstValue(source.tipo_arquivo, source.type, source.tipo, "arquivo");
+    return Object.assign({}, source, {
+      id: source.id,
+      competenceId: firstValue(source.competencia_id, source.competenceId),
+      competencia_id: firstValue(source.competencia_id, source.competenceId),
+      name: name,
+      nome: name,
+      type: type,
+      tipo: type,
+      typeLabel: type === "txt_log_relogio" ? "TXT estruturado" : String(type).toUpperCase(),
+      detectedFormat: type === "txt_log_relogio" ? "TXT estruturado" : String(type).toUpperCase(),
+      uploadedAt: firstValue(source.created_at, source.uploadedAt, source.createdAt),
+      createdAt: firstValue(source.created_at, source.createdAt, source.uploadedAt),
+      observation: firstValue(source.observacoes, source.observation, ""),
+    });
+  }
+
+  function replaceFilesForCompetence(competenceId, receivedFiles) {
+    var remaining = files().filter(function (file) {
+      return !idsEqual(file.competenceId || file.competencia_id, competenceId);
+    });
+    var merged = remaining.concat(receivedFiles);
+    data.files = merged;
+    data.arquivos = merged;
+  }
+
+  function valueFromAliases(source, aliases) {
+    var object = source && typeof source === "object" ? source : {};
+    for (var index = 0; index < aliases.length; index += 1) {
+      if (object[aliases[index]] !== undefined) return object[aliases[index]];
+    }
+    return null;
+  }
+
+  function normalizeCompetenceSummary(payload) {
+    var source = payload && payload.data && typeof payload.data === "object" ? payload.data : payload || {};
+    var generalSource = valueFromAliases(source, ["resumo_geral", "resumoGeral", "general_summary", "generalSummary", "general"]);
+    var summaryRows = valueFromAliases(source, ["resumo", "summary", "funcionarios", "employees", "items"]);
+    if (!generalSource || typeof generalSource !== "object" || Array.isArray(generalSource)) generalSource = {};
+    if (!Array.isArray(summaryRows)) summaryRows = [];
+    var pendingRecordsSource = valueFromAliases(source, ["pendencias", "pending_records", "pendingRecords"]);
+    var pendingRecords = Array.isArray(pendingRecordsSource)
+      ? pendingRecordsSource.length
+      : valueFromAliases(generalSource, ["registros_pendentes", "pending_records", "pendingRecords"]);
+    var processedRecordsSource = valueFromAliases(source, ["marcacoes", "records", "markings"]);
+    var processedRecords = Array.isArray(processedRecordsSource)
+      ? processedRecordsSource.length
+      : valueFromAliases(generalSource, ["registros_processados", "processed_records", "processedRecords"]);
+    return {
+      company: valueFromAliases(source, ["empresa", "company"]),
+      competence: valueFromAliases(source, ["competencia", "competence"]),
+      generatedAt: valueFromAliases(source, ["gerado_em", "geradoEm", "generated_at", "generatedAt"]),
+      pendingRecords: pendingRecords,
+      processedRecords: processedRecords,
+      general: {
+        employees: valueFromAliases(generalSource, ["funcionarios", "total_funcionarios", "employees", "employee_count"]),
+        confirmed: valueFromAliases(generalSource, ["conferidos", "funcionarios_conferidos", "confirmed", "confirmed_employees"]),
+        pending: valueFromAliases(generalSource, ["pendentes", "funcionarios_pendentes", "pending", "pending_employees"]),
+        pendingDays: valueFromAliases(generalSource, ["dias_com_pendencia", "dias_pendentes", "pending_days"]),
+        totalFiles: valueFromAliases(generalSource, ["total_arquivos", "arquivos", "total_files", "file_count"]),
+      },
+      rows: summaryRows.map(function (item) {
+        return {
+          employeeId: valueFromAliases(item, ["funcionario_id", "employee_id", "id"]),
+          employeeName: valueFromAliases(item, ["funcionario", "funcionario_nome", "nome", "employee", "employee_name"]),
+          employeeCode: valueFromAliases(item, ["codigo", "funcionario_codigo", "code", "employee_code"]),
+          processedDays: valueFromAliases(item, ["dias_processados", "processed_days", "day_count"]),
+          delays: valueFromAliases(item, ["atrasos", "atraso", "total_atrasos", "delays"]),
+          delayMinutes: valueFromAliases(item, ["atrasos_minutos", "atraso_minutos", "delay_minutes"]),
+          extras: valueFromAliases(item, ["extras", "horas_extras", "total_extras", "overtime"]),
+          extraMinutes: valueFromAliases(item, ["extras_minutos", "extra_minutos", "overtime_minutes"]),
+          absences: valueFromAliases(item, ["faltas", "absences"]),
+          certificates: valueFromAliases(item, ["atestados", "certificates", "medical_certificates"]),
+          pending: valueFromAliases(item, ["pendencias", "pending", "issues"]),
+          situation: valueFromAliases(item, ["situacao", "situation", "status"]),
+        };
+      }),
+    };
+  }
+
+  function loadAttendanceForCompetence(competenceId, options) {
+    if (state.apiMode !== "online" || competenceId === null || competenceId === undefined) return Promise.resolve([]);
+    var settings = options || {};
+    var key = String(competenceId);
+    if (settings.force) delete loadedCompetenceDays[key];
+    if (loadedCompetenceDays[key] && !settings.force) {
+      return Promise.resolve(days().filter(function (day) { return idsEqual(day.competenceId || day.competencia_id, competenceId); }));
+    }
+    state.reviewLoading = true;
+    return apiRequest("/marcacoes?competencia_id=" + encodeURIComponent(competenceId)).then(function (payload) {
+      var markings = apiCollection(payload, ["marcacoes", "items"]).map(normalizeMarking);
+      replaceAttendanceForCompetence(competenceId, markings);
+      loadedCompetenceDays[key] = true;
+      if (idsEqual(state.selectedCompetenceId, competenceId) && markings.length && !employeeDays(state.selectedEmployeeId).length) {
+        state.selectedEmployeeId = markings[0].employeeId || markings[0].funcionario_id;
+        var firstEmployeeDay = employeeDays(state.selectedEmployeeId)[0];
+        state.selectedDayId = firstEmployeeDay ? firstEmployeeDay.id : markings[0].id;
+        state.selectedDayIds = [];
+      }
+      return markings;
+    }).finally(function () {
+      state.reviewLoading = false;
+    });
+  }
+
+  function loadFilesForCompetence(competenceId, options) {
+    if (state.apiMode !== "online" || competenceId === null || competenceId === undefined) return Promise.resolve([]);
+    var settings = options || {};
+    var key = String(competenceId);
+    if (settings.force) delete loadedCompetenceFiles[key];
+    if (loadedCompetenceFiles[key] && !settings.force) {
+      return Promise.resolve(files().filter(function (file) {
+        return idsEqual(file.competenceId || file.competencia_id, competenceId);
+      }));
+    }
+    return apiRequest("/arquivos?competencia_id=" + encodeURIComponent(competenceId)).then(function (payload) {
+      var receivedFiles = apiCollection(payload, ["arquivos", "files", "items"]).map(normalizeReceivedFile);
+      replaceFilesForCompetence(competenceId, receivedFiles);
+      loadedCompetenceFiles[key] = true;
+      return receivedFiles;
+    });
+  }
+
+  function loadCompetenceSummary(competenceId, options) {
+    if (state.apiMode !== "online" || competenceId === null || competenceId === undefined) return Promise.resolve(null);
+    var settings = options || {};
+    var key = String(competenceId);
+    if (!data.competenceSummaries || typeof data.competenceSummaries !== "object") {
+      data.competenceSummaries = Object.create(null);
+      data.resumosCompetencia = data.competenceSummaries;
+    }
+    if (settings.force) {
+      delete loadedCompetenceSummaries[key];
+      delete data.competenceSummaries[key];
+    }
+    if (loadedCompetenceSummaries[key] && !settings.force) {
+      if (idsEqual(state.selectedCompetenceId, competenceId)) {
+        state.competenceSummaryLoading = false;
+        state.competenceSummaryError = "";
+      }
+      return Promise.resolve(data.competenceSummaries[key] || null);
+    }
+
+    var sequence = (competenceSummarySequences[key] || 0) + 1;
+    competenceSummarySequences[key] = sequence;
+    if (idsEqual(state.selectedCompetenceId, competenceId)) {
+      state.competenceSummaryLoading = true;
+      state.competenceSummaryError = "";
+    }
+    return apiRequest("/apuracao?competencia_id=" + encodeURIComponent(competenceId)).then(function (payload) {
+      if (competenceSummarySequences[key] !== sequence) return null;
+      var summary = normalizeCompetenceSummary(payload);
+      data.competenceSummaries[key] = summary;
+      loadedCompetenceSummaries[key] = true;
+      if (idsEqual(state.selectedCompetenceId, competenceId)) state.competenceSummaryError = "";
+      return summary;
+    }).catch(function (error) {
+      if (competenceSummarySequences[key] !== sequence) return null;
+      delete loadedCompetenceSummaries[key];
+      delete data.competenceSummaries[key];
+      if (idsEqual(state.selectedCompetenceId, competenceId)) {
+        state.competenceSummaryError = error && error.message || "Não foi possível carregar a apuração desta competência.";
+      }
+      return null;
+    }).finally(function () {
+      if (competenceSummarySequences[key] === sequence && idsEqual(state.selectedCompetenceId, competenceId)) {
+        state.competenceSummaryLoading = false;
+      }
+    });
+  }
+
+  function loadCompetenceData(competenceId, options) {
+    var settings = options || {};
+    var summaryPromise = loadCompetenceSummary(competenceId, { force: settings.summaryForce === true });
+    if (settings.summaryForce === true) {
+      summaryPromise.then(function () {
+        if (idsEqual(state.selectedCompetenceId, competenceId) && state.route === "competency-summary") render();
+      });
+    }
+    return Promise.all([
+      loadAttendanceForCompetence(competenceId, settings),
+      loadFilesForCompetence(competenceId, settings),
+      summaryPromise,
+    ]).then(function (results) { return { markings: results[0], files: results[1], summary: results[2] }; });
+  }
+
+  function bootstrapApiData() {
+    state.apiMode = "loading";
+    state.apiError = "";
+    return Promise.all([
+      apiRequest("/empresas", { timeout: 5000 }),
+      apiRequest("/funcionarios", { timeout: 5000 }),
+      apiRequest("/competencias", { timeout: 5000 }),
+    ]).then(function (responses) {
+      var companyList = apiCollection(responses[0], ["empresas", "companies"]).map(normalizeCompany);
+      var employeeList = apiCollection(responses[1], ["funcionarios", "employees"]).map(normalizeEmployee);
+      var competenceList = apiCollection(responses[2], ["competencias", "competencies"]).map(function (item) { return normalizeCompetence(item, employeeList); });
+      data.companies = companyList;
+      data.empresas = companyList;
+      data.employees = employeeList;
+      data.funcionarios = employeeList;
+      data.competencies = competenceList;
+      data.competencias = competenceList;
+      data.attendanceDays = [];
+      data.dias = data.attendanceDays;
+      data.files = [];
+      data.arquivos = data.files;
+      loadedCompetenceDays = Object.create(null);
+      loadedCompetenceFiles = Object.create(null);
+      loadedCompetenceSummaries = Object.create(null);
+      competenceSummarySequences = Object.create(null);
+      data.competenceSummaries = Object.create(null);
+      data.resumosCompetencia = data.competenceSummaries;
+      data.importPreviewRows = [];
+      data.linhasPrevia = data.importPreviewRows;
+      data.importAnalysis = null;
+      data.analiseImportacao = null;
+      data.employeeProgress = [];
+      data.progressoFuncionarios = data.employeeProgress;
+      data.pendingIssues = [];
+      data.pendencias = data.pendingIssues;
+      data.activityTimeline = [];
+      data.historicoCompetencia = data.activityTimeline;
+      data.dashboard = {
+        indicators: {
+          open: competenceList.filter(function (item) { return item.status === "aberta"; }).length,
+          inReview: competenceList.filter(function (item) { return item.status === "em_conferencia"; }).length,
+          withPendingIssues: competenceList.filter(function (item) { return Number(item.pendingCount) > 0; }).length,
+          closedThisMonth: competenceList.filter(function (item) { return item.status === "fechada"; }).length,
+        },
+        recentCompetencies: competenceList.slice(),
+      };
+      data.ocr = { document: { fileName: "", page: 1, pageCount: 1, zoom: 100, rotation: 0, contrast: 100 }, extractedRows: [] };
+      state.ocr = Utils.safeClone(data.ocr);
+      data.fileTypeOptions = [
+        { value: "auto", label: "Detectar automaticamente" },
+        { value: "txt_clock", label: "TXT estruturado" },
+      ];
+      state.apiMode = "online";
+      state.apiError = "";
+      return true;
+    }).catch(function (error) {
+      state.apiMode = "offline";
+      state.apiError = error && error.message || "API indisponível.";
+      return false;
+    });
+  }
+
   function optionalIdsEqual(left, right) {
     if ((left === null || left === undefined) && (right === null || right === undefined)) return true;
     return idsEqual(left, right);
   }
 
   function resetCompetencyTransientState() {
-    root.clearTimeout(autosaveTimer);
+    importAnalysisSequence += 1;
+    if (state.apiMode === "online" && state.settings.autosave && Object.keys(pendingDaySaves).length) flushPendingDaySaves();
+    else root.clearTimeout(autosaveTimer);
     autosaveTimer = null;
     state.selectedEmployeeId = null;
     state.selectedDayId = null;
@@ -337,9 +1072,23 @@
     state.importType = "auto";
     state.selectedImportFile = null;
     state.importAnalysis = false;
+    state.importLoading = false;
+    state.importConfirming = false;
+    state.importError = "";
+    state.importConflicts = [];
     state.importPreviewFilter = "all";
     state.importPreviewEmployeeId = "";
-    state.autosaveStatus = "saved";
+    state.selectedImportRowIds = [];
+    state.reviewLoading = false;
+    state.competenceSummaryLoading = false;
+    state.competenceSummaryError = "";
+    state.exportExcelLoading = false;
+    state.competenceLifecycleLoading = false;
+    state.competenceLifecycleAction = "";
+    state.competenceLifecycleError = "";
+    state.autosaveStatus = autosaveFlushPromise
+      ? "saving"
+      : Object.keys(pendingDaySaves).length ? "unsaved" : "saved";
     state.autosaveRevision = 0;
     state.undoStack = [];
     state.ocr = Utils.safeClone(data.ocr);
@@ -389,8 +1138,12 @@
     }
 
     var scopedEmployees = companyEmployees();
-    if (!scopedEmployees.some(function (item) { return idsEqual(item.id, state.selectedEmployeeId); })) {
-      state.selectedEmployeeId = scopedEmployees[0] ? scopedEmployees[0].id : null;
+    var competenceDays = days().filter(function (day) { return idsEqual(day.competenceId || day.competencia_id, descriptor.competenceId); });
+    var selectedEmployeeHasDays = competenceDays.some(function (day) { return idsEqual(day.employeeId || day.funcionario_id, state.selectedEmployeeId); });
+    if (!scopedEmployees.some(function (item) { return idsEqual(item.id, state.selectedEmployeeId); }) || (!selectedEmployeeHasDays && competenceDays.length)) {
+      var firstDayEmployeeId = competenceDays[0] && (competenceDays[0].employeeId || competenceDays[0].funcionario_id);
+      var firstEmployeeWithDays = scopedEmployees.find(function (item) { return idsEqual(item.id, firstDayEmployeeId); });
+      state.selectedEmployeeId = firstEmployeeWithDays ? firstEmployeeWithDays.id : scopedEmployees[0] ? scopedEmployees[0].id : null;
     }
     var scopedDays = employeeDays(state.selectedEmployeeId);
     if (!scopedDays.some(function (item) { return idsEqual(item.id, state.selectedDayId); })) {
@@ -410,6 +1163,57 @@
     return competencies().find(function (item) {
       return idsEqual(item.id, state.selectedCompetenceId) && idsEqual(item.companyId || item.empresa_id, state.selectedCompanyId);
     }) || null;
+  }
+
+  function competencyIsClosed(competence) {
+    var target = competence || currentCompetency();
+    return Boolean(target) && statusFromBackend(target.status) === "fechada";
+  }
+
+  function closedCompetencyWarning(actionLabel) {
+    showToast(
+      "Competência fechada.",
+      "warning",
+      (actionLabel || "Esta ação") + " fica disponível depois que a competência for reaberta."
+    );
+  }
+
+  function ensureCompetencyWritable(actionLabel) {
+    if (!competencyIsClosed()) return true;
+    closedCompetencyWarning(actionLabel);
+    return false;
+  }
+
+  function updateCompetenceFromPayload(competenceId, payload) {
+    var existing = competencies().find(function (item) { return idsEqual(item.id, competenceId); });
+    if (!existing) return null;
+    var source = valueFromAliases(payload, ["competencia", "competence"]);
+    if (!source || typeof source !== "object" || Array.isArray(source)) source = payload || {};
+    var merged = Object.assign({}, existing, source, { id: existing.id });
+    if (Object.prototype.hasOwnProperty.call(source, "status") && !Object.prototype.hasOwnProperty.call(source, "statusLabel")) {
+      delete merged.statusLabel;
+    }
+    if (Object.prototype.hasOwnProperty.call(source, "data_fechamento")) {
+      merged.closedAt = source.data_fechamento;
+    }
+    var normalized = normalizeCompetence(merged, employees());
+    Object.keys(existing).forEach(function (key) { delete existing[key]; });
+    Object.assign(existing, normalized);
+    return existing;
+  }
+
+  function refreshAffectedCompetence(competenceId, options) {
+    return apiRequest("/competencias/" + encodeURIComponent(competenceId)).then(function (payload) {
+      return updateCompetenceFromPayload(competenceId, payload);
+    }).then(function (competence) {
+      var summaryRequest = loadCompetenceSummary(competenceId, { force: true });
+      var attendanceRequest = options && options.reloadAttendance
+        ? loadAttendanceForCompetence(competenceId, { force: true })
+        : Promise.resolve(null);
+      return Promise.all([summaryRequest, attendanceRequest]).then(function (results) {
+        return { competence: competence, summary: results[0], markings: results[1] };
+      });
+    });
   }
 
   function currentEmployee() {
@@ -530,6 +1334,10 @@
 
     var company = currentCompany();
     var competency = currentCompetency();
+    var environmentLabel = document.querySelector(".topbar__context .eyebrow");
+    if (environmentLabel) {
+      environmentLabel.textContent = state.apiMode === "online" ? "Ambiente integrado" : state.apiMode === "loading" ? "Conectando à API" : "Ambiente de demonstração";
+    }
     byId("topbarContext").textContent = !company
       ? "Todas as empresas"
       : (company.name || company.nome) + (competency ? " · " + (competency.label || Utils.formatCompetence(competency)) : "");
@@ -579,7 +1387,19 @@
       root.location.hash = hash;
     } else {
       applyRouteContext(next);
-      render({ focusMain: !(options && options.keepFocus) });
+      var summaryRequested = next.view === "competency-summary";
+      if (state.apiMode === "online" && next.competenceId && (summaryRequested || !loadedCompetenceDays[String(next.competenceId)] || !loadedCompetenceFiles[String(next.competenceId)])) {
+        var loading = loadCompetenceData(next.competenceId, { summaryForce: summaryRequested });
+        render();
+        loading.then(function () {
+          applyRouteContext(next);
+          render({ focusMain: !(options && options.keepFocus) });
+        }).catch(function (error) {
+          state.reviewLoading = false;
+          render({ focusMain: !(options && options.keepFocus) });
+          showToast("Não foi possível carregar os dados da competência.", "error", error && error.message);
+        });
+      } else render({ focusMain: !(options && options.keepFocus) });
     }
   }
 
@@ -609,7 +1429,7 @@
   }
 
   function showDialog(config) {
-    closeDialog();
+    closeDialog(undefined, true);
     var trigger = document.activeElement;
     var rootElement = byId("dialogRoot");
     rootElement.innerHTML = Components.ConfirmationDialog({
@@ -628,45 +1448,186 @@
     });
     var dialog = byId("confirmationDialog");
     var bodyAnchor = dialog.querySelector(".dialog-actions");
-    if (config.field) {
+    var fields = Array.isArray(config.fields) ? config.fields : config.field ? [config.field] : [];
+    fields.forEach(function (field, index) {
+      var fieldId = config.field && !Array.isArray(config.fields) ? "dialogField" : "dialogField-" + String(field.name || index).replace(/[^A-Za-z0-9_-]/g, "-");
       var label = document.createElement("label");
       label.className = "dialog-field";
-      label.innerHTML = '<span>' + Utils.escapeHtml(config.field.label || "Valor") + "</span>" + dialogFieldMarkup(config.field);
+      label.htmlFor = fieldId;
+      label.innerHTML = '<span>' + Utils.escapeHtml(field.label || "Valor") + "</span>" + dialogFieldMarkup(field, fieldId);
       bodyAnchor.parentNode.insertBefore(label, bodyAnchor);
-    }
+    });
     if (config.html) {
       var details = document.createElement("div");
       details.className = "dialog-rich-content";
       details.innerHTML = config.html;
       bodyAnchor.parentNode.insertBefore(details, bodyAnchor);
     }
-    pendingDialog = { dialog: dialog, config: config, trigger: trigger };
+    if (fields.length) {
+      var error = document.createElement("div");
+      error.className = "inline-feedback inline-feedback--error dialog-form-error";
+      error.id = "dialogFormError";
+      error.setAttribute("role", "alert");
+      error.hidden = true;
+      bodyAnchor.parentNode.insertBefore(error, bodyAnchor);
+    }
+    pendingDialog = { dialog: dialog, config: config, fields: fields, trigger: trigger, busy: false };
     dialog.addEventListener("cancel", function (event) {
       event.preventDefault();
       closeDialog();
+    });
+    var form = dialog.querySelector("form");
+    if (form) form.addEventListener("submit", function (event) {
+      event.preventDefault();
+      confirmDialog();
     });
     dialog.showModal();
     var first = dialog.querySelector("input, textarea, select") || dialog.querySelector('[data-action="confirm-current-dialog"]');
     if (first) root.requestAnimationFrame(function () { first.focus(); });
   }
 
-  function dialogFieldMarkup(field) {
+  function dialogFieldMarkup(field, fieldId) {
+    var value = field.value === undefined || field.value === null ? "" : field.value;
+    var common = ' id="' + Utils.escapeHtml(fieldId) + '" name="' + Utils.escapeHtml(field.name || "dialogField") + '" data-dialog-field="' + Utils.escapeHtml(field.name || "value") + '"' +
+      (field.required ? " required" : "") +
+      (field.autocomplete ? ' autocomplete="' + Utils.escapeHtml(field.autocomplete) + '"' : "") +
+      (field.min !== undefined ? ' min="' + Utils.escapeHtml(field.min) + '"' : "") +
+      (field.max !== undefined ? ' max="' + Utils.escapeHtml(field.max) + '"' : "") +
+      (field.step !== undefined ? ' step="' + Utils.escapeHtml(field.step) + '"' : "") +
+      (field.maxlength !== undefined ? ' maxlength="' + Utils.escapeHtml(field.maxlength) + '"' : "");
     if (field.type === "select") {
-      return '<select id="dialogField" name="dialogField">' + (field.options || []).map(function (item) {
-        var value = typeof item === "string" ? item : item.value;
+      return "<select" + common + ">" + (field.options || []).map(function (item) {
+        var optionValue = typeof item === "string" ? item : item.value;
         var label = typeof item === "string" ? (STATUS_LABELS[item] || item) : item.label;
-        return '<option value="' + Utils.escapeHtml(value) + '"' + (String(value) === String(field.value || "") ? " selected" : "") + ">" + Utils.escapeHtml(label) + "</option>";
+        return '<option value="' + Utils.escapeHtml(optionValue) + '"' + (String(optionValue) === String(value) ? " selected" : "") + ">" + Utils.escapeHtml(label) + "</option>";
       }).join("") + "</select>";
     }
     if (field.type === "textarea") {
-      return '<textarea id="dialogField" name="dialogField" rows="3" placeholder="' + Utils.escapeHtml(field.placeholder || "") + '">' + Utils.escapeHtml(field.value || "") + "</textarea>";
+      return "<textarea" + common + ' rows="' + Utils.escapeHtml(field.rows || 3) + '" placeholder="' + Utils.escapeHtml(field.placeholder || "") + '">' + Utils.escapeHtml(value) + "</textarea>";
     }
-    return '<input id="dialogField" name="dialogField" type="' + Utils.escapeHtml(field.type || "text") + '" value="' + Utils.escapeHtml(field.value || "") + '" placeholder="' + Utils.escapeHtml(field.placeholder || "") + '"' + (field.required ? " required" : "") + ">";
+    if (field.type === "checkbox") {
+      return "<input" + common + ' type="checkbox" value="' + Utils.escapeHtml(value || "true") + '"' + (field.checked ? " checked" : "") + ">";
+    }
+    return "<input" + common + ' type="' + Utils.escapeHtml(field.type || "text") + '" value="' + Utils.escapeHtml(value) + '" placeholder="' + Utils.escapeHtml(field.placeholder || "") + '">';
+  }
+
+  function setDialogError(current, message, fieldName) {
+    if (!current || pendingDialog !== current) return;
+    current.dialog.querySelectorAll("[data-dialog-field]").forEach(function (element) {
+      element.removeAttribute("aria-invalid");
+    });
+    if (fieldName) {
+      var invalid = current.dialog.querySelector('[data-dialog-field="' + String(fieldName).replace(/"/g, '\\"') + '"]');
+      if (invalid) {
+        invalid.setAttribute("aria-invalid", "true");
+        invalid.focus();
+      }
+    }
+    var error = current.dialog.querySelector("#dialogFormError");
+    if (!error) {
+      showToast(message, "error");
+      return;
+    }
+    error.textContent = message;
+    error.hidden = false;
+  }
+
+  function clearDialogError(current) {
+    if (!current) return;
+    current.dialog.querySelectorAll("[data-dialog-field]").forEach(function (element) {
+      element.removeAttribute("aria-invalid");
+    });
+    var error = current.dialog.querySelector("#dialogFormError");
+    if (error) {
+      error.textContent = "";
+      error.hidden = true;
+    }
+  }
+
+  function setDialogBusy(current, busy) {
+    if (!current || pendingDialog !== current) return;
+    current.busy = busy;
+    current.dialog.setAttribute("aria-busy", busy ? "true" : "false");
+    current.dialog.querySelectorAll("input, textarea, select, button").forEach(function (element) {
+      element.disabled = busy;
+    });
+    var confirmButton = current.dialog.querySelector('[data-action="confirm-current-dialog"]');
+    if (confirmButton) {
+      if (!confirmButton.dataset.idleLabel) confirmButton.dataset.idleLabel = confirmButton.textContent;
+      var label = confirmButton.querySelector(".button-label");
+      if (label) label.textContent = busy ? current.config.busyLabel || "Salvando..." : confirmButton.dataset.idleLabel;
+      else confirmButton.textContent = busy ? current.config.busyLabel || "Salvando..." : confirmButton.dataset.idleLabel;
+    }
+  }
+
+  function dialogValues(current) {
+    var values = {};
+    current.fields.forEach(function (field) {
+      var name = field.name || "value";
+      var element = current.dialog.querySelector('[data-dialog-field="' + String(name).replace(/"/g, '\\"') + '"]');
+      values[name] = element && element.type === "checkbox" ? element.checked : element ? element.value : undefined;
+    });
+    return values;
+  }
+
+  function validateDialog(current, values) {
+    for (var index = 0; index < current.fields.length; index += 1) {
+      var field = current.fields[index];
+      var name = field.name || "value";
+      var rawValue = values[name];
+      var comparable = typeof rawValue === "string" ? rawValue.trim() : rawValue;
+      var element = current.dialog.querySelector('[data-dialog-field="' + String(name).replace(/"/g, '\\"') + '"]');
+      if (field.required && (comparable === "" || comparable === undefined || comparable === null || comparable === false)) {
+        return { message: field.requiredMessage || "Preencha " + String(field.label || "o campo").toLowerCase() + ".", field: name };
+      }
+      if (element && typeof element.checkValidity === "function" && !element.checkValidity()) {
+        return { message: field.invalidMessage || "Informe um valor válido para " + String(field.label || "o campo").toLowerCase() + ".", field: name };
+      }
+      if (typeof field.validate === "function") {
+        var fieldResult = field.validate(rawValue, values);
+        if (fieldResult) return typeof fieldResult === "string" ? { message: fieldResult, field: name } : fieldResult;
+      }
+    }
+    if (typeof current.config.validate === "function") {
+      var result = current.config.validate(values);
+      if (result) return typeof result === "string" ? { message: result } : result;
+    }
+    return null;
   }
 
   function confirmDialog() {
     if (!pendingDialog) return;
     var current = pendingDialog;
+    if (current.busy) return;
+    if (Array.isArray(current.config.fields)) {
+      clearDialogError(current);
+      var values = dialogValues(current);
+      var validation = validateDialog(current, values);
+      if (validation) {
+        setDialogError(current, validation.message || "Revise os campos informados.", validation.field);
+        return;
+      }
+      var result;
+      try {
+        result = typeof current.config.onConfirm === "function" ? current.config.onConfirm(values) : undefined;
+      } catch (error) {
+        setDialogError(current, error && error.message || "Não foi possível concluir a operação.");
+        return;
+      }
+      if (result && typeof result.then === "function") {
+        setDialogBusy(current, true);
+        Promise.resolve(result).then(function () {
+          if (pendingDialog === current) closeDialog(false, true);
+        }).catch(function (error) {
+          if (pendingDialog !== current) return;
+          setDialogBusy(current, false);
+          setDialogError(current, error && error.message || "Não foi possível salvar os dados.");
+        });
+        return;
+      }
+      closeDialog(false, true);
+      return;
+    }
     var field = byId("dialogField");
     if (field && field.required && !field.value.trim()) {
       field.setAttribute("aria-invalid", "true");
@@ -679,11 +1640,12 @@
     if (typeof current.config.onConfirm === "function") current.config.onConfirm(value);
   }
 
-  function closeDialog(restoreFocus) {
+  function closeDialog(restoreFocus, force) {
     if (!pendingDialog) {
       byId("dialogRoot").innerHTML = "";
       return;
     }
+    if (pendingDialog.busy && !force) return;
     var current = pendingDialog;
     pendingDialog = null;
     if (current.dialog.open) current.dialog.close();
@@ -734,49 +1696,98 @@
     return result;
   }
 
-  function analyzeImport() {
+  function analyzeDemoImport() {
+    if (!ensureCompetencyWritable("A importação")) return;
     if (!state.selectedImportFile) {
       state.selectedImportFile = { name: "ALOG_001.txt", size: 68420, type: "text/plain", demo: true };
-      showToast("Arquivo de demonstração selecionado.", "info", "ALOG_001.txt não será enviado.");
-      render();
+      showToast("Arquivo de demonstração selecionado.", "info", "A API está indisponível; nenhum arquivo será enviado.");
     }
-    var button = document.querySelector('[data-action="analyze-import"][type="submit"]');
-    if (button) {
-      button.disabled = true;
-      button.textContent = "Analisando...";
-    }
+    state.importLoading = true;
+    render();
     var analysisCompanyId = state.selectedCompanyId;
     var analysisCompetenceId = state.selectedCompetenceId;
+    var analysisSequence = ++importAnalysisSequence;
     root.setTimeout(function () {
-      if (!idsEqual(analysisCompanyId, state.selectedCompanyId) || !idsEqual(analysisCompetenceId, state.selectedCompetenceId)) return;
+      if (analysisSequence !== importAnalysisSequence || !idsEqual(analysisCompanyId, state.selectedCompanyId) || !idsEqual(analysisCompetenceId, state.selectedCompetenceId)) return;
       var result = contextualizeImportAnalysis(Utils.safeClone(data.importAnalysis || data.analiseImportacao));
       result.fileName = state.selectedImportFile.name;
       result.requestedType = state.importType;
-      var extension = String(state.selectedImportFile.name || "").split(".").pop().toLowerCase();
-      var detectedType = state.importType === "auto"
-        ? ({ txt: "txt_clock", xls: "xls_legacy", xlsx: "xlsx", pdf: "scanned", png: "scanned", jpg: "scanned", jpeg: "scanned" }[extension] || "txt_clock")
-        : state.importType;
-      result.detectedType = detectedType;
-      result.detectedFormat = {
-        txt_clock: "TXT AFD",
-        xls_legacy: "XLS legado",
-        xlsx: "XLSX",
-        scanned: "Imagem ou PDF · leitura sugerida",
-      }[detectedType] || result.detectedFormat;
-      if (detectedType === "scanned") {
-        result.employeeCount = 1;
-        result.punchCount = 11;
-        result.recordCount = 3;
-        result.dayCount = 3;
-        result.pendingCount = 2;
-      }
+      result.detectedType = "txt_clock";
+      result.detectedFormat = "TXT estruturado · demonstração";
       result.saved = false;
+      (result.rows || []).forEach(function (row) {
+        row.selected = true;
+        row.selecionado = true;
+        row.employeeFound = true;
+        row.outsideCompetence = false;
+      });
       state.importAnalysis = result;
+      state.selectedImportRowIds = (result.rows || []).map(function (row) { return row.id; });
       state.importPreviewFilter = "all";
       state.importPreviewEmployeeId = "";
+      state.importLoading = false;
+      state.importError = "";
       render();
-      showToast("Análise simulada concluída.", "success", result.pendingCount + " pendências encontradas; nada foi salvo.");
-    }, 720);
+      showToast("Análise de demonstração concluída.", "success", result.pendingCount + " pendências encontradas; nada foi salvo.");
+    }, 420);
+  }
+
+  function analyzeImport() {
+    if (state.importLoading) return;
+    if (!ensureCompetencyWritable("A importação")) return;
+    if (state.apiMode !== "online") {
+      analyzeDemoImport();
+      return;
+    }
+    if (!state.selectedImportFile || !state.selectedImportFile.file) {
+      showToast("Selecione um arquivo TXT para analisar.", "warning");
+      return;
+    }
+    var fileName = String(state.selectedImportFile.name || "");
+    if (!/\.txt$/i.test(fileName)) {
+      showToast("Formato não suportado nesta etapa.", "error", "Selecione somente um arquivo .txt.");
+      return;
+    }
+    var analysisCompanyId = state.selectedCompanyId;
+    var analysisCompetenceId = state.selectedCompetenceId;
+    var analysisFile = state.selectedImportFile.file;
+    var analysisSequence = ++importAnalysisSequence;
+    function analysisContextIsActive() {
+      return analysisSequence === importAnalysisSequence &&
+        idsEqual(state.selectedCompanyId, analysisCompanyId) &&
+        idsEqual(state.selectedCompetenceId, analysisCompetenceId) &&
+        state.selectedImportFile && state.selectedImportFile.file === analysisFile;
+    }
+    var formData = new FormData();
+    formData.append("empresa_id", String(analysisCompanyId));
+    formData.append("competencia_id", String(analysisCompetenceId));
+    formData.append("arquivo", analysisFile, fileName);
+    state.importLoading = true;
+    state.importError = "";
+    state.importConflicts = [];
+    render();
+    apiRequest("/importadores/txt-log-relogio/analisar", { method: "POST", body: formData, timeout: 30000 }).then(function (payload) {
+      if (!analysisContextIsActive()) return;
+      var result = normalizeImportAnalysis(payload);
+      state.importAnalysis = result;
+      state.selectedImportRowIds = result.rows.filter(function (row) { return row.selected && row.employeeFound; }).map(function (row) { return row.id; });
+      state.importPreviewFilter = "all";
+      state.importPreviewEmployeeId = "";
+      loadFilesForCompetence(analysisCompetenceId, { force: true }).catch(function () {
+        /* O arquivo continuará disponível ao recarregar a aba Arquivos. */
+      });
+      showToast("Análise concluída.", "success", result.recordCount + " dias encontrados; confira a prévia antes de salvar.");
+    }).catch(function (error) {
+      if (!analysisContextIsActive()) return;
+      state.importAnalysis = false;
+      state.selectedImportRowIds = [];
+      state.importError = error && error.message || "Não foi possível analisar o TXT.";
+      showToast("Não foi possível analisar o arquivo.", "error", state.importError);
+    }).finally(function () {
+      if (!analysisContextIsActive()) return;
+      state.importLoading = false;
+      render();
+    });
   }
 
   function discardImport() {
@@ -786,8 +1797,12 @@
       confirmLabel: "Descartar análise",
       destructive: true,
       onConfirm: function () {
+        importAnalysisSequence += 1;
         state.importAnalysis = false;
         state.selectedImportFile = null;
+        state.selectedImportRowIds = [];
+        state.importConflicts = [];
+        state.importError = "";
         state.importPreviewFilter = "all";
         state.importPreviewEmployeeId = "";
         navigate("imports");
@@ -796,42 +1811,185 @@
     });
   }
 
+  function importConflictMessages(payload) {
+    var source = payload || {};
+    var conflicts = firstValue(source.conflitos, source.conflicts, source.erros, []);
+    if (!Array.isArray(conflicts)) conflicts = conflicts ? [conflicts] : [];
+    return conflicts.map(function (conflict) {
+      if (typeof conflict === "string") return conflict;
+      return conflict.message || conflict.mensagem || conflict.detail || "Registro não importado.";
+    });
+  }
+
+  function saveDemoImportAndReview() {
+    if (!ensureCompetencyWritable("A confirmação da importação")) return;
+    if (state.importAnalysis && typeof state.importAnalysis === "object") state.importAnalysis.saved = true;
+    var competence = currentCompetency();
+    if (competence) {
+      competence.status = "em_conferencia";
+      competence.statusLabel = "Em conferência";
+    }
+    var selectedRows = (state.importAnalysis.rows || []).filter(function (row) {
+      return state.selectedImportRowIds.some(function (id) { return idsEqual(id, row.id); });
+    });
+    var importedEmployeeId = selectedRows[0] && selectedRows[0].employeeId;
+    var employee = companyEmployees().find(function (item) { return idsEqual(item.id, importedEmployeeId); }) || currentEmployee() || companyEmployees()[0] || null;
+    state.selectedEmployeeId = employee ? employee.id : null;
+    var firstDay = employee ? employeeDays(employee.id)[0] : null;
+    state.selectedDayId = firstDay ? firstDay.id : null;
+    state.reviewFilter = "all";
+    state.selectedDayIds = [];
+    navigate("review");
+    showToast("Importação salva como prévia de demonstração.", "success", "A conferência continua pendente.");
+  }
+
   function saveImportAndReview() {
+    if (state.importConfirming) return;
+    if (!ensureCompetencyWritable("A confirmação da importação")) return;
     if (!state.importAnalysis || typeof state.importAnalysis !== "object" || !(state.importAnalysis.rows || []).length) {
       showToast("Analise um arquivo desta competência antes de iniciar a conferência.", "warning");
       navigate("imports");
       return;
     }
+    var analysis = state.importAnalysis;
+    var confirmationCompanyId = state.selectedCompanyId;
+    var confirmationCompetenceId = state.selectedCompetenceId;
+    var confirmationFileId = analysis.fileId || analysis.arquivoId;
+    var selectedIds = state.selectedImportRowIds.filter(function (id) {
+      var row = analysis.rows.find(function (candidate) { return idsEqual(candidate.id, id); });
+      return row && row.employeeFound;
+    });
+    if (!selectedIds.length) {
+      showToast("Selecione ao menos um registro importável.", "warning", "Funcionários não cadastrados não podem ser confirmados.");
+      return;
+    }
     showDialog({
       title: "Salvar importação e iniciar conferência?",
-      description: "A interpretação sugerida será adicionada à competência como uma versão ainda não conferida. As batidas originais continuarão preservadas.",
+      description: selectedIds.length + " registro" + (selectedIds.length === 1 ? " será adicionado" : "s serão adicionados") + " à competência. As batidas originais continuarão preservadas.",
+      count: selectedIds.length,
       confirmLabel: "Salvar e conferir",
       icon: "check_circle",
       tone: "info",
       onConfirm: function () {
-        if (state.importAnalysis && typeof state.importAnalysis === "object") state.importAnalysis.saved = true;
-        var competence = currentCompetency();
-        if (competence) {
-          competence.status = "em_conferencia";
-          competence.statusLabel = "Em conferência";
+        function confirmationContextIsActive() {
+          return idsEqual(state.selectedCompanyId, confirmationCompanyId) &&
+            idsEqual(state.selectedCompetenceId, confirmationCompetenceId) &&
+            state.importAnalysis === analysis;
         }
-        var importedEmployeeId = state.importAnalysis.rows[0] && state.importAnalysis.rows[0].employeeId;
-        var employee = companyEmployees().find(function (item) { return idsEqual(item.id, importedEmployeeId); }) || currentEmployee() || companyEmployees()[0] || null;
-        state.selectedEmployeeId = employee ? employee.id : null;
-        var firstDay = employee ? employeeDays(employee.id)[0] : null;
-        state.selectedDayId = firstDay ? firstDay.id : null;
-        state.reviewFilter = "all";
-        state.selectedDayIds = [];
-        navigate("review");
-        showToast("Importação salva como prévia.", "success", "A conferência continua pendente.");
+        if (!confirmationContextIsActive()) {
+          showToast("A confirmação foi cancelada.", "warning", "A empresa ou a competência ativa mudou; revise a importação novamente.");
+          return;
+        }
+        if (state.apiMode !== "online") {
+          saveDemoImportAndReview();
+          return;
+        }
+        state.importConfirming = true;
+        state.importConflicts = [];
+        render();
+        var payload = {
+          empresa_id: confirmationCompanyId,
+          competencia_id: confirmationCompetenceId,
+          arquivo_id: confirmationFileId,
+          registros_ids: selectedIds,
+        };
+        var confirmationPersisted = false;
+        apiRequest("/importadores/txt-log-relogio/confirmar", { method: "POST", body: payload, timeout: 30000 }).then(function (response) {
+          confirmationPersisted = true;
+          var conflicts = importConflictMessages(response);
+          var importedCountValue = firstValue(response && response.total_importados, response && response.importedCount);
+          var importedCount = importedCountValue === null ? selectedIds.length - conflicts.length : Number(importedCountValue);
+          if (!Number.isFinite(importedCount)) importedCount = 0;
+          analysis.saved = importedCount > 0;
+          var competence = competencies().find(function (item) {
+            return idsEqual(item.id, confirmationCompetenceId) &&
+              idsEqual(item.companyId || item.empresa_id, confirmationCompanyId);
+          });
+          if (competence && importedCount > 0) {
+            competence.status = "em_conferencia";
+            competence.statusLabel = "Em conferência";
+          }
+          if (confirmationContextIsActive()) state.importConflicts = conflicts;
+          if (!importedCount) {
+            if (confirmationContextIsActive()) {
+              render();
+              showToast("Nenhum registro foi importado.", "warning", conflicts.join(" ") || "Revise a seleção e tente novamente.");
+            }
+            return;
+          }
+
+          if (!confirmationContextIsActive()) {
+            delete loadedCompetenceDays[String(confirmationCompetenceId)];
+            showToast(
+              "Importação confirmada.",
+              conflicts.length ? "warning" : "success",
+              "Os dados foram salvos na competência " + (competence ? competence.label || Utils.formatCompetence(competence) : confirmationCompetenceId) + "."
+            );
+            return;
+          }
+
+          return loadAttendanceForCompetence(confirmationCompetenceId, { force: true }).then(function (markings) {
+            if (!confirmationContextIsActive()) {
+              showToast(
+                "Importação confirmada.",
+                conflicts.length ? "warning" : "success",
+                "Os dados foram salvos na competência " + (competence ? competence.label || Utils.formatCompetence(competence) : confirmationCompetenceId) + "."
+              );
+              return;
+            }
+            var selectedEmployeeId = markings[0] && markings[0].employeeId;
+            state.selectedEmployeeId = selectedEmployeeId || state.selectedEmployeeId;
+            var firstDay = employeeDays(state.selectedEmployeeId)[0] || markings[0] || null;
+            state.selectedDayId = firstDay ? firstDay.id : null;
+            state.reviewFilter = "all";
+            state.selectedDayIds = [];
+            navigate("review");
+            showToast("Importação confirmada.", conflicts.length ? "warning" : "success", conflicts.length ? importedCount + " importados. " + conflicts.join(" ") : importedCount + " registros importados e disponíveis na Conferência.");
+          });
+        }).catch(function (error) {
+          if (confirmationPersisted) {
+            if (confirmationContextIsActive()) {
+              state.importError = "A importação foi confirmada, mas a Conferência não pôde ser recarregada agora.";
+              render();
+            }
+            showToast(
+              "Importação confirmada.",
+              "warning",
+              "Os dados foram salvos. Abra a Conferência novamente para recarregá-los. " + (error && error.message || "")
+            );
+            return;
+          }
+          if (!confirmationContextIsActive()) return;
+          state.importError = error && error.message || "Não foi possível confirmar a importação.";
+          showToast("Não foi possível confirmar a importação.", "error", state.importError);
+        }).finally(function () {
+          if (!confirmationContextIsActive()) return;
+          state.importConfirming = false;
+          if (state.route === "import-preview") render();
+        });
       },
     });
   }
 
   function setSelectedFile(file) {
     if (!file) return;
+    if (!ensureCompetencyWritable("A seleção de arquivo para importação")) return;
+    if (state.importLoading || state.importConfirming) return;
+    if (!/\.txt$/i.test(String(file.name || ""))) {
+      importAnalysisSequence += 1;
+      state.selectedImportFile = null;
+      state.importAnalysis = false;
+      state.selectedImportRowIds = [];
+      render();
+      showToast("Formato não suportado nesta etapa.", "error", "Selecione somente um arquivo TXT.");
+      return;
+    }
+    importAnalysisSequence += 1;
     state.selectedImportFile = { name: file.name, size: file.size, type: file.type, lastModified: file.lastModified, file: file };
     state.importAnalysis = false;
+    state.selectedImportRowIds = [];
+    state.importConflicts = [];
+    state.importError = "";
     render();
   }
 
@@ -904,8 +2062,50 @@
     render();
   }
 
+  function previewRowsForSelection() {
+    if (!state.importAnalysis || !Array.isArray(state.importAnalysis.rows)) return [];
+    return state.importAnalysis.rows.filter(function (row) {
+      if (!row.employeeFound) return false;
+      if (state.importPreviewFilter === "pending" && !row.hasPendingIssue) return false;
+      if (state.importPreviewEmployeeId && !idsEqual(row.employeeId, state.importPreviewEmployeeId)) return false;
+      return true;
+    });
+  }
+
+  function toggleImportRowSelection(rowId, checked) {
+    var row = state.importAnalysis && state.importAnalysis.rows && state.importAnalysis.rows.find(function (item) { return idsEqual(item.id, rowId); });
+    if (!row || !row.employeeFound) return;
+    var exists = state.selectedImportRowIds.some(function (id) { return idsEqual(id, row.id); });
+    if (checked && !exists) state.selectedImportRowIds.push(row.id);
+    if (!checked && exists) state.selectedImportRowIds = state.selectedImportRowIds.filter(function (id) { return !idsEqual(id, row.id); });
+    row.selected = checked;
+    row.selecionado = checked;
+    render();
+  }
+
+  function toggleAllImportRows(checked) {
+    var visibleIds = previewRowsForSelection().map(function (row) { return row.id; });
+    if (checked) {
+      visibleIds.forEach(function (rowId) {
+        if (!state.selectedImportRowIds.some(function (id) { return idsEqual(id, rowId); })) state.selectedImportRowIds.push(rowId);
+      });
+    } else {
+      state.selectedImportRowIds = state.selectedImportRowIds.filter(function (id) {
+        return !visibleIds.some(function (rowId) { return idsEqual(id, rowId); });
+      });
+    }
+    if (state.importAnalysis && Array.isArray(state.importAnalysis.rows)) {
+      state.importAnalysis.rows.forEach(function (row) {
+        row.selected = state.selectedImportRowIds.some(function (id) { return idsEqual(id, row.id); });
+        row.selecionado = row.selected;
+      });
+    }
+    render();
+  }
+
   function setDayStatus(day, status, options) {
     if (!day) return;
+    if (!ensureCompetencyWritable("A alteração da situação do dia")) return;
     if (dayIsConfirmed(day) && !(options && options.allowConfirmed)) {
       showToast("Reabra a conferência antes de alterar este dia.", "warning");
       return;
@@ -925,8 +2125,8 @@
     if (!(options && options.noUndo)) {
       state.undoStack.push({ type: "status", dayId: day.id, previous: previous, next: status });
     }
-    addHistory(day, "Situação alterada de " + (STATUS_LABELS[previous] || previous || "não informada") + " para " + day.statusLabel + ".", "Marina Souza");
-    queueAutosave();
+    addHistory(day, "Situação alterada de " + (STATUS_LABELS[previous] || previous || "não informada") + " para " + day.statusLabel + ".", "Operador local");
+    queueAutosave(day);
     render();
   }
 
@@ -937,6 +2137,7 @@
 
   function confirmDay(day, options) {
     if (!day || dayIsConfirmed(day)) return;
+    if (!ensureCompetencyWritable("A confirmação do dia")) return;
     day.confirmed = true;
     day.conferido = true;
     day.reviewState = "confirmed";
@@ -949,14 +2150,15 @@
       day.review.confirmedAt = day.confirmedAt;
       day.review.lastConfirmedSnapshot = day.confirmedResult;
     }
-    addHistory(day, "Dia marcado como conferido.", "Marina Souza");
+    addHistory(day, "Dia marcado como conferido.", "Operador local");
     updateEmployeeProgress(day.employeeId || day.funcionario_id);
-    queueAutosave();
+    queueAutosave(day, false, { syncCompetence: true });
     if (!(options && options.silent)) showToast("Dia conferido.", "success", "Salvar e conferir continuam sendo ações independentes.");
   }
 
   function reopenDay(day) {
     if (!day || !dayIsConfirmed(day)) return;
+    if (!ensureCompetencyWritable("A reabertura do dia")) return;
     day.confirmed = false;
     day.conferido = false;
     day.reviewState = "reopened";
@@ -965,11 +2167,11 @@
       day.review.confirmed = false;
       day.review.reopenedAt = new Date().toISOString();
     }
-    addHistory(day, "Conferência reaberta para ajustes.", "Marina Souza");
+    addHistory(day, "Conferência reaberta para ajustes.", "Operador local");
     updateEmployeeProgress(day.employeeId || day.funcionario_id);
-    queueAutosave();
+    queueAutosave(day, false, { syncCompetence: true });
     render();
-    showToast("Conferência reaberta.", "success", "O último resultado conferido foi preservado no histórico.");
+    showToast("Conferência reaberta.", "success", "As batidas originais permanecem intactas e os horários atuais podem ser ajustados.");
   }
 
   function updateEmployeeProgress(employeeId) {
@@ -989,7 +2191,7 @@
       id: "history-ui-" + now.getTime() + "-" + history.length,
       at: now.toISOString(),
       timeLabel: now.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
-      actor: actor || "Marina Souza",
+      actor: actor || "Operador local",
       description: description,
       title: description,
       type: "manual",
@@ -1022,22 +2224,143 @@
     recalculateDay(day);
   }
 
-  function queueAutosave(force) {
+  function daySavePayload(day) {
+    var slots = currentSlots(day);
+    return {
+      entrada: slots.entry || null,
+      saida_almoco: slots.breakStart || null,
+      retorno_almoco: slots.breakEnd || null,
+      saida: slots.exit || null,
+      status_dia: statusToBackend(day.status || day.current && day.current.status),
+      conferido: dayIsConfirmed(day),
+      observacoes: day.observation || day.observacao || day.current && (day.current.observation || day.current.observacao) || null,
+    };
+  }
+
+  function flushPendingDaySaves() {
     root.clearTimeout(autosaveTimer);
-    state.autosaveRevision += 1;
-    var revision = state.autosaveRevision;
-    if (!state.settings.autosave && !force) {
+    autosaveTimer = null;
+    if (state.apiMode !== "online") return Promise.resolve([]);
+    if (autosaveFlushPromise) {
+      return autosaveFlushPromise.then(function () {
+        return Object.keys(pendingDaySaves).length ? flushPendingDaySaves() : [];
+      });
+    }
+    var keys = Object.keys(pendingDaySaves);
+    if (!keys.length) {
       state.autosaveStatus = "saved";
       updateAutosaveIndicator();
-      return;
+      return Promise.resolve([]);
+    }
+    var batch = pendingDaySaves;
+    pendingDaySaves = Object.create(null);
+    state.autosaveStatus = "saving";
+    updateAutosaveIndicator();
+    autosaveFlushPromise = Promise.all(keys.map(function (key) {
+      var entry = batch[key];
+      return apiRequest("/marcacoes/" + encodeURIComponent(entry.id), {
+        method: "PATCH",
+        body: entry.payload,
+        timeout: 12000,
+        keepalive: true,
+      }).then(function (response) {
+        return { ok: true, entry: entry, response: response };
+      }).catch(function (error) {
+        return { ok: false, entry: entry, error: error };
+      });
+    })).then(function (results) {
+      var failed = results.filter(function (result) { return !result.ok; });
+      var closedFailures = failed.filter(function (result) { return isClosedCompetenceError(result.error); });
+      var retryableFailures = failed.filter(function (result) { return !isClosedCompetenceError(result.error); });
+      retryableFailures.forEach(function (result) {
+        var key = String(result.entry.id);
+        if (!pendingDaySaves[key]) pendingDaySaves[key] = result.entry;
+      });
+      if (failed.length) {
+        state.autosaveStatus = "error";
+        updateAutosaveIndicator();
+        if (closedFailures.length) {
+          showToast("A competência foi fechada antes do salvamento.", "error", "As alterações recusadas não serão reenviadas automaticamente. Reabra a competência antes de editar.");
+        } else {
+          showToast("Não foi possível salvar todas as alterações.", "error", failed[0].error && failed[0].error.message || "Tente novamente.");
+        }
+      } else if (!Object.keys(pendingDaySaves).length) {
+        state.autosaveStatus = "saved";
+        updateAutosaveIndicator();
+      }
+      var competencesToRefresh = Object.create(null);
+      results.forEach(function (result) {
+        if ((result.ok && result.entry.syncCompetence) || (!result.ok && isClosedCompetenceError(result.error))) {
+          if (result.entry.competenceId !== null && result.entry.competenceId !== undefined) {
+            var competenceKey = String(result.entry.competenceId);
+            if (!competencesToRefresh[competenceKey]) {
+              competencesToRefresh[competenceKey] = {
+                id: result.entry.competenceId,
+                reloadAttendance: false,
+              };
+            }
+            if (!result.ok && isClosedCompetenceError(result.error)) {
+              competencesToRefresh[competenceKey].reloadAttendance = true;
+            }
+          }
+        }
+      });
+      return Promise.all(Object.keys(competencesToRefresh).map(function (key) {
+        var refresh = competencesToRefresh[key];
+        return refreshAffectedCompetence(refresh.id, { reloadAttendance: refresh.reloadAttendance }).catch(function (error) {
+          showToast("O status da competência não pôde ser atualizado.", "warning", error && error.message || "Abra a competência novamente para sincronizar.");
+          return null;
+        });
+      })).then(function () {
+        if (Object.keys(competencesToRefresh).some(function (key) { return idsEqual(key, state.selectedCompetenceId); })) render();
+        return results;
+      });
+    }).finally(function () {
+      autosaveFlushPromise = null;
+      if (state.autosaveStatus !== "error" && Object.keys(pendingDaySaves).length && state.settings.autosave) {
+        autosaveTimer = root.setTimeout(flushPendingDaySaves, 120);
+      }
+    });
+    return autosaveFlushPromise;
+  }
+
+  function queueAutosave(day, force, options) {
+    if (competencyIsClosed()) {
+      root.clearTimeout(autosaveTimer);
+      autosaveTimer = null;
+      return Promise.resolve([]);
+    }
+    state.autosaveRevision += 1;
+    var revision = state.autosaveRevision;
+    if (state.apiMode === "online" && day && day.id !== null && day.id !== undefined) {
+      var previousEntry = pendingDaySaves[String(day.id)];
+      pendingDaySaves[String(day.id)] = {
+        id: day.id,
+        competenceId: day.competenceId || day.competencia_id || state.selectedCompetenceId,
+        payload: daySavePayload(day),
+        syncCompetence: Boolean(previousEntry && previousEntry.syncCompetence || options && options.syncCompetence),
+      };
+    }
+    if (!state.settings.autosave && !force) {
+      state.autosaveStatus = Object.keys(pendingDaySaves).length ? "unsaved" : "saved";
+      updateAutosaveIndicator();
+      return Promise.resolve([]);
     }
     state.autosaveStatus = "saving";
     updateAutosaveIndicator();
+    if (state.apiMode === "online") {
+      root.clearTimeout(autosaveTimer);
+      if (force) return flushPendingDaySaves();
+      autosaveTimer = root.setTimeout(flushPendingDaySaves, 680);
+      return Promise.resolve([]);
+    }
+    root.clearTimeout(autosaveTimer);
     autosaveTimer = root.setTimeout(function () {
       if (revision !== state.autosaveRevision) return;
       state.autosaveStatus = "saved";
       updateAutosaveIndicator();
     }, force ? 280 : 680);
+    return Promise.resolve([]);
   }
 
   function setAutosaveError() {
@@ -1053,13 +2376,15 @@
   }
 
   function saveNow() {
+    if (!ensureCompetencyWritable("O salvamento")) return Promise.resolve([]);
     if (document.querySelector('.time-cell-input[aria-invalid="true"]')) {
       setAutosaveError();
       showToast("Corrija o horário inválido antes de salvar.", "error");
       return;
     }
-    queueAutosave(true);
-    root.setTimeout(function () { showToast("Alterações salvas.", "success"); }, 320);
+    queueAutosave(null, true).then(function (results) {
+      if (!results.some(function (result) { return result && result.ok === false; })) showToast("Alterações salvas.", "success");
+    });
   }
 
   function cellSelector(dayId, field) {
@@ -1081,6 +2406,7 @@
 
   function beginEditing(cell, seed) {
     if (!cell || editSession) return;
+    if (!ensureCompetencyWritable("A edição de horários")) return;
     var day = findDay(cell.dataset.dayId);
     if (!day) return;
     state.selectedDayId = day.id;
@@ -1159,8 +2485,8 @@
       var issue = { id: "issue-manual-" + day.id, dayId: day.id, type: "manual_change", severity: "warning", message: "Horário alterado manualmente.", resolved: false };
       day.issues.push(issue);
     }
-    addHistory(day, fieldLabel(session.field) + " alterada de " + (session.original || "—") + " para " + (normalized || "—") + ".", "Marina Souza");
-    queueAutosave();
+    addHistory(day, fieldLabel(session.field) + " alterada de " + (session.original || "—") + " para " + (normalized || "—") + ".", "Operador local");
+    queueAutosave(day);
     if (parsed.unusual && state.settings.unusualTimeAlerts) {
       showToast("Horário incomum aceito.", "warning", parsed.warning);
     }
@@ -1201,6 +2527,7 @@
   }
 
   function undoLastChange() {
+    if (!ensureCompetencyWritable("A reversão de alterações")) return;
     var change = state.undoStack.pop();
     if (!change) {
       showToast("Não há alterações para desfazer.", "info");
@@ -1215,7 +2542,7 @@
     }
     if (change.type === "time") {
       applySlot(day, change.field, change.previous);
-      addHistory(day, "Alteração desfeita: " + fieldLabel(change.field) + " restaurada para " + (change.previous || "—") + ".", "Marina Souza");
+      addHistory(day, "Alteração desfeita: " + fieldLabel(change.field) + " restaurada para " + (change.previous || "—") + ".", "Operador local");
       renderFocus = { dayId: day.id, field: change.field };
     } else if (change.type === "status") {
       setDayStatus(day, change.previous, { noUndo: true });
@@ -1223,12 +2550,13 @@
     } else if (change.type === "observation") {
       setObservation(day, change.previous, { noUndo: true, silent: true });
     }
-    queueAutosave();
+    queueAutosave(day);
     render();
     showToast("Última alteração desfeita.", "success");
   }
 
   function setObservation(day, value, options) {
+    if (!ensureCompetencyWritable("A edição da observação")) return;
     if (!day || dayIsConfirmed(day)) {
       showToast("Reabra a conferência antes de editar a observação.", "warning");
       return;
@@ -1241,8 +2569,8 @@
       day.current.observacao = value;
     }
     if (!(options && options.noUndo)) state.undoStack.push({ type: "observation", dayId: day.id, previous: previous, next: value });
-    addHistory(day, value ? "Observação adicionada ou atualizada." : "Observação removida.", "Marina Souza");
-    queueAutosave();
+    addHistory(day, value ? "Observação adicionada ou atualizada." : "Observação removida.", "Operador local");
+    queueAutosave(day);
     if (!(options && options.silent)) {
       render();
       showToast("Observação salva.", "success");
@@ -1250,10 +2578,11 @@
   }
 
   function openObservationDialog(day, bulk) {
+    if (!ensureCompetencyWritable("A edição da observação")) return;
     var targets = bulk ? state.selectedDayIds.map(findDay).filter(Boolean) : [day];
     showDialog({
       title: bulk ? "Adicionar observação em massa" : "Observação do dia",
-      description: bulk ? "A mesma observação será adicionada aos registros selecionados. As batidas originais não serão alteradas." : "A observação faz parte da interpretação atual e ficará registrada no histórico.",
+      description: bulk ? "A mesma observação será adicionada aos registros selecionados. As batidas originais não serão alteradas." : "A observação será salva no registro do dia sem alterar as batidas originais.",
       count: bulk ? targets.length : undefined,
       confirmLabel: "Salvar observação",
       field: { type: "textarea", label: "Observação", value: bulk ? "" : (day.observation || day.observacao || ""), placeholder: "Descreva o ajuste ou a decisão tomada" },
@@ -1267,6 +2596,7 @@
   }
 
   function openStatusDialog(day, bulk) {
+    if (!ensureCompetencyWritable("A alteração da situação do dia")) return;
     var targets = bulk ? state.selectedDayIds.map(findDay).filter(Boolean) : [day];
     showDialog({
       title: bulk ? "Definir situação em massa" : "Alterar situação do dia",
@@ -1284,10 +2614,11 @@
   }
 
   function confirmSelectedDays() {
+    if (!ensureCompetencyWritable("A confirmação dos dias")) return;
     var targets = state.selectedDayIds.map(findDay).filter(Boolean);
     showDialog({
       title: "Marcar dias como conferidos?",
-      description: "Será criado um resultado conferido para cada registro. As batidas originais e a sugestão permanecerão intactas.",
+      description: "Os horários atuais serão marcados como conferidos. As batidas originais permanecerão intactas.",
       count: targets.length,
       confirmLabel: "Marcar como conferidos",
       icon: "check_circle",
@@ -1301,10 +2632,11 @@
   }
 
   function keepInterpretation(day) {
+    if (!ensureCompetencyWritable("A confirmação da interpretação")) return;
     if (!day || dayIsConfirmed(day)) return;
     (day.issues || []).forEach(function (issue) { issue.resolved = true; issue.resolution = "Interpretação mantida pelo usuário"; });
     setDayStatus(day, "normal", { noUndo: true });
-    addHistory(day, "Interpretação sugerida mantida pelo usuário.", "Marina Souza");
+    addHistory(day, "Interpretação atual mantida pelo operador.", "Operador local");
     render();
     showToast("Interpretação mantida.", "success", "O dia ainda precisa ser marcado como conferido.");
   }
@@ -1320,12 +2652,143 @@
   }
 
   function openOriginal(fileId) {
+    if (state.apiMode === "online") {
+      if (!fileId) {
+        showToast("Arquivo original indisponível.", "warning");
+        return;
+      }
+      var opened = root.open(configuredApiBase() + "/arquivos/" + encodeURIComponent(fileId) + "/download", "_blank", "noopener,noreferrer");
+      if (!opened) showToast("O navegador bloqueou a nova aba.", "warning", "Permita pop-ups para abrir o arquivo original.");
+      return;
+    }
     var file = findFile(fileId);
     if (file && (file.extension === "jpg" || file.extension === "png" || file.sourceType === "image")) {
       navigate("ocr");
       return;
     }
     showToast("Arquivo original aberto em modo somente leitura.", "info", file ? file.name : "A visualização é simulada neste protótipo.");
+  }
+
+  function openCompetencePrintReport() {
+    var competence = currentCompetency();
+    if (!competence) {
+      showToast("Não foi possível abrir o relatório.", "error", "Selecione uma competência e tente novamente.");
+      return;
+    }
+    if (state.apiMode !== "online") {
+      showToast("Relatório indisponível no modo demonstração.", "info", "Ligue a API para abrir a versão real para impressão.");
+      return;
+    }
+    var link = document.createElement("a");
+    link.href = configuredApiBase() + "/relatorios/impressao?competencia_id=" + encodeURIComponent(competence.id);
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    link.hidden = true;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  }
+
+  function exportFilename(response, competence, company) {
+    var disposition = response && response.headers && response.headers.get("Content-Disposition") || "";
+    var encodedMatch = disposition.match(/filename\*\s*=\s*UTF-8''([^;]+)/i);
+    var plainMatch = disposition.match(/filename\s*=\s*"?([^";]+)"?/i);
+    var name = encodedMatch ? encodedMatch[1] : plainMatch ? plainMatch[1] : "";
+    if (name) {
+      try { name = decodeURIComponent(name.trim()); }
+      catch (error) { name = name.trim(); }
+    }
+    if (!name) {
+      var companyName = company && (company.name || company.nome) || "empresa";
+      var companySlug = String(companyName).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "empresa";
+      var month = Number(competence && (competence.month || competence.mes));
+      var year = Number(competence && (competence.year || competence.ano));
+      var period = Number.isFinite(year) && Number.isFinite(month) ? year + "-" + String(month).padStart(2, "0") : "competencia";
+      name = "on_ponto_" + companySlug + "_" + period + ".xlsx";
+    }
+    name = String(name).replace(/[\\/:*?"<>|\r\n]+/g, "_").trim();
+    return /\.xlsx$/i.test(name) ? name : name + ".xlsx";
+  }
+
+  function exportResponseError(response) {
+    return response.text().then(function (textValue) {
+      var payload = null;
+      if (textValue) {
+        try { payload = JSON.parse(textValue); }
+        catch (error) { payload = { detail: textValue }; }
+      }
+      var requestError = new Error(apiErrorMessage(payload, "A API respondeu com erro " + response.status + "."));
+      requestError.status = response.status;
+      throw requestError;
+    });
+  }
+
+  function exportErrorDetail(error) {
+    if (error && error.name === "AbortError") return "A geração da planilha demorou mais que o esperado. Tente novamente.";
+    if (error && error.status) return error.message;
+    if (error && /fetch|network|rede|conex[aã]o/i.test(String(error.message || ""))) {
+      return "Não foi possível conectar à API para gerar a planilha.";
+    }
+    return error && error.message || "A planilha não pôde ser gerada.";
+  }
+
+  function exportCompetenceExcel() {
+    var competenceId = state.selectedCompetenceId;
+    var competence = currentCompetency();
+    var company = currentCompany();
+    if (!competence) {
+      showToast("Não foi possível exportar a planilha.", "error", "Selecione uma competência e tente novamente.");
+      return Promise.resolve(false);
+    }
+    if (state.apiMode !== "online") {
+      showToast("Exportação simulada no modo demonstração.", "info", "Nenhum arquivo real foi gerado.");
+      return Promise.resolve(false);
+    }
+    if (state.exportExcelLoading) return Promise.resolve(false);
+
+    var sequence = ++exportExcelSequence;
+    var controller = typeof AbortController === "function" ? new AbortController() : null;
+    var timeout = root.setTimeout(function () {
+      if (controller) controller.abort();
+    }, 30000);
+    state.exportExcelLoading = true;
+    render();
+
+    var requestOptions = {
+      headers: { Accept: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" },
+    };
+    if (controller) requestOptions.signal = controller.signal;
+    return root.fetch(configuredApiBase() + "/relatorios/excel?competencia_id=" + encodeURIComponent(competenceId), requestOptions).then(function (response) {
+      if (!response.ok) return exportResponseError(response);
+      var filename = exportFilename(response, competence, company);
+      return response.blob().then(function (blob) {
+        if (!blob || !blob.size) throw new Error("A API retornou uma planilha vazia.");
+        return { blob: blob, filename: filename };
+      });
+    }).then(function (result) {
+      if (sequence !== exportExcelSequence || state.apiMode !== "online" || !idsEqual(state.selectedCompetenceId, competenceId)) return false;
+      var urlApi = root.URL || root.webkitURL;
+      if (!urlApi || typeof urlApi.createObjectURL !== "function") throw new Error("Este navegador não oferece suporte ao download da planilha.");
+      var objectUrl = urlApi.createObjectURL(result.blob);
+      var link = document.createElement("a");
+      link.href = objectUrl;
+      link.download = result.filename;
+      link.hidden = true;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      root.setTimeout(function () { urlApi.revokeObjectURL(objectUrl); }, 1000);
+      showToast("Download da planilha iniciado.", "success", result.filename);
+      return true;
+    }).catch(function (error) {
+      showToast("Não foi possível exportar a planilha.", "error", exportErrorDetail(error));
+      return false;
+    }).finally(function () {
+      root.clearTimeout(timeout);
+      if (sequence !== exportExcelSequence) return;
+      state.exportExcelLoading = false;
+      if (state.route === "competency-exports" && idsEqual(state.selectedCompetenceId, competenceId)) render();
+    });
   }
 
   function updateOcr(action, element) {
@@ -1340,6 +2803,7 @@
   }
 
   function acceptOcrPreview() {
+    if (!ensureCompetencyWritable("A confirmação da leitura")) return;
     var company = currentCompany();
     var competence = currentCompetency();
     var sourceFile = findFile(state.ocr && state.ocr.fileId);
@@ -1415,20 +2879,187 @@
     navigate("import-preview");
   }
 
+  function lifecycleContextIsActive(competenceId) {
+    return idsEqual(state.selectedCompetenceId, competenceId) && Boolean(currentCompetency());
+  }
+
+  function localIsoDate(value) {
+    var dateValue = value || new Date();
+    return dateValue.getFullYear() + "-" + String(dateValue.getMonth() + 1).padStart(2, "0") + "-" + String(dateValue.getDate()).padStart(2, "0");
+  }
+
+  function setLifecycleState(competenceId, loading, action, error) {
+    if (!lifecycleContextIsActive(competenceId)) return;
+    state.competenceLifecycleLoading = loading === true;
+    state.competenceLifecycleAction = loading ? action || "" : "";
+    state.competenceLifecycleError = error || "";
+    render();
+  }
+
+  function ensureAutosaveFlushedForLifecycle() {
+    return flushPendingDaySaves().then(function (results) {
+      var failed = results.filter(function (result) { return result && result.ok === false; });
+      if (failed.length) {
+        throw new Error(failed.length + (failed.length === 1 ? " alteração não pôde" : " alterações não puderam") + " ser salva antes de continuar.");
+      }
+      return results;
+    });
+  }
+
+  function persistCompetenceLifecycle(competenceId, action, exceptional) {
+    if (state.apiMode !== "online") return Promise.resolve(false);
+    if (!lifecycleContextIsActive(competenceId)) return Promise.reject(new Error("A competência selecionada mudou. Inicie a ação novamente."));
+    setLifecycleState(competenceId, true, action, "");
+    var path = "/competencias/" + encodeURIComponent(competenceId) + "/" + action;
+    var requestOptions = action === "fechar"
+      ? { method: "POST", body: { confirmar_pendencias: exceptional === true }, timeout: 15000 }
+      : { method: "POST", timeout: 15000 };
+    var responsePayload = null;
+    return apiRequest(path, requestOptions).then(function (payload) {
+      responsePayload = payload || {};
+      updateCompetenceFromPayload(competenceId, responsePayload);
+      state.selectedDayIds = [];
+      return loadCompetenceSummary(competenceId, { force: true });
+    }).then(function (summary) {
+      if (lifecycleContextIsActive(competenceId)) {
+        state.competenceLifecycleError = summary ? "" : "O status foi atualizado, mas a apuração não pôde ser recarregada agora.";
+      }
+      showToast(
+        responsePayload && responsePayload.mensagem || (action === "fechar" ? "Competência fechada." : "Competência reaberta."),
+        summary ? "success" : "warning",
+        summary ? "A apuração desta competência foi atualizada." : "Abra o resumo novamente para tentar recarregar a apuração."
+      );
+      return true;
+    }).catch(function (error) {
+      var detail = error && error.payload && error.payload.detail;
+      var conflictCode = detail && typeof detail === "object" ? detail.codigo : "";
+      if (action === "fechar" && exceptional !== true && error && error.status === 409 && [
+        "competencia_com_pendencias", "competencia_sem_registros", "competencia_nao_conferida",
+      ].indexOf(conflictCode) !== -1) {
+        var conflictPending = Number(detail.total_pendencias);
+        if (!Number.isFinite(conflictPending)) conflictPending = 0;
+        if (lifecycleContextIsActive(competenceId)) {
+          state.competenceLifecycleError = "";
+          showCloseCompetencyDialog(competenceId, conflictPending, conflictCode === "competencia_sem_registros" ? 0 : 1, true);
+        }
+        return false;
+      }
+      if (lifecycleContextIsActive(competenceId)) state.competenceLifecycleError = error && error.message || "Não foi possível atualizar a competência.";
+      throw error;
+    }).finally(function () {
+      if (lifecycleContextIsActive(competenceId)) setLifecycleState(competenceId, false, "", state.competenceLifecycleError);
+    });
+  }
+
+  function showCloseCompetencyDialog(competenceId, pendingCount, processedCount, forceExceptional) {
+    var exceptional = forceExceptional === true || pendingCount > 0 || processedCount === 0;
+    var pendingMessage = pendingCount > 0
+      ? pendingCount + (pendingCount === 1 ? " registro ainda precisa" : " registros ainda precisam") + " de conferência."
+      : processedCount === 0 ? "A competência não possui registros processados para fechamento." : "A competência ainda não está conferida.";
+    showDialog({
+      title: exceptional ? "Fechar competência excepcionalmente?" : "Fechar esta competência?",
+      description: exceptional
+        ? pendingMessage + " O fechamento excepcional preserva marcações e arquivos e bloqueia novas alterações até uma reabertura."
+        : "Todos os registros processados estão conferidos. A competência continuará visível e disponível para exportação.",
+      confirmLabel: pendingCount > 0
+        ? "Fechar mesmo com " + pendingCount + " pendência" + (pendingCount === 1 ? "" : "s")
+        : exceptional ? (processedCount === 0 ? "Fechar sem registros" : "Fechar excepcionalmente") : "Fechar competência",
+      busyLabel: "Fechando...",
+      destructive: true,
+      fields: exceptional ? [{
+        name: "confirmarExcecao",
+        type: "checkbox",
+        label: pendingCount > 0
+          ? "Confirmo o fechamento excepcional mesmo com registros ainda não conferidos."
+          : processedCount === 0 ? "Confirmo o fechamento excepcional sem registros processados." : "Confirmo o fechamento excepcional desta competência ainda não conferida.",
+        value: "true",
+        required: true,
+        requiredMessage: "Confirme explicitamente o fechamento excepcional para continuar.",
+      }] : [],
+      onConfirm: function () {
+        return persistCompetenceLifecycle(competenceId, "fechar", exceptional);
+      },
+    });
+  }
+
   function closeCompetency() {
     var competency = currentCompetency();
+    if (!competency || state.competenceLifecycleLoading) return;
+    if (competencyIsClosed(competency)) return reopenCompetency();
+    if (editSession && !finishEditing({ move: null })) {
+      showToast("Corrija o horário inválido antes de fechar a competência.", "error");
+      return;
+    }
+    var competenceId = competency.id;
+    if (state.apiMode !== "online") {
+      var demoDays = days().filter(function (day) { return idsEqual(day.competenceId || day.competencia_id, competenceId); });
+      var demoPending = demoDays.filter(function (day) { return !dayIsConfirmed(day); }).length;
+      showDialog({
+        title: demoPending ? "Fechar competência de demonstração excepcionalmente?" : "Fechar competência de demonstração?",
+        description: demoPending ? demoPending + (demoPending === 1 ? " registro ainda precisa" : " registros ainda precisam") + " de conferência. Esta alteração existirá somente nesta sessão." : "Esta alteração existirá somente nesta sessão de demonstração.",
+        confirmLabel: demoPending ? "Fechar mesmo com " + demoPending + " pendência" + (demoPending === 1 ? "" : "s") : "Fechar competência",
+        destructive: true,
+        fields: demoPending ? [{ name: "confirmarExcecao", type: "checkbox", label: "Confirmo o fechamento excepcional no modo demonstração.", value: "true", required: true }] : [],
+        onConfirm: function () {
+          competency.status = "fechada";
+          competency.statusLabel = "Fechada";
+          competency.closedAt = localIsoDate();
+          state.selectedDayIds = [];
+          render();
+          showToast("Competência fechada no modo demonstração.", "success", "Nenhuma alteração foi enviada à API.");
+        },
+      });
+      return;
+    }
+
+    setLifecycleState(competenceId, true, "validar", "");
+    ensureAutosaveFlushedForLifecycle().then(function () {
+      if (!lifecycleContextIsActive(competenceId)) throw new Error("A competência selecionada mudou. Inicie o fechamento novamente.");
+      if (competencyIsClosed()) throw new Error("A competência já está fechada.");
+      return loadCompetenceSummary(competenceId, { force: true });
+    }).then(function (summary) {
+      if (!summary) throw new Error(state.competenceSummaryError || "Não foi possível revalidar a apuração antes do fechamento.");
+      var pendingCount = summary.pendingRecords === null || summary.pendingRecords === undefined ? NaN : Number(summary.pendingRecords);
+      var processedCount = summary.processedRecords === null || summary.processedRecords === undefined ? NaN : Number(summary.processedRecords);
+      if (!Number.isFinite(pendingCount) || !Number.isFinite(processedCount)) {
+        throw new Error("A API não informou a contagem de registros necessária para validar o fechamento.");
+      }
+      setLifecycleState(competenceId, false, "", "");
+      showCloseCompetencyDialog(competenceId, pendingCount, processedCount);
+    }).catch(function (error) {
+      if (!lifecycleContextIsActive(competenceId)) return;
+      setLifecycleState(competenceId, false, "", error && error.message || "Não foi possível validar o fechamento.");
+      showToast("Não foi possível preparar o fechamento.", "error", error && error.message || "Tente novamente.");
+    });
+  }
+
+  function reopenCompetency() {
+    var competency = currentCompetency();
+    if (!competency || state.competenceLifecycleLoading) return;
+    if (!competencyIsClosed(competency)) {
+      showToast("A competência não está fechada.", "info");
+      return;
+    }
+    var competenceId = competency.id;
     showDialog({
-      title: "Fechar esta competência?",
-      description: "O fechamento não é automático. Neste protótipo, a situação será alterada somente após sua confirmação.",
-      confirmLabel: "Fechar competência",
-      destructive: true,
+      title: state.apiMode === "online" ? "Reabrir esta competência?" : "Reabrir competência de demonstração?",
+      description: "Importações, edições e confirmações voltarão a ficar disponíveis. Marcações e arquivos serão preservados.",
+      confirmLabel: "Reabrir competência",
+      busyLabel: "Reabrindo...",
+      fields: [],
       onConfirm: function () {
-        competency.status = "fechada";
-        competency.statusLabel = "Fechada";
-        competency.closedAt = new Date().toISOString();
-        competency.progress = 100;
-        render();
-        showToast("Competência fechada no protótipo.", "success");
+        if (state.apiMode !== "online") {
+          var hasDays = days().some(function (day) { return idsEqual(day.competenceId || day.competencia_id, competenceId); });
+          competency.status = hasDays ? "em_conferencia" : "aberta";
+          competency.statusLabel = hasDays ? "Em conferência" : "Aberta";
+          competency.closedAt = null;
+          render();
+          showToast("Competência reaberta no modo demonstração.", "success", "Nenhuma alteração foi enviada à API.");
+          return;
+        }
+        return ensureAutosaveFlushedForLifecycle().then(function () {
+          return persistCompetenceLifecycle(competenceId, "reabrir", false);
+        });
       },
     });
   }
@@ -1441,40 +3072,117 @@
       destructive: true,
       onConfirm: function () {
         root.clearTimeout(autosaveTimer);
+        autosaveTimer = null;
+        pendingDaySaves = Object.create(null);
+        loadedCompetenceDays = Object.create(null);
+        loadedCompetenceFiles = Object.create(null);
+        loadedCompetenceSummaries = Object.create(null);
+        competenceSummarySequences = Object.create(null);
+        importAnalysisSequence += 1;
         data = Mocks.reset();
         var collapsed = state.sidebarCollapsed;
         state = createInitialState();
         state.sidebarCollapsed = collapsed;
+        state.apiMode = "offline";
+        state.apiError = "API indisponível; usando dados de demonstração.";
         navigate("companies");
         showToast("Dados simulados restaurados.", "success");
       },
     });
   }
 
+  function nextLocalId(list) {
+    return list.reduce(function (highest, item) {
+      return Math.max(highest, Number(item.id) || 0);
+    }, 0) + 1;
+  }
+
+  function upsertEntity(list, entity, sorter) {
+    var index = list.findIndex(function (item) { return idsEqual(item.id, entity.id); });
+    if (index === -1) list.push(entity);
+    else list.splice(index, 1, entity);
+    if (typeof sorter === "function") list.sort(sorter);
+    return entity;
+  }
+
+  function compareEntityNames(left, right) {
+    return String(left.name || left.nome || "").localeCompare(String(right.name || right.nome || ""), "pt-BR", { sensitivity: "base" });
+  }
+
+  function compareCompetences(left, right) {
+    return (Number(right.year || right.ano) * 100 + Number(right.month || right.mes)) -
+      (Number(left.year || left.ano) * 100 + Number(left.month || left.mes));
+  }
+
   function openSimpleEntityDialog(kind, id) {
     var isCompany = kind === "company";
     var list = isCompany ? companies() : employees();
-    var entity = id ? list.find(function (item) { return idsEqual(item.id, id); }) : null;
+    var hasId = id !== undefined && id !== null && id !== "";
+    var entity = hasId ? list.find(function (item) { return idsEqual(item.id, id); }) : null;
     var noun = isCompany ? "empresa" : "funcionário";
+    var company = isCompany ? null : entity
+      ? companies().find(function (item) { return idsEqual(item.id, entity.companyId || entity.empresa_id); })
+      : currentCompany();
+    if (!isCompany && !company) {
+      showToast("Selecione uma empresa antes de cadastrar um funcionário.", "warning");
+      navigate("companies");
+      return;
+    }
+    var online = state.apiMode === "online";
+    var fields = isCompany ? [
+      { name: "nome", type: "text", label: "Nome da empresa", value: entity ? entity.name || entity.nome : "", required: true, maxlength: 180, autocomplete: "organization" },
+    ] : [
+      { name: "nome", type: "text", label: "Nome do funcionário", value: entity ? entity.name || entity.nome : "", required: true, maxlength: 180, autocomplete: "name" },
+      { name: "codigo", type: "text", label: "Código", value: entity ? entity.code || entity.codigo || "" : "", required: true, maxlength: 50, autocomplete: "off" },
+      { name: "cargo", type: "text", label: "Cargo", value: entity ? entity.role || entity.cargo || "" : "", maxlength: 120, autocomplete: "organization-title" },
+      { name: "ativo", type: "select", label: "Situação", value: entity && (entity.active === false || entity.ativo === false) ? "false" : "true", options: [{ value: "true", label: "Ativo" }, { value: "false", label: "Inativo" }] },
+    ];
     showDialog({
       title: (entity ? "Editar " : "Novo ") + noun,
-      description: "Cadastro local para demonstrar a interface. Nenhum dado será enviado ao backend.",
+      description: online
+        ? (entity ? "Atualize os dados e salve as alterações na API." : "Preencha os dados para criar o cadastro na API.")
+        : "Modo demonstração: o cadastro ficará somente nesta sessão do navegador.",
       confirmLabel: entity ? "Salvar alterações" : "Adicionar " + noun,
-      field: { type: "text", label: isCompany ? "Nome da empresa" : "Nome do funcionário", value: entity ? (entity.name || entity.nome) : "", required: true },
-      onConfirm: function (value) {
-        if (entity) {
-          entity.name = value.trim();
-          entity.nome = value.trim();
-        } else {
-          var nextId = Math.max.apply(null, list.map(function (item) { return Number(item.id) || 0; })) + 1;
-          if (isCompany) {
-            list.push({ id: nextId, name: value.trim(), nome: value.trim(), legalName: value.trim() + " Ltda.", cnpj: "Não informado", active: true, ativa: true });
-          } else {
-            list.push({ id: nextId, companyId: state.selectedCompanyId, empresa_id: state.selectedCompanyId, name: value.trim(), nome: value.trim(), code: String(nextId), codigo: String(nextId), role: "Não informado", cargo: "Não informado", active: true, ativo: true });
-          }
+      busyLabel: "Salvando...",
+      fields: fields,
+      validate: function (values) {
+        if (isCompany) return null;
+        var code = String(values.codigo || "").trim();
+        var duplicate = employees().some(function (employee) {
+          return (!entity || !idsEqual(employee.id, entity.id)) &&
+            idsEqual(employee.companyId || employee.empresa_id, company.id) &&
+            String(employee.code || employee.codigo || "").trim() === code;
+        });
+        return duplicate ? { message: "Código já usado nesta empresa.", field: "codigo" } : null;
+      },
+      onConfirm: function (values) {
+        var payload = isCompany ? {
+          nome: String(values.nome || "").trim(),
+        } : {
+          empresa_id: company.id,
+          nome: String(values.nome || "").trim(),
+          codigo: String(values.codigo || "").trim(),
+          cargo: String(values.cargo || "").trim() || null,
+          ativo: values.ativo === "true",
+        };
+        if (online) {
+          var endpoint = isCompany ? "/empresas" : "/funcionarios";
+          if (entity) endpoint += "/" + encodeURIComponent(entity.id);
+          return apiRequest(endpoint, { method: entity ? "PATCH" : "POST", body: payload }).then(function (response) {
+            var saved = isCompany ? normalizeCompany(response) : normalizeEmployee(response);
+            upsertEntity(list, saved, compareEntityNames);
+            render();
+            showToast(entity ? "Alteração salva." : (isCompany ? "Empresa cadastrada." : "Funcionário cadastrado."), "success");
+          });
         }
+
+        var localId = entity ? entity.id : nextLocalId(list);
+        var local = isCompany
+          ? normalizeCompany(Object.assign({}, entity || {}, payload, { id: localId }))
+          : normalizeEmployee(Object.assign({}, entity || {}, payload, { id: localId }));
+        upsertEntity(list, local, compareEntityNames);
         render();
-        showToast((isCompany ? "Empresa" : "Funcionário") + " salvo no protótipo.", "success");
+        showToast((isCompany ? "Empresa" : "Funcionário") + " salvo no modo demonstração.", "success");
       },
     });
   }
@@ -1486,22 +3194,44 @@
       navigate("companies");
       return;
     }
+    var online = state.apiMode === "online";
+    var now = new Date();
+    var monthOptions = [];
+    for (var month = 1; month <= 12; month += 1) {
+      monthOptions.push({ value: String(month), label: String(month).padStart(2, "0") });
+    }
     showDialog({
       title: "Nova competência",
-      description: "Crie uma pasta digital simulada para a empresa selecionada.",
+      description: online ? "Crie a competência mensal para esta empresa." : "Modo demonstração: a competência ficará somente nesta sessão do navegador.",
       confirmLabel: "Criar competência",
-      field: { type: "text", label: "Competência", value: "08/2026", placeholder: "MM/AAAA", required: true },
-      onConfirm: function (value) {
-        if (!/^\d{2}\/\d{4}$/.test(value.trim())) {
-          showToast("Use a competência no formato MM/AAAA.", "error");
-          return;
+      busyLabel: "Criando...",
+      fields: [
+        { name: "mes", type: "select", label: "Mês", value: String(now.getMonth() + 1), required: true, options: monthOptions },
+        { name: "ano", type: "number", label: "Ano", value: String(now.getFullYear()), required: true, min: 2000, max: 2100, step: 1 },
+      ],
+      validate: function (values) {
+        var monthValue = Number(values.mes);
+        var yearValue = Number(values.ano);
+        var duplicate = competencies().some(function (item) {
+          return idsEqual(item.companyId || item.empresa_id, company.id) && Number(item.month || item.mes) === monthValue && Number(item.year || item.ano) === yearValue;
+        });
+        return duplicate ? { message: "Competência já cadastrada para esta empresa.", field: "mes" } : null;
+      },
+      onConfirm: function (values) {
+        var payload = { empresa_id: company.id, mes: Number(values.mes), ano: Number(values.ano) };
+        if (online) {
+          return apiRequest("/competencias", { method: "POST", body: payload }).then(function (response) {
+            var saved = normalizeCompetence(response, employees());
+            upsertEntity(competencies(), saved, compareCompetences);
+            showToast("Competência criada.", "success");
+            navigate({ view: "competency-summary", companyId: company.id, competenceId: saved.id });
+          });
         }
-        var parts = value.trim().split("/");
-        var nextId = Math.max.apply(null, competencies().map(function (item) { return Number(item.id) || 0; })) + 1;
-        var item = { id: nextId, companyId: company.id, empresa_id: company.id, month: Number(parts[0]), mes: Number(parts[0]), year: Number(parts[1]), ano: Number(parts[1]), label: value.trim(), status: "aberta", statusLabel: "Aberta", employeeCount: companyEmployees().length, pendingCount: 0, fileCount: 0, progress: 0, confirmedEmployees: 0, pendingEmployees: companyEmployees().length, inconsistentDays: 0, updatedAt: new Date().toISOString() };
-        competencies().push(item);
-        navigate({ view: "competency-summary", companyId: company.id, competenceId: nextId });
-        showToast("Competência criada no protótipo.", "success");
+
+        var local = normalizeCompetence(Object.assign({}, payload, { status: "aberta", id: nextLocalId(competencies()), updated_at: new Date().toISOString() }), employees());
+        upsertEntity(competencies(), local, compareCompetences);
+        showToast("Competência criada no modo demonstração.", "success");
+        navigate({ view: "competency-summary", companyId: company.id, competenceId: local.id });
       },
     });
   }
@@ -1515,8 +3245,22 @@
     if (element.matches('input[type="checkbox"], input[type="radio"], input[type="file"], select, input[type="range"]')) return;
     if (action === "analyze-import" && element.type === "submit") return;
     if (action !== "edit-time") event.preventDefault();
+    if (competencyIsClosed() && CLOSED_COMPETENCE_ACTIONS[action]) {
+      event.preventDefault();
+      closedCompetencyWarning();
+      return;
+    }
 
     if (action === "navigate") return navigate(element.dataset.route || element.dataset.view);
+    if (action === "retry-competence-summary") {
+      var retryCompetenceId = state.selectedCompetenceId;
+      if (!retryCompetenceId || state.apiMode !== "online") return;
+      var retry = loadCompetenceSummary(retryCompetenceId, { force: true });
+      render();
+      return retry.then(function () {
+        if (idsEqual(state.selectedCompetenceId, retryCompetenceId)) render();
+      });
+    }
     if (action === "open-company") return openCompany(element.dataset.companyId, element.dataset.route);
     if (action === "switch-company") return navigate("companies");
     if (action === "toggle-sidebar") return toggleSidebar();
@@ -1534,7 +3278,7 @@
     if (action === "cancel-confirmation") return closeDialog();
     if (action === "confirm-current-dialog") return confirmDialog();
     if (action === "open-import-preview") {
-      return navigate(state.importAnalysis && state.importAnalysis.detectedType === "scanned" ? "ocr" : "import-preview");
+      return navigate("import-preview");
     }
     if (action === "discard-import" || action === "clear-import-file") return discardImport();
     if (action === "save-import-start-review") return saveImportAndReview();
@@ -1596,14 +3340,15 @@
     if (action.indexOf("ocr-") === 0) return updateOcr(action, element);
     if (action === "accept-ocr-preview") return acceptOcrPreview();
     if (action === "request-close-competence") return closeCompetency();
+    if (action === "request-reopen-competence") return reopenCompetency();
     if (action === "export-competence") return navigate("competency-exports");
     if (action === "preview-summary-report") return navigate("competency-summary");
-    if (action === "export-excel") return showToast("Planilha preparada em modo demonstração.", "success", "A exportação real dependerá do backend de relatórios.");
-    if (action === "open-print-report") return showToast("Prévia de impressão preparada.", "success", "Use a versão integrada ao backend para gerar o relatório definitivo.");
+    if (action === "export-excel") return exportCompetenceExcel();
+    if (action === "open-print-report") return openCompetencePrintReport();
     if (action === "new-company") return openSimpleEntityDialog("company");
-    if (action === "edit-company") return openSimpleEntityDialog("company", element.dataset.companyId);
+    if (action === "edit-company") return openSimpleEntityDialog("company", element.dataset.companyId || element.dataset.id || state.selectedCompanyId);
     if (action === "new-employee") return openSimpleEntityDialog("employee");
-    if (action === "edit-employee") return openSimpleEntityDialog("employee", element.dataset.employeeId);
+    if (action === "edit-employee") return openSimpleEntityDialog("employee", element.dataset.employeeId || element.dataset.id);
     if (action === "new-competence") return newCompetency();
     if (action === "reset-demo-data") return resetDemo();
   }
@@ -1612,6 +3357,15 @@
     var element = event.target.closest("[data-action]");
     if (!element) return;
     var action = element.dataset.action;
+    if (competencyIsClosed() && [
+      "select-import-file", "select-import-type", "toggle-import-row", "toggle-all-import-rows",
+      "toggle-day-selection", "toggle-all-days", "edit-ocr-time", "edit-ocr-observation",
+    ].indexOf(action) !== -1) {
+      event.preventDefault();
+      closedCompetencyWarning();
+      render();
+      return;
+    }
     if (action === "search-companies") return updateCompanySearch(element, false);
     if (action === "select-import-file" && element.files) return setSelectedFile(element.files[0]);
     if (action === "select-import-company") {
@@ -1626,12 +3380,18 @@
       return element.value ? openCompany(asId(element.value), "company-competencies") : navigate("companies");
     }
     if (action === "select-review-employee") return selectEmployee(asId(element.value));
+    if (action === "toggle-import-row") return toggleImportRowSelection(asId(element.dataset.previewRowId), element.checked);
+    if (action === "toggle-all-import-rows") return toggleAllImportRows(element.checked);
     if (action === "toggle-day-selection") return toggleDaySelection(element.dataset.dayId, element.checked);
     if (action === "toggle-all-days") return toggleAllDays(element.checked);
     if (action === "select-report-company") return openCompany(asId(element.value), "company-reports");
     if (action === "select-settings-company") return openCompany(asId(element.value), "company-settings");
     if (action === "select-report-competence") return openCompetencyArea(asId(element.value), "competency-exports");
-    if (action === "toggle-autosave") { state.settings.autosave = element.checked; return showToast(element.checked ? "Autosave ativado." : "Autosave desativado.", "info"); }
+    if (action === "toggle-autosave") {
+      state.settings.autosave = element.checked;
+      if (element.checked && Object.keys(pendingDaySaves).length) queueAutosave(null, true);
+      return showToast(element.checked ? "Autosave ativado." : "Autosave desativado.", "info");
+    }
     if (action === "toggle-unusual-time-alert") { state.settings.unusualTimeAlerts = element.checked; return; }
     if (action === "toggle-single-key-shortcuts") { state.settings.singleKeyShortcuts = element.checked; return; }
     if (action === "ocr-contrast") return updateOcr(action, element);
@@ -1687,6 +3447,16 @@
 
   function handleKeydown(event) {
     var target = event.target;
+    if (competencyIsClosed() && state.route === "review") {
+      var closedShortcut = (event.ctrlKey || event.metaKey) && ["s", "z"].indexOf(event.key.toLowerCase()) !== -1;
+      var closedCell = target.classList && target.classList.contains("time-cell-input") || target.closest && target.closest(".editable-time-cell");
+      var closedSingleKey = state.settings.singleKeyShortcuts && !isTextEditingTarget(target) && !event.ctrlKey && !event.altKey && !event.metaKey && ["n", "f", "a", "r", "c"].indexOf(event.key.toLowerCase()) !== -1;
+      if (closedShortcut || closedCell || closedSingleKey) {
+        event.preventDefault();
+        closedCompetencyWarning();
+        return;
+      }
+    }
     if (target.classList && target.classList.contains("time-cell-input")) {
       if (event.key === "Escape") { event.preventDefault(); cancelEditing(); return; }
       if (event.key === "Enter") { event.preventDefault(); finishEditing({ move: "down" }); return; }
@@ -1750,6 +3520,10 @@
     var cell = event.target.closest && event.target.closest(".editable-time-cell");
     if (!cell || event.target.classList.contains("time-cell-input")) return;
     event.preventDefault();
+    if (competencyIsClosed()) {
+      closedCompetencyWarning("A colagem de horários");
+      return;
+    }
     beginEditing(cell, event.clipboardData.getData("text/plain").trim());
     finishEditing({ move: "down" });
   }
@@ -1759,6 +3533,7 @@
       var dropzone = event.target.closest && event.target.closest(".import-dropzone");
       if (!dropzone) return;
       event.preventDefault();
+      if (competencyIsClosed()) return;
       dropzone.classList.add("is-dragging");
     });
     document.addEventListener("dragleave", function (event) {
@@ -1770,25 +3545,53 @@
       if (!dropzone) return;
       event.preventDefault();
       dropzone.classList.remove("is-dragging");
+      if (competencyIsClosed()) {
+        closedCompetencyWarning("O envio de arquivos");
+        return;
+      }
       var file = event.dataTransfer && event.dataTransfer.files[0];
       if (file) setSelectedFile(file);
     });
   }
 
+  function flushAutosaveBeforePageExit() {
+    if (state.apiMode !== "online" || !state.settings.autosave) return;
+    if (editSession && !finishEditing({ move: null })) return;
+    if (Object.keys(pendingDaySaves).length) flushPendingDaySaves();
+  }
+
   function syncRouteFromLocation(options) {
+    if (state.apiMode === "loading") return Promise.resolve();
     if (editSession && !finishEditing({ move: null })) {
       root.history.replaceState(null, "", routeHash({
         view: state.route,
         companyId: state.selectedCompanyId,
         competenceId: state.selectedCompetenceId,
       }));
-      return;
+      return Promise.resolve();
     }
+    var sequence = ++routeLoadSequence;
     var route = validateRoute(parseHashRoute(root.location.hash));
     var canonicalHash = routeHash(route);
     if (root.location.hash !== canonicalHash) root.history.replaceState(null, "", canonicalHash);
     applyRouteContext(route);
+    if (state.apiMode !== "online" || !route.competenceId) {
+      render(options);
+      return Promise.resolve();
+    }
+    var summaryRequested = route.view === "competency-summary";
+    var loading = loadCompetenceData(route.competenceId, { summaryForce: summaryRequested });
     render(options);
+    return loading.then(function () {
+      if (sequence !== routeLoadSequence) return;
+      applyRouteContext(route);
+      render(options);
+    }).catch(function (error) {
+      if (sequence !== routeLoadSequence) return;
+      state.reviewLoading = false;
+      render(options);
+      showToast("Não foi possível carregar os dados desta competência.", "error", error && error.message);
+    });
   }
 
   function bindEvents() {
@@ -1800,6 +3603,10 @@
     document.addEventListener("blur", handleBlur, true);
     document.addEventListener("copy", handleCopy);
     document.addEventListener("paste", handlePaste);
+    document.addEventListener("visibilitychange", function () {
+      if (document.visibilityState === "hidden") flushAutosaveBeforePageExit();
+    });
+    root.addEventListener("pagehide", flushAutosaveBeforePageExit);
     byId("sidebarExpandButton").addEventListener("click", toggleSidebar);
     root.addEventListener("hashchange", function () {
       syncRouteFromLocation({ focusMain: true });
@@ -1809,7 +3616,6 @@
 
   function init() {
     bindEvents();
-    syncRouteFromLocation();
     root.OnPontoApp = {
       getState: function () { return state; },
       getData: function () { return data; },
@@ -1817,7 +3623,18 @@
       render: render,
       routeHash: routeHash,
       reset: resetDemo,
+      reloadAttendance: loadAttendanceForCompetence,
+      apiBase: configuredApiBase,
     };
+    bootstrapApiData().then(function (online) {
+      return syncRouteFromLocation().then(function () {
+        if (!online) showToast("API indisponível: usando dados de demonstração.", "warning", state.apiError + " Configure onponto.apiBase para alterar o endereço da API.");
+      });
+    }).catch(function (error) {
+      state.apiMode = "offline";
+      state.apiError = error && error.message || "API indisponível.";
+      syncRouteFromLocation();
+    });
   }
 
   init();

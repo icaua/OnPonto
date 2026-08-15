@@ -1,0 +1,73 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  viewBox="0 0 520 128"
+  fill="none"
+>
+  <!-- Símbolo -->
+  <g>
+    <circle
+      cx="64"
+      cy="64"
+      r="40"
+      stroke="#16845B"
+      stroke-width="8"
+    />
+
+    <circle
+      cx="64"
+      cy="64"
+      r="10"
+      fill="#16845B"
+    />
+
+    <path
+      d="M64 12V32"
+      stroke="#16845B"
+      stroke-width="8"
+    />
+
+    <path
+      d="M64 96V116"
+      stroke="#16845B"
+      stroke-width="8"
+    />
+
+    <path
+      d="M12 64H32"
+      stroke="#16845B"
+      stroke-width="8"
+    />
+
+    <path
+      d="M96 64H116"
+      stroke="#16845B"
+      stroke-width="8"
+    />
+  </g>
+
+  <!-- ON -->
+  <text
+    x="146"
+    y="84"
+    fill="#103C32"
+    font-family="Inter, Arial, sans-serif"
+    font-size="58"
+    font-weight="500"
+    letter-spacing="-1"
+  >
+    ON
+  </text>
+
+  <!-- PONTO. -->
+  <text
+    x="238"
+    y="84"
+    fill="#16845B"
+    font-family="Inter, Arial, sans-serif"
+    font-size="58"
+    font-weight="700"
+    letter-spacing="-1.5"
+  >
+    PONTO.
+  </text>
+</svg>

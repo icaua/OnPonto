@@ -1,10 +1,13 @@
+from datetime import date, time, timedelta
 from html import escape
 from io import BytesIO
+import re
+import unicodedata
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import HTMLResponse, StreamingResponse
 from openpyxl import Workbook
-from openpyxl.styles import Font, PatternFill
+from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 from sqlalchemy.orm import Session
 
@@ -14,6 +17,99 @@ from app.database.session import get_db
 
 router = APIRouter(prefix="/relatorios", tags=["Relatórios"])
 
+FORMATO_DATA_EXCEL = "dd/mm/yyyy"
+FORMATO_HORA_EXCEL = "hh:mm"
+FORMATO_DURACAO_EXCEL = "[h]:mm"
+
+ROTULOS_SITUACAO = {
+    "conferido": "Conferido",
+    "pendente": "Pendente",
+    "indisponivel": "Indisponível",
+}
+
+ROTULOS_STATUS_DIA = {
+    "normal": "Normal",
+    "falta": "Falta",
+    "atestado": "Atestado",
+    "folga": "Folga",
+    "feriado": "Feriado",
+    "domingo": "Domingo",
+    "sem_expediente": "Sem expediente",
+    "trabalho_externo": "Trabalho externo",
+    "afastamento": "Afastamento",
+    "pendente": "Pendente",
+    "pendente_conferencia": "Pendente de conferência",
+}
+
+
+def texto_seguro_excel(valor: object) -> str | None:
+    if valor is None:
+        return None
+    texto = str(valor)
+    if not texto:
+        return None
+    if texto.lstrip().startswith(("=", "+", "-", "@")):
+        return "'" + texto
+    return texto
+
+
+def slug_nome_arquivo(valor: str) -> str:
+    normalizado = unicodedata.normalize("NFKD", valor)
+    ascii_seguro = normalizado.encode("ascii", "ignore").decode("ascii")
+    slug = re.sub(r"[^a-zA-Z0-9]+", "_", ascii_seguro).strip("_").lower()
+    return slug[:80] or "empresa"
+
+
+def data_excel(valor: str | None) -> date | None:
+    if not valor:
+        return None
+    try:
+        return date.fromisoformat(valor)
+    except ValueError:
+        return None
+
+
+def hora_excel(valor: str | None) -> time | None:
+    if not valor:
+        return None
+    try:
+        return time.fromisoformat(valor)
+    except ValueError:
+        return None
+
+
+def duracao_excel(minutos: int | None) -> timedelta | None:
+    return timedelta(minutes=minutos) if minutos is not None else None
+
+
+def valor_calculado_excel(valor: object) -> object:
+    return "Indisponível" if valor is None else valor
+
+
+def saldo_excel(item: dict) -> timedelta | str | None:
+    if item.get("pendente_calculo"):
+        return None
+    atraso = item.get("atraso_minutos")
+    extra = item.get("extra_minutos")
+    if atraso is None or extra is None:
+        return None
+    saldo_minutos = extra - atraso
+    if saldo_minutos < 0:
+        horas, minutos = divmod(abs(saldo_minutos), 60)
+        return f"-{horas:02d}:{minutos:02d}"
+    return duracao_excel(saldo_minutos)
+
+
+def rotulo_situacao(valor: str | None) -> str:
+    return ROTULOS_SITUACAO.get(valor or "", "Indisponível")
+
+
+def rotulo_status_dia(valor: str | None) -> str:
+    if valor in ROTULOS_STATUS_DIA:
+        return ROTULOS_STATUS_DIA[valor]
+    texto = str(valor or "").replace("_", " ").strip()
+    return texto[:1].upper() + texto[1:] if texto else "Indisponível"
+
 
 def ajustar_larguras(ws) -> None:
     for coluna in ws.columns:
@@ -22,10 +118,21 @@ def ajustar_larguras(ws) -> None:
 
 
 def estilizar_cabecalho(ws) -> None:
-    preenchimento = PatternFill("solid", fgColor="1F6F68")
+    preenchimento = PatternFill("solid", fgColor="16845B")
     for celula in ws[1]:
         celula.font = Font(bold=True, color="FFFFFF")
         celula.fill = preenchimento
+
+
+def finalizar_planilha(ws) -> None:
+    estilizar_cabecalho(ws)
+    alinhamento = Alignment(vertical="top", wrap_text=True)
+    for linha in ws.iter_rows():
+        for celula in linha:
+            celula.alignment = alinhamento
+    ws.freeze_panes = "A2"
+    ws.auto_filter.ref = ws.dimensions
+    ajustar_larguras(ws)
 
 
 @router.get("/excel")
@@ -50,25 +157,28 @@ def exportar_excel(
             "Faltas",
             "Atestados",
             "Pendências",
+            "Situação",
             "Observações",
         ]
     )
     for item in resultado["resumo"]:
         ws_resumo.append(
             [
-                resultado["empresa"]["nome"],
+                texto_seguro_excel(resultado["empresa"]["nome"]),
                 resultado["competencia"]["label"],
-                item["funcionario"],
-                item["atrasos"],
-                item["extras"],
-                item["faltas"],
-                item["atestados"],
-                item["pendencias"],
-                item["observacoes"],
+                texto_seguro_excel(item["funcionario"]),
+                valor_calculado_excel(duracao_excel(item["atrasos_minutos"])),
+                valor_calculado_excel(duracao_excel(item["extras_minutos"])),
+                valor_calculado_excel(item["faltas"]),
+                valor_calculado_excel(item["atestados"]),
+                valor_calculado_excel(item["pendencias"]),
+                rotulo_situacao(item.get("situacao")),
+                texto_seguro_excel(item["observacoes"]),
             ]
         )
-    estilizar_cabecalho(ws_resumo)
-    ajustar_larguras(ws_resumo)
+        ws_resumo.cell(ws_resumo.max_row, 4).number_format = FORMATO_DURACAO_EXCEL
+        ws_resumo.cell(ws_resumo.max_row, 5).number_format = FORMATO_DURACAO_EXCEL
+    finalizar_planilha(ws_resumo)
 
     ws_marcacoes = wb.create_sheet("Marcações")
     ws_marcacoes.append(
@@ -76,13 +186,12 @@ def exportar_excel(
             "Data",
             "Funcionário",
             "Entrada",
-            "Saída Almoço",
-            "Retorno Almoço",
+            "Saída intervalo",
+            "Retorno",
             "Saída",
-            "Status do Dia",
-            "Horas Trabalhadas",
-            "Atraso",
-            "Extra",
+            "Jornada apurada",
+            "Saldo",
+            "Status",
             "Conferido",
             "Observações",
         ]
@@ -90,28 +199,43 @@ def exportar_excel(
     for item in resultado["marcacoes"]:
         ws_marcacoes.append(
             [
-                item["data"],
-                item["funcionario"],
-                item["entrada"],
-                item["saida_almoco"],
-                item["retorno_almoco"],
-                item["saida"],
-                item["status_dia"],
-                item["horas_trabalhadas"],
-                item["atraso"],
-                item["extra"],
+                data_excel(item["data"]),
+                texto_seguro_excel(item["funcionario"]),
+                hora_excel(item["entrada"]),
+                hora_excel(item["saida_almoco"]),
+                hora_excel(item["retorno_almoco"]),
+                hora_excel(item["saida"]),
+                (
+                    "Indisponível"
+                    if item.get("pendente_calculo")
+                    else duracao_excel(item["horas_trabalhadas_minutos"])
+                ),
+                valor_calculado_excel(saldo_excel(item)),
+                texto_seguro_excel(rotulo_status_dia(item.get("status_dia"))),
                 "Sim" if item["conferido"] else "Não",
-                item["observacoes"],
+                texto_seguro_excel(item["observacoes"]),
             ]
         )
-    estilizar_cabecalho(ws_marcacoes)
-    ajustar_larguras(ws_marcacoes)
+        linha = ws_marcacoes.max_row
+        ws_marcacoes.cell(linha, 1).number_format = FORMATO_DATA_EXCEL
+        for coluna in range(3, 7):
+            ws_marcacoes.cell(linha, coluna).number_format = FORMATO_HORA_EXCEL
+        ws_marcacoes.cell(linha, 7).number_format = FORMATO_DURACAO_EXCEL
+        celula_saldo = ws_marcacoes.cell(linha, 8)
+        celula_saldo.number_format = (
+            FORMATO_DURACAO_EXCEL if isinstance(celula_saldo.value, timedelta) else "@"
+        )
+    finalizar_planilha(ws_marcacoes)
 
     arquivo = BytesIO()
     wb.save(arquivo)
     arquivo.seek(0)
 
-    nome = f"apuracao_on_ponto_{resultado['competencia']['label'].replace('/', '-')}.xlsx"
+    nome_empresa = slug_nome_arquivo(resultado["empresa"]["nome"])
+    nome = (
+        f"on_ponto_{nome_empresa}_"
+        f"{resultado['competencia']['ano']:04d}-{resultado['competencia']['mes']:02d}.xlsx"
+    )
     return StreamingResponse(
         arquivo,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -132,11 +256,11 @@ def relatorio_impressao(
         f"""
         <tr>
           <td>{escape(item['funcionario'])}</td>
-          <td>{escape(item['atrasos'])}</td>
-          <td>{escape(item['extras'])}</td>
-          <td>{item['faltas']}</td>
-          <td>{item['atestados']}</td>
-          <td>{item['pendencias']}</td>
+          <td>{escape(str(item['atrasos'] if item['atrasos'] is not None else 'Indisponível'))}</td>
+          <td>{escape(str(item['extras'] if item['extras'] is not None else 'Indisponível'))}</td>
+          <td>{item['faltas'] if item['faltas'] is not None else 'Indisponível'}</td>
+          <td>{item['atestados'] if item['atestados'] is not None else 'Indisponível'}</td>
+          <td>{item['pendencias'] if item['pendencias'] is not None else 'Indisponível'}</td>
         </tr>
         """
         for item in resultado["resumo"]

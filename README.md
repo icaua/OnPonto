@@ -2,7 +2,11 @@
 
 Sistema web monolítico/modular para tratamento e apuração de ponto recebido por escritório contábil.
 
-O On Ponto não é um sistema oficial de registro de ponto, não substitui relógio de ponto e não é usado para funcionários baterem ponto. O objetivo do MVP é receber arquivos enviados pelos clientes, organizar, conferir, apurar e manter histórico.
+**Versão:** `1.0.0-rc.1`
+
+**Estado:** candidato a MVP, com escopo funcional congelado em 15/08/2026.
+
+O On Ponto não é um sistema oficial de registro de ponto, não substitui relógio de ponto e não é usado para funcionários baterem ponto. O objetivo do MVP é receber arquivos enviados pelos clientes, organizar, conferir, apurar e preservar as marcações e os arquivos originais.
 
 ## Stack
 
@@ -13,27 +17,26 @@ O On Ponto não é um sistema oficial de registro de ponto, não substitui reló
 - Excel: openpyxl
 - PDF: relatório HTML imprimível com `window.print()`
 
-## Protótipo de interface
+## Interface e fluxo integrado
 
-O frontend atual é um protótipo desktop-first que funciona com dados simulados e não envia arquivos ou alterações ao backend. Essa separação é intencional: toda importação passa por uma prévia explícita antes de qualquer confirmação.
+O frontend desktop-first consulta a API em `http://127.0.0.1:8000` por padrão. Quando a API está disponível, empresas, funcionários, competências e marcações vêm do backend; se ela estiver offline, a interface sinaliza claramente o modo de demonstração e usa os mocks locais.
 
-O protótipo permite:
+A interface permite:
 
 - iniciar pela lista de empresas e navegar por visão geral, funcionários, competências, relatórios e configurações da empresa;
 - abrir uma competência e acessar Resumo, Importações, Conferência, Arquivos, Histórico e Exportações sem perder o contexto;
-- simular a análise de TXT, XLS, XLSX, PDF ou imagem e revisar a prévia sem salvar automaticamente;
-- editar horários na grade de Conferência com normalização, validação, navegação por teclado e autosave simulado;
-- comparar batidas originais, interpretação sugerida, edição atual e resultado conferido;
-- selecionar dias, aplicar ações em massa com confirmação e abrir a comparação visual de OCR;
-- demonstrar todos os estados de dia pedidos com 248 registros fictícios de julho de 2026.
+- analisar um TXT estruturado, revisar a prévia, selecionar os registros e só então confirmar a importação;
+- editar horários na grade de Conferência com normalização, validação, navegação por teclado e autosave persistido pela API;
+- comparar as batidas originais com a interpretação atual e marcar o resultado como conferido;
+- selecionar dias e aplicar ações em massa com confirmação, sem alterar as batidas originais;
+- abrir o arquivo TXT original em modo somente leitura;
+- consultar a apuração real, baixar o Excel e fechar ou reabrir a competência com proteção de escrita.
 
-Como o frontend continua sendo um protótipo estático, a hierarquia usa rotas hash, por exemplo
+Como o frontend é servido como aplicação estática, a hierarquia usa rotas hash, por exemplo
 `#/empresas/1/competencias/1001/conferencia`. Isso preserva deep links e recarregamento com
 `python -m http.server`, que não oferece fallback de SPA para caminhos físicos.
 
-Os dados detalhados da Conferência (dias, batidas, painel e autosave) estão simulados para
-Queen · 07/2026. As demais empresas e competências mantêm seus resumos e podem apresentar
-estados vazios nas áreas em que os mocks não possuem registros detalhados.
+No modo integrado, os dados detalhados da Conferência são recarregados por competência e continuam disponíveis após atualizar a página. As batidas originais mantêm os segundos do TXT e as edições alteram somente a interpretação atual. No fallback offline, permanecem disponíveis os dados fictícios de Queen · 07/2026.
 
 Atalhos principais na Conferência:
 
@@ -58,6 +61,7 @@ backend/
     relatorios/
     database/
     main.py
+  tests/
   uploads/
   requirements.txt
 frontend/
@@ -69,98 +73,170 @@ frontend/
     utils.js
     components.js
     screens.js
+seed_demo.py
+instalar_onponto.{sh,bat}
+iniciar_onponto.{sh,bat}
+VERSION
 ```
 
-## Como rodar
+## Executando o On Ponto
 
-1. Instale e execute o backend:
+Os scripts criam e usam a virtualenv `.venv` na raiz do projeto. Eles podem ser chamados de qualquer diretório e não apagam banco, uploads ou outros dados existentes.
+
+Pré-requisitos:
+
+- Python 3.10 ou mais recente;
+- acesso à internet na primeira instalação para baixar as dependências Python;
+- portas locais `8000` e `5500` livres.
+
+O MVP foi preparado para uso local por uma pessoa, somente em `127.0.0.1`. Como não há autenticação nesta versão, não exponha esses serviços à rede. Antes de atualizar ou mover a instalação, faça uma cópia conjunta de `backend/onponto.db` e `backend/uploads/`; o produto não cria backups nem criptografa esses dados automaticamente.
+
+### Windows
+
+Primeira execução:
+
+1. Execute `instalar_onponto.bat`.
+2. Execute `iniciar_onponto.bat`.
+
+Uso posterior:
+
+1. Execute apenas `iniciar_onponto.bat`.
+
+O inicializador abre backend e frontend em janelas separadas e, depois que os serviços respondem, abre o navegador. Para encerrar, feche as duas janelas de serviço.
+
+### Linux
+
+Primeira execução:
 
 ```bash
-cd backend
-python -m venv .venv
-.venv\Scripts\activate
-pip install -r requirements.txt
-uvicorn app.main:app --reload
+chmod +x instalar_onponto.sh iniciar_onponto.sh
+./instalar_onponto.sh
+./iniciar_onponto.sh
 ```
 
-2. Abra o frontend:
-
-Abra `frontend/index.html` no navegador. Para a validação mais fiel, prefira servi-lo por HTTP:
-
-Se preferir servir por HTTP:
+Uso posterior:
 
 ```bash
-cd frontend
-python -m http.server 5500
+./iniciar_onponto.sh
 ```
 
-Depois acesse http://127.0.0.1:5500.
+O inicializador permanece aberto como supervisor. Use `Ctrl+C` para encerrar backend e frontend. Em ambiente gráfico ele tenta abrir o navegador com `xdg-open`; sem interface gráfica, apenas mostra a URL. Os logs ficam em `logs/backend.log` e `logs/frontend.log`.
 
-O backend não precisa estar ligado para usar o protótipo. O modo de demonstração aparece de forma explícita em todas as telas.
+### Endereços locais
 
-## Fixtures para testes
+Frontend:
+http://127.0.0.1:5500
 
-O projeto inclui um gerador de arquivos fictícios de ponto para testar upload, histórico, conferência manual, apuração e futuras leituras por OCR.
+API:
+http://127.0.0.1:8000
 
-Esses dados são inventados e não devem ser usados como registro oficial de ponto.
+Swagger:
+http://127.0.0.1:8000/docs
 
-Para instalar as dependências do gerador no mesmo ambiente virtual do backend:
+O backend precisa estar ligado para o fluxo real de importação e persistência. Sem ele, o frontend sinaliza explicitamente o modo de demonstração.
+
+## Preparando a demonstração
+
+Depois da instalação, execute o seed a partir da raiz do projeto:
+
+Linux:
 
 ```bash
-backend\.venv\Scripts\python -m pip install -r fixtures\requirements.txt
+.venv/bin/python seed_demo.py
 ```
 
-Para gerar novamente os arquivos:
+Windows:
 
-```bash
-backend\.venv\Scripts\python fixtures\generate_fixtures.py
+```bat
+.venv\Scripts\python.exe seed_demo.py
 ```
 
-Arquivos gerados:
+O comando prepara a **Empresa Demonstração**, a competência **07/2026** e dois funcionários fictícios, incluindo o código `F001` usado pela fixture TXT dos testes. Ele pode ser executado novamente sem duplicar ou apagar dados e informa o que criou ou reutilizou. O código fictício `X999` permanece sem cadastro de propósito, para demonstrar o tratamento de divergências na importação.
 
-- PDFs: `fixtures/generated/pdf/`
-- Imagem PNG degradada: `fixtures/generated/images/`
-- Planilha XLSX: `fixtures/generated/spreadsheets/`
-- Resultado esperado JSON: `fixtures/generated/expected/resultado_esperado.json`
+## Importador TXT de relógio
 
-O gerador cria relatórios simples, bagunçados e com inconsistências para as empresas fictícias Mercado Exemplo LTDA, Padaria Modelo LTDA e Loja Teste Comércio LTDA, com funcionários fictícios e situações como falta, atestado, folga, feriado, sábado, domingo, hora extra, atraso e marcação incompleta.
+O fluxo integrado aceita, nesta etapa, somente TXT estruturado com colunas separadas por TAB e cabeçalho contendo `EnNo`, `Name` e `DateTime`. O arquivo pode estar em UTF-16, UTF-8 com BOM ou UTF-8. A análise salva o original e gera uma prévia, mas só cria marcações depois da confirmação dos registros selecionados.
+
+Endpoints:
+
+- `POST /importadores/txt-log-relogio/analisar`: recebe `empresa_id`, `competencia_id` e `arquivo` como multipart;
+- `POST /importadores/txt-log-relogio/confirmar`: recebe o arquivo analisado e os IDs selecionados;
+- `GET /arquivos/{arquivo_id}/download`: devolve o original preservado.
+
+Para uma demonstração inteiramente fictícia, use `backend/tests/fixtures/relogio_ficticio.txt`:
+
+1. Ligue backend e frontend e confirme o indicador `Ambiente integrado`.
+2. Cadastre ou edite a empresa pela tela **Empresas**, os funcionários pela área **Funcionários** da empresa e a competência pela área **Competências**. Esses formulários persistem os dados na API. O campo **Código** do funcionário deve corresponder ao `EnNo`; o nome exato normalizado é usado somente como segunda tentativa.
+3. Abra `Empresa Demonstração → 07/2026 → Importações`, selecione a fixture e clique em `Analisar arquivo`.
+4. Confira na prévia as batidas, pendências, funcionários não cadastrados e datas fora da competência. Estas últimas começam desmarcadas.
+5. Selecione os dias desejados e clique em `Salvar importação e iniciar conferência`.
+6. Na Conferência, abra um dia, confirme os segundos em `Batidas originais`, edite a interpretação e recarregue a página para validar a persistência.
+
+A fixture não contém dados pessoais. Nela, `F001` é localizado, `X999` permanece propositalmente sem cadastro e uma data de junho aparece fora da competência de julho. A migração SQLite é aplicada automaticamente e de forma incremental ao iniciar a API; o banco existente não é recriado.
 
 ## Fluxo principal
 
-1. Cadastre uma empresa.
-2. Cadastre funcionários vinculados à empresa.
-3. Crie uma competência mensal.
-4. Faça upload dos arquivos originais recebidos.
-5. Importe planilhas XLSX legadas, quando houver.
-6. Lance ou confira as marcações de ponto.
-7. Veja a apuração.
-8. Exporte Excel ou abra o relatório imprimível para salvar em PDF pelo navegador.
-
-## Importador XLSX legado
-
-A tela `Importar XLSX` aceita planilhas antigas em que cada funcionário ocupa um bloco de 3 linhas: cabeçalho, marcações e dias do mês.
-
-O importador:
-
-- salva o XLSX original no histórico da competência;
-- lê horários múltiplos em uma mesma célula usando `openpyxl`;
-- retorna uma prévia estruturada;
-- marca dados importados como `origem = xlsx_importado`;
-- mantém `conferido = false`;
-- usa `pendente_conferencia` quando a quantidade de marcações exige revisão manual.
-
-Endpoint:
-
-- `POST /importadores/xlsx-ponto-generico`
+1. Cadastre uma empresa na tela **Empresas**.
+2. Abra a empresa e cadastre seus funcionários, informando o código usado pelo relógio.
+3. Crie e abra uma competência mensal na área **Competências**.
+4. Analise o TXT estruturado e revise a prévia.
+5. Confirme somente os registros desejados.
+6. Abra a **Conferência**, compare os originais e ajuste a interpretação quando necessário.
+7. Recarregue e confirme a persistência da edição.
+8. Marque os registros revisados como conferidos.
+9. Consulte o **Resumo** real da competência.
+10. Baixe o Excel em **Exportações**.
+11. Feche a competência; para voltar a editar, use a ação explícita de reabertura.
 
 ## Endpoints principais
 
-- `GET/POST/PATCH /empresas`
-- `GET/POST/PATCH /funcionarios`
-- `GET/POST/PATCH /competencias`
+- `GET/POST /empresas` e `GET/PATCH /empresas/{id}`
+- `GET/POST /funcionarios` e `GET/PATCH /funcionarios/{id}`
+- `GET/POST /competencias` e `GET/PATCH /competencias/{id}`
+- `POST /competencias/{id}/fechar`
+- `POST /competencias/{id}/reabrir`
 - `GET/POST /arquivos`
-- `POST /importadores/xlsx-ponto-generico`
-- `GET/POST/PATCH /marcacoes`
-- `GET /apuracao`
-- `GET /relatorios/excel`
-- `GET /relatorios/impressao`
+- `GET /arquivos/{arquivo_id}/download`
+- `POST /importadores/txt-log-relogio/analisar`
+- `POST /importadores/txt-log-relogio/confirmar`
+- `GET/POST /marcacoes` e `GET/PATCH /marcacoes/{id}`
+- `GET /apuracao?competencia_id={id}`
+- `GET /relatorios/excel?competencia_id={id}`
+- `GET /relatorios/impressao?competencia_id={id}`
+
+O `PATCH /competencias/{id}` não altera status nem data de fechamento. Essas transições passam exclusivamente pelas ações `fechar` e `reabrir`. Depois do fechamento, leituras e exportações continuam liberadas, enquanto importações, uploads e edições retornam conflito até a reabertura.
+
+## Escopo congelado
+
+O candidato `1.0.0-rc.1` cobre somente o caminho validado de TXT estruturado até o fechamento. Nesta etapa são aceitas apenas correções de bugs, pequenos ajustes de UX e acessibilidade, textos, regressões e documentação.
+
+Ficam explicitamente para versões posteriores:
+
+- importação XLS legado e suporte a novos formatos XLSX;
+- OCR e processamento de PDF escaneado;
+- recursos de IA e leitura automática de atestados;
+- autenticação e permissões avançadas;
+- motor completo de regras trabalhistas.
+
+Há código experimental anterior para XLSX/OCR no repositório, mas ele não integra o fluxo homologado deste MVP e não deve ser apresentado como funcionalidade suportada.
+
+Consulte [CHECKLIST-CONGELAMENTO-MVP.md](CHECKLIST-CONGELAMENTO-MVP.md) para o aceite, as evidências e as limitações conhecidas.
+
+## Testes
+
+No ambiente virtual do backend:
+
+```bash
+.venv/bin/python -m unittest discover -s backend/tests -v
+```
+
+No Windows, use `.venv\Scripts\python.exe` no lugar de `.venv/bin/python`. Verificações adicionais usadas no congelamento:
+
+```bash
+.venv/bin/python -m compileall -q backend/app backend/tests seed_demo.py
+node --check frontend/app.js
+node --check frontend/js/screens.js
+node --check frontend/js/components.js
+bash -n instalar_onponto.sh iniciar_onponto.sh
+git diff --check
+```
