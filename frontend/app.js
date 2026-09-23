@@ -11,9 +11,13 @@
   }
 
   var VIEWS = [
+    "calendar",
     "companies",
     "company-overview",
     "company-employees",
+    "company-scales",
+    "company-ocorrencias",
+    "company-banco-horas",
     "company-competencies",
     "competency-summary",
     "imports",
@@ -30,6 +34,9 @@
   var COMPANY_VIEWS = [
     "company-overview",
     "company-employees",
+    "company-scales",
+    "company-ocorrencias",
+    "company-banco-horas",
     "company-competencies",
     "company-reports",
     "company-settings",
@@ -47,6 +54,8 @@
   ];
 
   var ROUTE_ALIASES = {
+    calendar: "calendar",
+    calendario: "calendar",
     companies: "companies",
     empresas: "companies",
     registrations: "companies",
@@ -57,6 +66,12 @@
     "company-employees": "company-employees",
     employees: "company-employees",
     funcionarios: "company-employees",
+    "company-scales": "company-scales",
+    scales: "company-scales",
+    escalas: "company-scales",
+    ocorrencias: "company-ocorrencias",
+    "company-ocorrencias": "company-ocorrencias",
+    "company-banco-horas": "company-banco-horas",
     "company-competencies": "company-competencies",
     competencies: "company-competencies",
     competencias: "company-competencies",
@@ -94,10 +109,8 @@
     configuracoes: "company-settings",
   };
 
-  var STATUS_LABELS = {
+  var DAY_STATUS_LABELS = {
     normal: "Normal",
-    conferir: "Conferir",
-    inconsistente: "Inconsistente",
     falta: "Falta",
     atestado: "Atestado",
     folga: "Folga",
@@ -107,6 +120,13 @@
     trabalho_externo: "Trabalho externo",
     afastamento: "Afastamento",
   };
+
+  var STATUS_LABELS = Object.assign({
+    conferir: "Conferir",
+    inconsistente: "Inconsistente",
+  }, DAY_STATUS_LABELS);
+
+  var UF_OPTIONS = ["AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA", "MT", "MS", "MG", "PA", "PB", "PR", "PE", "PI", "RJ", "RN", "RS", "RO", "RR", "SC", "SP", "SE", "TO"];
 
   var SLOT_ALIASES = {
     entry: ["entry", "entrada"],
@@ -145,9 +165,12 @@
   var autosaveTimer = null;
   var autosaveFlushPromise = null;
   var pendingDaySaves = Object.create(null);
+  var activeDaySaves = Object.create(null);
   var loadedCompetenceDays = Object.create(null);
   var loadedCompetenceFiles = Object.create(null);
   var loadedCompetenceSummaries = Object.create(null);
+  var loadedCompanyScales = Object.create(null);
+  var companyScaleLoadSequences = Object.create(null);
   var competenceSummarySequences = Object.create(null);
   var importAnalysisSequence = 0;
   var routeLoadSequence = 0;
@@ -260,7 +283,7 @@
 
   function statusToBackend(value) {
     var key = statusFromBackend(value);
-    return key === "conferir" || key === "inconsistente" ? "pendente_conferencia" : key;
+    return Object.prototype.hasOwnProperty.call(DAY_STATUS_LABELS, key) ? key : "normal";
   }
 
   function statusLabel(value) {
@@ -275,6 +298,9 @@
       name: source.name || source.nome || "Empresa",
       nome: source.nome || source.name || "Empresa",
       legalName: source.legalName || source.razao_social || source.razaoSocial || source.nome || source.name || "Empresa",
+      city: source.city !== undefined ? source.city : source.cidade,
+      cidade: source.cidade !== undefined ? source.cidade : source.city,
+      uf: source.uf ? String(source.uf).toUpperCase() : null,
       active: source.active !== undefined ? source.active : source.ativa !== false,
       ativa: source.ativa !== undefined ? source.ativa : source.active !== false,
       updatedAt: source.updatedAt || source.updated_at || null,
@@ -293,8 +319,26 @@
       codigo: source.codigo !== undefined ? source.codigo : source.code,
       role: source.role || source.cargo || "",
       cargo: source.cargo || source.role || "",
+      scaleId: source.scaleId !== undefined ? source.scaleId : source.escala_id,
+      escala_id: source.escala_id !== undefined ? source.escala_id : source.scaleId,
       active: source.active !== undefined ? source.active : source.ativo !== false,
       ativo: source.ativo !== undefined ? source.ativo : source.active !== false,
+    });
+  }
+
+  function normalizeScale(item) {
+    var source = item || {};
+    var companyId = source.companyId !== undefined ? source.companyId : source.empresa_id;
+    return Object.assign({}, source, {
+      id: source.id,
+      companyId: companyId,
+      empresa_id: companyId,
+      name: source.name || source.nome || "Escala",
+      nome: source.nome || source.name || "Escala",
+      mode: source.mode || source.modo_apuracao || "carga_horaria",
+      modo_apuracao: source.modo_apuracao || source.mode || "carga_horaria",
+      active: source.active !== undefined ? source.active : source.ativa !== false,
+      ativa: source.ativa !== undefined ? source.ativa : source.active !== false,
     });
   }
 
@@ -345,6 +389,7 @@
       .split("?")[0]
       .replace(/^\/+|\/+$/g, "");
     var segments = raw ? raw.split("/").filter(Boolean).map(safeDecode) : [];
+    if (segments.length === 1 && segments[0].toLowerCase() === "calendario") return { view: "calendar", companyId: null, competenceId: null };
     if (segments.length === 1 && segments[0].toLowerCase() === "empresas") return emptyRoute();
     if (segments.length < 2 || segments[0].toLowerCase() !== "empresas") return emptyRoute();
 
@@ -353,6 +398,9 @@
     if (segments.length === 3) {
       var companyChild = {
         funcionarios: "company-employees",
+        escalas: "company-scales",
+        ocorrencias: "company-ocorrencias",
+        "banco-horas": "company-banco-horas",
         competencias: "company-competencies",
         relatorios: "company-reports",
         configuracoes: "company-settings",
@@ -383,6 +431,7 @@
   function validateRoute(route) {
     var descriptor = route || emptyRoute();
     var view = VIEWS.indexOf(descriptor.view) === -1 ? "companies" : descriptor.view;
+    if (view === "calendar") return { view: "calendar", companyId: null, competenceId: null };
     if (view === "companies") return emptyRoute();
 
     var companyId = asId(descriptor.companyId);
@@ -402,11 +451,15 @@
 
   function routeHash(route) {
     var descriptor = validateRoute(route);
+    if (descriptor.view === "calendar") return "#/calendario";
     if (descriptor.view === "companies") return "#/empresas";
     var base = "#/empresas/" + encodeURIComponent(descriptor.companyId);
     var companySuffix = {
       "company-overview": "",
       "company-employees": "/funcionarios",
+      "company-scales": "/escalas",
+      "company-ocorrencias": "/ocorrencias",
+      "company-banco-horas": "/banco-horas",
       "company-competencies": "/competencias",
       "company-reports": "/relatorios",
       "company-settings": "/configuracoes",
@@ -491,6 +544,8 @@
       reviewLoading: false,
       competenceSummaryLoading: false,
       competenceSummaryError: "",
+      scalesLoading: false,
+      scalesError: "",
       exportExcelLoading: false,
       competenceLifecycleLoading: false,
       competenceLifecycleAction: "",
@@ -517,6 +572,10 @@
 
   function employees() {
     return data.employees || data.funcionarios || [];
+  }
+
+  function scales() {
+    return data.scales || data.escalas || [];
   }
 
   function days() {
@@ -671,7 +730,13 @@
       competenceLabel: firstValue(source.competencia_label, source.competenceLabel, currentCompetency() && (currentCompetency().label || Utils.formatCompetence(currentCompetency()))),
       requestedType: "txt_clock",
       detectedType: "txt_clock",
-      detectedFormat: ({ txt_log_relogio: "TXT estruturado" }[firstValue(source.tipo_detectado, source.formato_detectado, source.detectedFormat)] || firstValue(source.tipo_detectado, source.formato_detectado, source.detectedFormat, "TXT estruturado")),
+      detectedFormat: ({
+        txt_log_relogio: "TXT · log do relógio",
+        txt_id_tempo_maquina: "TXT · ID/Tempo/Máquina",
+        txt_generico: "TXT · detecção flexível",
+        xlsx_ponto_generico: "XLSX · ponto genérico",
+        xlsx_cartao_ponto: "XLSX · cartão de ponto",
+      }[firstValue(source.tipo_detectado, source.formato_detectado, source.detectedFormat)] || firstValue(source.tipo_detectado, source.formato_detectado, source.detectedFormat, "Arquivo de ponto")),
       validLineCount: Number(firstValue(source.total_linhas_validas, source.validLineCount, rows.length)) || 0,
       employeeCount: Number(firstValue(source.total_funcionarios_encontrados, source.employeeCount, Object.keys(foundEmployees).length)) || 0,
       unmatchedEmployeeCount: unmatched,
@@ -693,52 +758,72 @@
     var employeeId = firstValue(source.funcionario_id, source.employeeId);
     var competence = competencies().find(function (entry) { return idsEqual(entry.id, competenceId); }) || {};
     var employee = employees().find(function (entry) { return idsEqual(entry.id, employeeId); }) || {};
-    var company = companies().find(function (entry) { return idsEqual(entry.id, competence.companyId || competence.empresa_id); }) || {};
     var originalPunches = normalizeOriginalPunches(firstValue(source.batidas_originais, source.originalPunches, []));
     var sourceLines = firstValue(source.linhas_origem, source.sourceLines, []);
     if (!Array.isArray(sourceLines)) sourceLines = [];
     var fileId = firstValue(source.arquivo_origem_id, source.origem_arquivo_id, source.fileId);
-    var fileName = firstValue(source.arquivo_origem_nome, source.nome_arquivo_origem, source.fileName, source.arquivo_nome, "Arquivo TXT");
+    var originType = firstValue(source.origem, "txt_log_relogio");
+    var fileName = firstValue(
+      source.arquivo_origem_nome,
+      source.nome_arquivo_origem,
+      source.fileName,
+      source.arquivo_nome,
+      originType === "calendario" ? "Calendário da competência" : "Arquivo TXT"
+    );
     var current = {
       entry: normalizedTime(firstValue(interpretation.entrada, interpretation.entry, source.entrada)),
       breakStart: normalizedTime(firstValue(interpretation.saida_intervalo, interpretation.saida_almoco, interpretation.breakStart, source.saida_intervalo, source.saida_almoco)),
       breakEnd: normalizedTime(firstValue(interpretation.retorno_intervalo, interpretation.retorno_almoco, interpretation.breakEnd, source.retorno_intervalo, source.retorno_almoco)),
       exit: normalizedTime(firstValue(interpretation.saida, interpretation.exit, source.saida)),
     };
-    var normalizedStatus = statusFromBackend(firstValue(source.status_dia, source.status, interpretation.status, "pendente"));
+    var rawDayStatus = firstValue(source.status_dia, source.status, interpretation.status, "normal");
+    var rawDayStatusKey = String(rawDayStatus || "normal").trim().toLowerCase().replace(/[^a-z0-9]+/g, "_");
+    var legacyPendingStatus = rawDayStatusKey === "pendente" || rawDayStatusKey === "pendente_conferencia" || rawDayStatusKey === "conferir" || rawDayStatusKey === "inconsistente";
+    var normalizedStatus = statusFromBackend(rawDayStatus);
+    if (!Object.prototype.hasOwnProperty.call(DAY_STATUS_LABELS, normalizedStatus)) normalizedStatus = "normal";
     current.situation = normalizedStatus;
     current.status = normalizedStatus;
     current.observation = firstValue(source.observacoes, source.observacao, source.observation, "");
     var dateValue = source.data || source.date;
-    var weekday = dateValue ? new Date(String(dateValue).slice(0, 10) + "T12:00:00Z").getUTCDay() : null;
     var backendExpected = firstValue(source.jornada_prevista_minutos, source.expectedMinutes);
     var expectedMinutes = backendExpected !== null ? Number(backendExpected) : null;
     if (!Number.isFinite(expectedMinutes)) expectedMinutes = null;
-    if (expectedMinutes === null && weekday !== null) {
-      if (weekday === 0) expectedMinutes = 0;
-      else {
-        var hours = weekday === 6
-          ? firstValue(employee.jornada_especifica_sabado_horas, company.jornada_sabado_horas, 4)
-          : firstValue(employee.jornada_especifica_seg_sex_horas, company.jornada_seg_sex_horas, 8);
-        expectedMinutes = Number.isFinite(Number(hours)) ? Math.round(Number(hours) * 60) : null;
-      }
-    }
     var calculatedJourney = Utils.calculateJourney(current, expectedMinutes);
     var backendWorked = firstValue(source.jornada_apurada_minutos, source.workedMinutes);
     var backendBalance = firstValue(source.saldo_minutos, source.balanceMinutes);
     var workedMinutes = backendWorked !== null && Number.isFinite(Number(backendWorked)) ? Number(backendWorked) : calculatedJourney.workedMinutes;
     var balanceMinutes = backendBalance !== null && Number.isFinite(Number(backendBalance)) ? Number(backendBalance) : (workedMinutes == null || expectedMinutes == null ? null : workedMinutes - expectedMinutes);
+    var confirmed = source.conferido === true || source.confirmed === true;
+    var nonWorkingStatus = ["atestado", "folga", "feriado", "falta", "afastamento", "domingo", "sem_expediente"].indexOf(normalizedStatus) !== -1;
+    var scaleMissing = employee && employee.id !== undefined && firstValue(employee.escala_id, employee.scaleId) === null;
+    var incompleteCalculation = !nonWorkingStatus && (!current.entry || !current.exit || Boolean(current.breakStart) !== Boolean(current.breakEnd));
+    var pendingCalculationValue = firstValue(source.pendente_calculo, source.pendingCalculation);
+    var pendingCalculation = pendingCalculationValue === null ? (scaleMissing || incompleteCalculation) : pendingCalculationValue === true;
+    var pendingOperationalValue = firstValue(source.pendente_operacional, source.pendingOperational, source.pendente);
+    var pendingOperational = pendingOperationalValue === null
+      ? (legacyPendingStatus || pendingCalculation || !confirmed)
+      : pendingOperationalValue === true;
+    var pendingReason = firstValue(source.pendencia_motivo, source.pendingReason, source.motivo_pendencia);
+    var pendingType = firstValue(source.pendencia_tipo, source.pendingType);
     var issues = normalizeIssues(firstValue(source.pendencias, source.issues, []));
-    if (!issues.length && normalizedStatus === "conferir") {
+    if (pendingReason && !issues.some(function (issue) { return issue.message === pendingReason; })) {
       issues.push({
         id: "issue-api-mark-" + source.id,
-        type: "review",
+        type: pendingType || (scaleMissing ? "escala_nao_cadastrada" : "review"),
         severity: "warning",
-        message: current.observation || "Esta marcação precisa de conferência.",
+        message: pendingReason,
         resolved: false,
       });
     }
-    var confirmed = source.conferido === true || source.confirmed === true;
+    if (scaleMissing && !issues.some(function (issue) { return issue.type === "escala_nao_cadastrada"; })) {
+      issues.push({
+        id: "issue-scale-mark-" + source.id,
+        type: "escala_nao_cadastrada",
+        severity: "warning",
+        message: "Funcionário sem escala cadastrada.",
+        resolved: false,
+      });
+    }
     var details = originalPunches.map(function (punch, index) {
       return { id: "mark-" + source.id + "-punch-" + index, time: punch, horario: punch, sourceLine: sourceLines[index], fileId: fileId };
     });
@@ -749,7 +834,7 @@
       importedAt: firstValue(source.importado_em, source.created_at, source.createdAt),
       sourceLines: sourceLines,
       linhasOrigem: sourceLines,
-      type: firstValue(source.origem, "txt_log_relogio"),
+      type: originType,
       canOpenOriginal: Boolean(fileId),
       canOpenRegion: false,
     };
@@ -774,7 +859,16 @@
       currentInterpretation: current,
       interpretacaoAtual: current,
       status: normalizedStatus,
+      status_dia: normalizedStatus,
       statusLabel: statusLabel(normalizedStatus),
+      pendingOperational: pendingOperational,
+      pendente_operacional: pendingOperational,
+      pendingCalculation: pendingCalculation,
+      pendente_calculo: pendingCalculation,
+      pendingReason: pendingReason,
+      pendencia_motivo: pendingReason,
+      pendingType: pendingType,
+      pendencia_tipo: pendingType,
       confirmed: confirmed,
       conferido: confirmed,
       reviewState: confirmed ? "confirmed" : "suggested",
@@ -798,7 +892,11 @@
 
   function replaceAttendanceForCompetence(competenceId, markings) {
     var remaining = days().filter(function (day) { return !idsEqual(day.competenceId || day.competencia_id, competenceId); });
-    var merged = remaining.concat(markings);
+    var merged = remaining.concat(markings.map(function (marking) {
+      var key = String(marking.id);
+      if (pendingDaySaves[key] || activeDaySaves[key]) return findDay(marking.id) || marking;
+      return marking;
+    }));
     data.attendanceDays = merged;
     data.dias = merged;
   }
@@ -815,8 +913,16 @@
       nome: name,
       type: type,
       tipo: type,
-      typeLabel: type === "txt_log_relogio" ? "TXT estruturado" : String(type).toUpperCase(),
-      detectedFormat: type === "txt_log_relogio" ? "TXT estruturado" : String(type).toUpperCase(),
+      typeLabel: ({
+        txt_log_relogio: "TXT estruturado",
+        txt_id_tempo_maquina: "TXT ID/Tempo",
+        txt_generico: "TXT flexível",
+      }[type] || String(type).toUpperCase()),
+      detectedFormat: ({
+        txt_log_relogio: "TXT estruturado",
+        txt_id_tempo_maquina: "TXT ID/Tempo",
+        txt_generico: "TXT flexível",
+      }[type] || String(type).toUpperCase()),
       uploadedAt: firstValue(source.created_at, source.uploadedAt, source.createdAt),
       createdAt: firstValue(source.created_at, source.createdAt, source.uploadedAt),
       observation: firstValue(source.observacoes, source.observation, ""),
@@ -860,6 +966,7 @@
       generatedAt: valueFromAliases(source, ["gerado_em", "geradoEm", "generated_at", "generatedAt"]),
       pendingRecords: pendingRecords,
       processedRecords: processedRecords,
+      markings: Array.isArray(processedRecordsSource) ? processedRecordsSource : [],
       general: {
         employees: valueFromAliases(generalSource, ["funcionarios", "total_funcionarios", "employees", "employee_count"]),
         confirmed: valueFromAliases(generalSource, ["conferidos", "funcionarios_conferidos", "confirmed", "confirmed_employees"]),
@@ -872,11 +979,13 @@
           employeeId: valueFromAliases(item, ["funcionario_id", "employee_id", "id"]),
           employeeName: valueFromAliases(item, ["funcionario", "funcionario_nome", "nome", "employee", "employee_name"]),
           employeeCode: valueFromAliases(item, ["codigo", "funcionario_codigo", "code", "employee_code"]),
+          bank: item.banco_horas || null,
           processedDays: valueFromAliases(item, ["dias_processados", "processed_days", "day_count"]),
           delays: valueFromAliases(item, ["atrasos", "atraso", "total_atrasos", "delays"]),
           delayMinutes: valueFromAliases(item, ["atrasos_minutos", "atraso_minutos", "delay_minutes"]),
           extras: valueFromAliases(item, ["extras", "horas_extras", "total_extras", "overtime"]),
           extraMinutes: valueFromAliases(item, ["extras_minutos", "extra_minutos", "overtime_minutes"]),
+          holidayMinutes: Object.prototype.hasOwnProperty.call(item, "horas_feriado_minutos") ? item.horas_feriado_minutos : 0,
           absences: valueFromAliases(item, ["faltas", "absences"]),
           certificates: valueFromAliases(item, ["atestados", "certificates", "medical_certificates"]),
           pending: valueFromAliases(item, ["pendencias", "pending", "issues"]),
@@ -884,6 +993,82 @@
         };
       }),
     };
+  }
+
+  function applyApurationDetails(competenceId, details) {
+    if (!Array.isArray(details) || !details.length) return;
+    var byId = Object.create(null);
+    details.forEach(function (detail) {
+      if (detail && detail.id !== undefined && detail.id !== null) byId[String(detail.id)] = detail;
+    });
+    days().forEach(function (day) {
+      if (!idsEqual(day.competenceId || day.competencia_id, competenceId)) return;
+      if (typeof pendingDaySaves !== "undefined" && pendingDaySaves[String(day.id)]) return;
+      var detail = byId[String(day.id)];
+      if (!detail) return;
+      day.occurrences = detail.ocorrencias || [];
+      day.occurrenceLabel = detail.ocorrencias_rotulo || "";
+      day.calendarNote = detail.fora_vinculo ? "Fora do vínculo" : (detail.feriados || []).join(", ");
+      day.effectiveStatus = detail.fora_vinculo ? "fora_vinculo" : detail.feriado_aplicado ? "feriado" : null;
+      day.excusedMinutes = detail.minutos_abonados || 0;
+      // Keep editable statuses separate from the engine's occurrence overlay.
+      var normalizedStatus = statusFromBackend((day.occurrences.length || detail.feriado_aplicado || detail.fora_vinculo) ? firstValue(detail.status_original, day.status) : firstValue(detail.status_dia, detail.status, day.status, "normal"));
+      if (!Object.prototype.hasOwnProperty.call(DAY_STATUS_LABELS, normalizedStatus)) normalizedStatus = "normal";
+      var expected = firstValue(detail.jornada_exigida_minutos, detail.jornada_prevista_minutos, detail.expectedMinutes);
+      var worked = firstValue(detail.jornada_apurada_minutos, detail.horas_trabalhadas_minutos, detail.workedMinutes);
+      expected = expected !== null && Number.isFinite(Number(expected)) ? Number(expected) : null;
+      worked = worked !== null && Number.isFinite(Number(worked)) ? Number(worked) : null;
+      var balance = firstValue(detail.saldo_minutos, detail.balanceMinutes);
+      var delay = firstValue(detail.atraso_minutos);
+      var extra = firstValue(detail.extra_minutos);
+      balance = balance !== null && Number.isFinite(Number(balance)) ? Number(balance)
+        : (delay !== null && extra !== null && Number.isFinite(Number(delay)) && Number.isFinite(Number(extra)) ? Number(extra) - Number(delay) : null);
+      var confirmed = detail.conferido === true || detail.confirmed === true;
+      var pendingCalculation = firstValue(detail.pendente_calculo, detail.pendingCalculation) === true;
+      if (pendingCalculation) balance = null;
+      var pendingOperationalValue = firstValue(detail.pendente_operacional, detail.pendingOperational, detail.pendente);
+      var pendingOperational = pendingOperationalValue === null ? pendingCalculation || !confirmed : pendingOperationalValue === true;
+      var pendingReason = firstValue(detail.pendencia_motivo, detail.pendingReason, detail.motivo_pendencia);
+      var pendingType = firstValue(detail.pendencia_tipo, detail.pendingType);
+
+      day.status = normalizedStatus;
+      day.status_dia = normalizedStatus;
+      day.statusLabel = statusLabel(normalizedStatus);
+      day.expectedMinutes = expected;
+      day.jornadaPrevistaMinutos = expected;
+      day.workedMinutes = worked;
+      day.jornadaApuradaMinutos = worked;
+      day.balanceMinutes = balance;
+      day.saldoMinutos = balance;
+      day.confirmed = confirmed;
+      day.conferido = confirmed;
+      day.pendingCalculation = pendingCalculation;
+      day.pendente_calculo = pendingCalculation;
+      day.pendingOperational = pendingOperational;
+      day.pendente_operacional = pendingOperational;
+      day.pendingReason = pendingReason;
+      day.pendencia_motivo = pendingReason;
+      day.pendingType = pendingType;
+      day.pendencia_tipo = pendingType;
+      if (day.current) {
+        day.current.status = normalizedStatus;
+        day.current.situation = normalizedStatus;
+        day.current.situacao = normalizedStatus;
+      }
+      if (day.review) {
+        day.review.status = normalizedStatus;
+        day.review.confirmed = confirmed;
+        day.review.state = confirmed ? "confirmed" : "suggested";
+      }
+      if (pendingReason) {
+        var issueList = day.issues || day.pendencias || [];
+        if (!issueList.some(function (issue) { return issue && (issue.message || issue.mensagem) === pendingReason; })) {
+          issueList.push({ id: "issue-apuration-" + day.id, type: pendingType || "review", severity: "warning", message: pendingReason, resolved: false });
+        }
+        day.issues = issueList;
+        day.pendencias = issueList;
+      }
+    });
   }
 
   function loadAttendanceForCompetence(competenceId, options) {
@@ -958,6 +1143,7 @@
     return apiRequest("/apuracao?competencia_id=" + encodeURIComponent(competenceId)).then(function (payload) {
       if (competenceSummarySequences[key] !== sequence) return null;
       var summary = normalizeCompetenceSummary(payload);
+      if (summary.competence) updateCompetenceFromPayload(competenceId, summary.competence);
       data.competenceSummaries[key] = summary;
       loadedCompetenceSummaries[key] = true;
       if (idsEqual(state.selectedCompetenceId, competenceId)) state.competenceSummaryError = "";
@@ -985,11 +1171,67 @@
         if (idsEqual(state.selectedCompetenceId, competenceId) && state.route === "competency-summary") render();
       });
     }
-    return Promise.all([
-      loadAttendanceForCompetence(competenceId, settings),
-      loadFilesForCompetence(competenceId, settings),
-      summaryPromise,
-    ]).then(function (results) { return { markings: results[0], files: results[1], summary: results[2] }; });
+    // A apuração materializa o calendário. Aguarde seu commit antes de buscar
+    // /marcacoes para que a Conferência receba também os dias recém-gerados.
+    return summaryPromise.then(function (summary) {
+      return Promise.all([
+        loadAttendanceForCompetence(competenceId, settings),
+        loadFilesForCompetence(competenceId, settings),
+      ]).then(function (results) {
+        if (summary) applyApurationDetails(competenceId, summary.markings);
+        return { markings: results[0], files: results[1], summary: summary };
+      });
+    });
+  }
+
+  function companyScales(companyId) {
+    var targetId = companyId !== undefined ? companyId : state.selectedCompanyId;
+    if (targetId === null || targetId === undefined) return [];
+    return scales().filter(function (item) {
+      return idsEqual(item.companyId || item.empresa_id, targetId);
+    });
+  }
+
+  function replaceScalesForCompany(companyId, items) {
+    var remaining = scales().filter(function (item) {
+      return !idsEqual(item.companyId || item.empresa_id, companyId);
+    });
+    var merged = remaining.concat(items).sort(compareEntityNames);
+    data.scales = merged;
+    data.escalas = merged;
+    return items;
+  }
+
+  function loadScalesForCompany(companyId, options) {
+    if (companyId === null || companyId === undefined) return Promise.resolve([]);
+    if (state.apiMode !== "online") return Promise.resolve(companyScales(companyId));
+    var settings = options || {};
+    var key = String(companyId);
+    if (settings.force) delete loadedCompanyScales[key];
+    if (loadedCompanyScales[key] && !settings.force) return Promise.resolve(companyScales(companyId));
+
+    var sequence = (companyScaleLoadSequences[key] || 0) + 1;
+    companyScaleLoadSequences[key] = sequence;
+    if (idsEqual(state.selectedCompanyId, companyId)) {
+      state.scalesLoading = true;
+      state.scalesError = "";
+    }
+    return apiRequest("/escalas?empresa_id=" + encodeURIComponent(companyId)).then(function (payload) {
+      if (companyScaleLoadSequences[key] !== sequence) return companyScales(companyId);
+      var items = apiCollection(payload, ["escalas", "scales"]).map(normalizeScale);
+      replaceScalesForCompany(companyId, items);
+      loadedCompanyScales[key] = true;
+      return items;
+    }).catch(function (error) {
+      if (companyScaleLoadSequences[key] === sequence && idsEqual(state.selectedCompanyId, companyId)) {
+        state.scalesError = error && error.message || "Não foi possível carregar as escalas.";
+      }
+      throw error;
+    }).finally(function () {
+      if (companyScaleLoadSequences[key] === sequence && idsEqual(state.selectedCompanyId, companyId)) {
+        state.scalesLoading = false;
+      }
+    });
   }
 
   function bootstrapApiData() {
@@ -1009,6 +1251,8 @@
       data.funcionarios = employeeList;
       data.competencies = competenceList;
       data.competencias = competenceList;
+      data.scales = [];
+      data.escalas = data.scales;
       data.attendanceDays = [];
       data.dias = data.attendanceDays;
       data.files = [];
@@ -1017,6 +1261,8 @@
       loadedCompetenceFiles = Object.create(null);
       loadedCompetenceSummaries = Object.create(null);
       competenceSummarySequences = Object.create(null);
+      loadedCompanyScales = Object.create(null);
+      companyScaleLoadSequences = Object.create(null);
       data.competenceSummaries = Object.create(null);
       data.resumosCompetencia = data.competenceSummaries;
       data.importPreviewRows = [];
@@ -1206,12 +1452,14 @@
     return apiRequest("/competencias/" + encodeURIComponent(competenceId)).then(function (payload) {
       return updateCompetenceFromPayload(competenceId, payload);
     }).then(function (competence) {
-      var summaryRequest = loadCompetenceSummary(competenceId, { force: true });
-      var attendanceRequest = options && options.reloadAttendance
-        ? loadAttendanceForCompetence(competenceId, { force: true })
-        : Promise.resolve(null);
-      return Promise.all([summaryRequest, attendanceRequest]).then(function (results) {
-        return { competence: competence, summary: results[0], markings: results[1] };
+      return loadCompetenceSummary(competenceId, { force: true }).then(function (summary) {
+        var attendanceRequest = options && options.reloadAttendance
+          ? loadAttendanceForCompetence(competenceId, { force: true })
+          : Promise.resolve(null);
+        return attendanceRequest.then(function (markings) {
+          if (summary) applyApurationDetails(competenceId, summary.markings);
+          return { competence: competence, summary: summary, markings: markings };
+        });
       });
     });
   }
@@ -1245,6 +1493,17 @@
     return day.confirmed === true || day.conferido === true || day.reviewState === "confirmed" || (day.review && day.review.state === "confirmed");
   }
 
+  function dayIsOperationallyPending(day) {
+    if (!day) return false;
+    if (day.pendingOperational !== undefined || day.pendente_operacional !== undefined) {
+      return day.pendingOperational === true || day.pendente_operacional === true;
+    }
+    var unresolved = (day.issues || day.pendencias || []).some(function (issue) {
+      return !issue || issue.resolved !== true;
+    });
+    return day.pendingCalculation === true || day.pendente_calculo === true || !dayIsConfirmed(day) || unresolved;
+  }
+
   function currentSlots(day) {
     var current = day && (day.current || day.currentInterpretation || day.interpretacaoAtual) || {};
     return {
@@ -1257,9 +1516,8 @@
 
   function visibleReviewDays() {
     return employeeDays(state.selectedEmployeeId).filter(function (day) {
-      var status = day.status || (day.current && (day.current.situation || day.current.status)) || "conferir";
-      var unresolved = (day.issues || []).some(function (issue) { return !issue || issue.resolved !== true; });
-      if (state.reviewFilter === "pending") return status === "conferir" || status === "inconsistente" || unresolved;
+      var status = day.status || day.status_dia || (day.current && (day.current.situation || day.current.status)) || "normal";
+      if (state.reviewFilter === "pending") return dayIsOperationallyPending(day);
       if (state.reviewFilter === "unconfirmed") return !dayIsConfirmed(day);
       if (state.reviewFilter === "absences") return ["falta", "atestado", "folga", "afastamento"].indexOf(status) !== -1;
       return true;
@@ -1269,7 +1527,13 @@
   function ensureReviewSelection() {
     var visible = visibleReviewDays();
     if (!visible.some(function (day) { return idsEqual(day.id, state.selectedDayId); })) {
-      state.selectedDayId = visible[0] ? visible[0].id : null;
+      var current = findDay(state.selectedDayId);
+      var date = current && (current.date || current.data);
+      var ordered = visible.slice().sort(function (a, b) { return String(a.date || a.data).localeCompare(String(b.date || b.data)); });
+      var next = date && ordered.find(function (day) { return (day.date || day.data) > date; });
+      var previous = date && ordered.filter(function (day) { return (day.date || day.data) < date; }).pop();
+      var selected = next || previous || visible[0];
+      state.selectedDayId = selected ? selected.id : null;
     }
     state.selectedDayIds = state.selectedDayIds.filter(function (id) {
       return visible.some(function (day) { return idsEqual(day.id, id); });
@@ -1279,12 +1543,15 @@
   function sidebarNavigation() {
     var company = currentCompany();
     var competence = currentCompetency();
-    var primary = [{ id: "companies", label: "Todas as empresas", icon: "briefcase" }];
+    var primary = [{ id: "companies", label: "Todas as empresas", icon: "briefcase" }, { id: "calendar", label: "Calendário", icon: "calendar" }];
     if (!company) return { primary: primary, secondary: [], secondaryLabel: "" };
 
     primary = primary.concat([
       { id: "company-overview", label: "Visão geral", icon: "dashboard" },
       { id: "company-employees", label: "Funcionários", icon: "users" },
+      { id: "company-scales", label: "Escalas", icon: "clock" },
+      { id: "company-ocorrencias", label: "Ocorrências / Afastamentos", icon: "calendar" },
+      { id: "company-banco-horas", label: "Banco de horas", icon: "clock" },
       { id: "company-competencies", label: "Competências", icon: "folder" },
       { id: "company-reports", label: "Relatórios", icon: "report" },
       { id: "company-settings", label: "Configurações", icon: "settings" },
@@ -1307,12 +1574,15 @@
 
   function unresolvedCount() {
     return employeeDays(state.selectedEmployeeId).filter(function (day) {
-      return (day.issues || []).some(function (issue) { return !issue || issue.resolved !== true; }) && !dayIsConfirmed(day);
+      return dayIsOperationallyPending(day);
     }).length;
   }
 
   function render(options) {
     var settings = options || {};
+    var main = byId("mainContent");
+    var reviewKey = state.route === "review" ? JSON.stringify([state.selectedCompanyId, state.selectedCompetenceId, state.selectedEmployeeId, state.reviewFilter]) : "";
+    var scroll = captureReviewScroll(main, reviewKey);
     if (state.route === "review") ensureReviewSelection();
 
     var app = byId("app");
@@ -1339,12 +1609,13 @@
       environmentLabel.textContent = state.apiMode === "online" ? "Ambiente integrado" : state.apiMode === "loading" ? "Conectando à API" : "Ambiente de demonstração";
     }
     byId("topbarContext").textContent = !company
-      ? "Todas as empresas"
+      ? (state.route === "calendar" ? "Calendário geral" : "Todas as empresas")
       : (company.name || company.nome) + (competency ? " · " + (competency.label || Utils.formatCompetence(competency)) : "");
 
-    var main = byId("mainContent");
     main.dataset.route = state.route;
-    main.innerHTML = Screens.render(state.route, state, data, Components);
+    main.dataset.reviewKey = reviewKey;
+    main.innerHTML = state.route === "calendar" ? root.OnPontoCalendario.render(state, data, Components) : Screens.render(state.route, state, data, Components);
+    restoreReviewScroll(main, scroll);
     document.title = screenTitle() + " · On Ponto";
 
     Array.prototype.forEach.call(main.querySelectorAll('[data-indeterminate="true"]'), function (checkbox) {
@@ -1354,10 +1625,27 @@
     var target = settings.focus || renderFocus;
     renderFocus = null;
     if (target) {
-      root.requestAnimationFrame(function () { focusCell(target.dayId, target.field); });
+      root.requestAnimationFrame(function () {
+        if (main.dataset.reviewKey === reviewKey) focusCell(target.dayId, target.field, Boolean(scroll));
+      });
     } else if (settings.focusMain) {
       root.requestAnimationFrame(function () { main.focus({ preventScroll: true }); });
     }
+  }
+
+  function captureReviewScroll(main, key) {
+    if (!key || main.dataset.reviewKey !== key) return null;
+    return [".attendance-table-wrap", ".review-context"].map(function (selector) {
+      var element = main.querySelector(selector);
+      return { selector: selector, top: element ? element.scrollTop : 0, left: element ? element.scrollLeft : 0 };
+    });
+  }
+
+  function restoreReviewScroll(main, positions) {
+    (positions || []).forEach(function (position) {
+      var element = main.querySelector(position.selector);
+      if (element) { element.scrollTop = position.top; element.scrollLeft = position.left; }
+    });
   }
 
   function screenTitle() {
@@ -1365,6 +1653,10 @@
       companies: "Empresas",
       "company-overview": "Visão geral",
       "company-employees": "Funcionários",
+      "company-scales": "Escalas",
+      "company-ocorrencias": "Ocorrências / Afastamentos",
+      "company-banco-horas": "Banco de horas",
+      calendar: "Calendário",
       "company-competencies": "Competências",
       "competency-summary": "Resumo da competência",
       imports: "Importações",
@@ -1387,6 +1679,9 @@
       root.location.hash = hash;
     } else {
       applyRouteContext(next);
+      if (next.view === "calendar") return root.OnPontoCalendario.load();
+      if (next.view === "company-ocorrencias") return root.OnPontoOcorrencias.load();
+      if (next.view === "company-banco-horas") return root.OnPontoBancoHoras.load();
       var summaryRequested = next.view === "competency-summary";
       if (state.apiMode === "online" && next.competenceId && (summaryRequested || !loadedCompetenceDays[String(next.competenceId)] || !loadedCompetenceFiles[String(next.competenceId)])) {
         var loading = loadCompetenceData(next.competenceId, { summaryForce: summaryRequested });
@@ -1398,6 +1693,16 @@
           state.reviewLoading = false;
           render({ focusMain: !(options && options.keepFocus) });
           showToast("Não foi possível carregar os dados da competência.", "error", error && error.message);
+        });
+      } else if (state.apiMode === "online" && next.companyId && ["company-employees", "company-scales", "company-settings"].indexOf(next.view) !== -1 && !loadedCompanyScales[String(next.companyId)]) {
+        var scalesLoading = loadScalesForCompany(next.companyId);
+        render();
+        scalesLoading.then(function () {
+          if (idsEqual(state.selectedCompanyId, next.companyId)) render({ focusMain: !(options && options.keepFocus) });
+        }).catch(function (error) {
+          if (!idsEqual(state.selectedCompanyId, next.companyId)) return;
+          render({ focusMain: !(options && options.keepFocus) });
+          showToast("Não foi possível carregar as escalas da empresa.", "error", error && error.message);
         });
       } else render({ focusMain: !(options && options.keepFocus) });
     }
@@ -1447,15 +1752,24 @@
       tone: config.tone,
     });
     var dialog = byId("confirmationDialog");
+    if (config.wide) dialog.classList.add("confirmation-dialog--wide");
     var bodyAnchor = dialog.querySelector(".dialog-actions");
     var fields = Array.isArray(config.fields) ? config.fields : config.field ? [config.field] : [];
+    var fieldsHost = bodyAnchor.parentNode;
+    if (config.fieldLayout === "grid" && fields.length) {
+      fieldsHost = document.createElement("div");
+      fieldsHost.className = "dialog-fields-grid";
+      bodyAnchor.parentNode.insertBefore(fieldsHost, bodyAnchor);
+    }
     fields.forEach(function (field, index) {
       var fieldId = config.field && !Array.isArray(config.fields) ? "dialogField" : "dialogField-" + String(field.name || index).replace(/[^A-Za-z0-9_-]/g, "-");
       var label = document.createElement("label");
-      label.className = "dialog-field";
+      label.className = "dialog-field" + (field.fullWidth ? " dialog-field--full" : "");
+      label.dataset.dialogFieldWrap = field.name || "value";
       label.htmlFor = fieldId;
-      label.innerHTML = '<span>' + Utils.escapeHtml(field.label || "Valor") + "</span>" + dialogFieldMarkup(field, fieldId);
-      bodyAnchor.parentNode.insertBefore(label, bodyAnchor);
+      label.innerHTML = '<span>' + Utils.escapeHtml(field.label || "Valor") + "</span>" + dialogFieldMarkup(field, fieldId) + (field.help ? '<small class="dialog-field-help">' + Utils.escapeHtml(field.help) + "</small>" : "");
+      if (fieldsHost === bodyAnchor.parentNode) fieldsHost.insertBefore(label, bodyAnchor);
+      else fieldsHost.appendChild(label);
     });
     if (config.html) {
       var details = document.createElement("div");
@@ -1472,6 +1786,8 @@
       bodyAnchor.parentNode.insertBefore(error, bodyAnchor);
     }
     pendingDialog = { dialog: dialog, config: config, fields: fields, trigger: trigger, busy: false };
+    refreshConditionalDialogFields(pendingDialog);
+    dialog.addEventListener("change", function () { refreshConditionalDialogFields(pendingDialog); });
     dialog.addEventListener("cancel", function (event) {
       event.preventDefault();
       closeDialog();
@@ -1509,6 +1825,22 @@
       return "<input" + common + ' type="checkbox" value="' + Utils.escapeHtml(value || "true") + '"' + (field.checked ? " checked" : "") + ">";
     }
     return "<input" + common + ' type="' + Utils.escapeHtml(field.type || "text") + '" value="' + Utils.escapeHtml(value) + '" placeholder="' + Utils.escapeHtml(field.placeholder || "") + '">';
+  }
+
+  function refreshConditionalDialogFields(current) {
+    if (!current) return;
+    var values = dialogValues(current);
+    current.fields.forEach(function (field) {
+      var name = field.name || "value";
+      var wrapper = current.dialog.querySelector('[data-dialog-field-wrap="' + String(name).replace(/"/g, '\\"') + '"]');
+      var element = current.dialog.querySelector('[data-dialog-field="' + String(name).replace(/"/g, '\\"') + '"]');
+      var visible = typeof field.visibleWhen !== "function" || field.visibleWhen(values);
+      if (wrapper) wrapper.hidden = !visible;
+      if (element) {
+        element.disabled = !visible || current.busy;
+        element.required = Boolean(field.required && visible);
+      }
+    });
   }
 
   function setDialogError(current, message, fieldName) {
@@ -1558,6 +1890,7 @@
       if (label) label.textContent = busy ? current.config.busyLabel || "Salvando..." : confirmButton.dataset.idleLabel;
       else confirmButton.textContent = busy ? current.config.busyLabel || "Salvando..." : confirmButton.dataset.idleLabel;
     }
+    if (!busy) refreshConditionalDialogFields(current);
   }
 
   function dialogValues(current) {
@@ -1574,6 +1907,7 @@
     for (var index = 0; index < current.fields.length; index += 1) {
       var field = current.fields[index];
       var name = field.name || "value";
+      if (typeof field.visibleWhen === "function" && !field.visibleWhen(values)) continue;
       var rawValue = values[name];
       var comparable = typeof rawValue === "string" ? rawValue.trim() : rawValue;
       var element = current.dialog.querySelector('[data-dialog-field="' + String(name).replace(/"/g, '\\"') + '"]');
@@ -1616,10 +1950,15 @@
       }
       if (result && typeof result.then === "function") {
         setDialogBusy(current, true);
-        Promise.resolve(result).then(function () {
-          if (pendingDialog === current) closeDialog(false, true);
-        }).catch(function (error) {
+        Promise.resolve(result).then(function (saved) {
           if (pendingDialog !== current) return;
+          closeDialog(false, true);
+          if (typeof current.config.onSaved === "function") return current.config.onSaved(saved);
+        }).catch(function (error) {
+          if (pendingDialog !== current) {
+            showToast("Registro salvo, mas não foi possível atualizar a tela.", "error", error && error.message);
+            return;
+          }
           setDialogBusy(current, false);
           setDialogError(current, error && error.message || "Não foi possível salvar os dados.");
         });
@@ -1658,8 +1997,9 @@
       { keys: "Ctrl + S", label: "Salvar imediatamente" },
       { keys: "Ctrl + Z", label: "Desfazer" },
       { keys: "Alt + ↑ / ↓", label: "Trocar funcionário" },
-      { keys: "N / F / A / R / C", label: "Alterar o dia selecionado" },
+      { keys: "N / F / A / C", label: "Alterar ou confirmar o dia selecionado" },
     ];
+    shortcuts = shortcuts.filter(function (shortcut) { return shortcut.action !== "status_review" && String(shortcut.keys || "").toUpperCase() !== "R"; });
     var html = '<ul class="shortcut-list">' + shortcuts.map(function (shortcut) {
       return "<li><span>" + Utils.escapeHtml(shortcut.label || shortcut.description || shortcut.acao || "Atalho") + "</span><kbd>" + Utils.escapeHtml(shortcut.keys || shortcut.key || shortcut.teclas || "—") + "</kbd></li>";
     }).join("") + "</ul>";
@@ -1740,12 +2080,17 @@
       return;
     }
     if (!state.selectedImportFile || !state.selectedImportFile.file) {
-      showToast("Selecione um arquivo TXT para analisar.", "warning");
+      showToast("Selecione um arquivo TXT ou XLSX para analisar.", "warning");
       return;
     }
     var fileName = String(state.selectedImportFile.name || "");
-    if (!/\.txt$/i.test(fileName)) {
-      showToast("Formato não suportado nesta etapa.", "error", "Selecione somente um arquivo .txt.");
+    if (!/\.(txt|xlsx)$/i.test(fileName)) {
+      showToast("Formato não suportado nesta etapa.", "error", "Selecione somente um arquivo .txt ou .xlsx.");
+      return;
+    }
+    var competence = currentCompetency();
+    if (!competence) {
+      showToast("Selecione uma competência antes de analisar o arquivo.", "warning");
       return;
     }
     var analysisCompanyId = state.selectedCompanyId;
@@ -1761,12 +2106,14 @@
     var formData = new FormData();
     formData.append("empresa_id", String(analysisCompanyId));
     formData.append("competencia_id", String(analysisCompetenceId));
+    formData.append("mes", String(competence.month || competence.mes));
+    formData.append("ano", String(competence.year || competence.ano));
     formData.append("arquivo", analysisFile, fileName);
     state.importLoading = true;
     state.importError = "";
     state.importConflicts = [];
     render();
-    apiRequest("/importadores/txt-log-relogio/analisar", { method: "POST", body: formData, timeout: 30000 }).then(function (payload) {
+    apiRequest("/importadores/analisar", { method: "POST", body: formData, timeout: 30000 }).then(function (payload) {
       if (!analysisContextIsActive()) return;
       var result = normalizeImportAnalysis(payload);
       state.importAnalysis = result;
@@ -1894,9 +2241,11 @@
           registros_ids: selectedIds,
         };
         var confirmationPersisted = false;
-        apiRequest("/importadores/txt-log-relogio/confirmar", { method: "POST", body: payload, timeout: 30000 }).then(function (response) {
+        apiRequest("/importadores/confirmar", { method: "POST", body: payload, timeout: 30000 }).then(function (response) {
           confirmationPersisted = true;
           var conflicts = importConflictMessages(response);
+          var importedMarkingIds = firstValue(response && response.marcacoes_ids, response && response.markingIds, []);
+          if (!Array.isArray(importedMarkingIds)) importedMarkingIds = [];
           var importedCountValue = firstValue(response && response.total_importados, response && response.importedCount);
           var importedCount = importedCountValue === null ? selectedIds.length - conflicts.length : Number(importedCountValue);
           if (!Number.isFinite(importedCount)) importedCount = 0;
@@ -1937,7 +2286,10 @@
               );
               return;
             }
-            var selectedEmployeeId = markings[0] && markings[0].employeeId;
+            var firstImportedMarking = markings.find(function (marking) {
+              return importedMarkingIds.some(function (id) { return idsEqual(id, marking.id); });
+            });
+            var selectedEmployeeId = firstImportedMarking && firstImportedMarking.employeeId || markings[0] && markings[0].employeeId;
             state.selectedEmployeeId = selectedEmployeeId || state.selectedEmployeeId;
             var firstDay = employeeDays(state.selectedEmployeeId)[0] || markings[0] || null;
             state.selectedDayId = firstDay ? firstDay.id : null;
@@ -1975,13 +2327,13 @@
     if (!file) return;
     if (!ensureCompetencyWritable("A seleção de arquivo para importação")) return;
     if (state.importLoading || state.importConfirming) return;
-    if (!/\.txt$/i.test(String(file.name || ""))) {
+    if (!/\.(txt|xlsx)$/i.test(String(file.name || ""))) {
       importAnalysisSequence += 1;
       state.selectedImportFile = null;
       state.importAnalysis = false;
       state.selectedImportRowIds = [];
       render();
-      showToast("Formato não suportado nesta etapa.", "error", "Selecione somente um arquivo TXT.");
+      showToast("Formato não suportado nesta etapa.", "error", "Selecione somente um arquivo TXT ou XLSX.");
       return;
     }
     importAnalysisSequence += 1;
@@ -2112,6 +2464,7 @@
     }
     var previous = day.status;
     day.status = status;
+    day.status_dia = status;
     day.statusLabel = STATUS_LABELS[status] || status;
     if (day.current) {
       day.current.situation = status;
@@ -2122,6 +2475,23 @@
       day.review.status = status;
       day.review.statusLabel = day.statusLabel;
     }
+    var employee = employees().find(function (item) {
+      return idsEqual(item.id, day.employeeId || day.funcionario_id);
+    });
+    var employeeScaleId = employee ? firstValue(employee.escala_id, employee.scaleId) : null;
+    if (employee && employeeScaleId === null) {
+      day.pendingCalculation = true;
+      day.pendente_calculo = true;
+      day.pendingType = "escala_nao_cadastrada";
+      day.pendencia_tipo = "escala_nao_cadastrada";
+      day.pendingReason = "Escala não cadastrada para o funcionário.";
+      day.pendencia_motivo = day.pendingReason;
+    } else if (["atestado", "folga", "feriado", "falta", "afastamento", "domingo", "sem_expediente"].indexOf(status) !== -1) {
+      day.pendingCalculation = false;
+      day.pendente_calculo = false;
+    }
+    day.pendingOperational = !dayIsConfirmed(day) || day.pendingCalculation === true || day.pendente_calculo === true;
+    day.pendente_operacional = day.pendingOperational;
     if (!(options && options.noUndo)) {
       state.undoStack.push({ type: "status", dayId: day.id, previous: previous, next: status });
     }
@@ -2133,6 +2503,30 @@
   function setStatusForSelected(status) {
     var day = findDay(state.selectedDayId);
     if (day) setDayStatus(day, status);
+  }
+
+  function addReviewCertificate(day) {
+    if (!day || !ensureCompetencyWritable("O cadastro de atestado")) return;
+    if (dayIsConfirmed(day)) {
+      showToast("Reabra a conferência antes de alterar este dia.", "warning");
+      return;
+    }
+    if (state.apiMode !== "online") {
+      showToast("Ligue a API para cadastrar ocorrências.", "warning");
+      return;
+    }
+    var competenceId = state.selectedCompetenceId;
+    root.OnPontoOcorrencias.create({funcionario_id: day.employeeId || day.funcionario_id,
+      tipo: "ATESTADO", data_inicio: day.date || day.data, data_fim: day.date || day.data}, {
+      beforeSave: ensureAutosaveFlushedForLifecycle,
+      onSaved: function () {
+        return refreshAffectedCompetence(competenceId, { reloadAttendance: true }).then(function (result) {
+          if (!result.summary) throw new Error("A apuração não foi carregada. Recarregue a Conferência para consultar o registro salvo.");
+          render();
+          showToast("Atestado cadastrado e apuração atualizada.", "success");
+        });
+      }
+    });
   }
 
   function confirmDay(day, options) {
@@ -2150,6 +2544,9 @@
       day.review.confirmedAt = day.confirmedAt;
       day.review.lastConfirmedSnapshot = day.confirmedResult;
     }
+    var unresolved = (day.issues || day.pendencias || []).some(function (issue) { return !issue || issue.resolved !== true; });
+    day.pendingOperational = day.pendingCalculation === true || day.pendente_calculo === true || unresolved;
+    day.pendente_operacional = day.pendingOperational;
     addHistory(day, "Dia marcado como conferido.", "Operador local");
     updateEmployeeProgress(day.employeeId || day.funcionario_id);
     queueAutosave(day, false, { syncCompetence: true });
@@ -2167,6 +2564,8 @@
       day.review.confirmed = false;
       day.review.reopenedAt = new Date().toISOString();
     }
+    day.pendingOperational = true;
+    day.pendente_operacional = true;
     addHistory(day, "Conferência reaberta para ajustes.", "Operador local");
     updateEmployeeProgress(day.employeeId || day.funcionario_id);
     queueAutosave(day, false, { syncCompetence: true });
@@ -2180,11 +2579,12 @@
     if (!item) return;
     var employeeDayList = employeeDays(employeeId);
     item.confirmedDayCount = employeeDayList.filter(dayIsConfirmed).length;
-    item.pendingCount = employeeDayList.filter(function (day) { return !dayIsConfirmed(day) && (day.status === "conferir" || day.status === "inconsistente" || (day.issues || []).some(function (issue) { return issue.resolved !== true; })); }).length;
+    item.pendingCount = employeeDayList.filter(dayIsOperationallyPending).length;
     item.progress = item.eligibleDayCount ? Math.round(item.confirmedDayCount / item.eligibleDayCount * 100) : 0;
   }
 
   function addHistory(day, description, actor) {
+    if (state.apiMode === "online") return;
     var history = day.history || day.historico || [];
     var now = new Date();
     history.push({
@@ -2202,6 +2602,8 @@
 
   function recalculateDay(day) {
     var result = Utils.calculateJourney(currentSlots(day), day.expectedMinutes || day.jornadaPrevistaMinutos);
+    // O saldo definitivo depende das tolerâncias e ocorrências apuradas na API.
+    if (state.apiMode === "online") result.balanceMinutes = null;
     day.workedMinutes = result.workedMinutes;
     day.jornadaApuradaMinutos = result.workedMinutes;
     day.balanceMinutes = result.balanceMinutes;
@@ -2231,7 +2633,7 @@
       saida_almoco: slots.breakStart || null,
       retorno_almoco: slots.breakEnd || null,
       saida: slots.exit || null,
-      status_dia: statusToBackend(day.status || day.current && day.current.status),
+      status_dia: statusToBackend(day.status_dia || day.status || day.current && day.current.status),
       conferido: dayIsConfirmed(day),
       observacoes: day.observation || day.observacao || day.current && (day.current.observation || day.current.observacao) || null,
     };
@@ -2253,22 +2655,30 @@
       return Promise.resolve([]);
     }
     var batch = pendingDaySaves;
+    activeDaySaves = batch;
     pendingDaySaves = Object.create(null);
     state.autosaveStatus = "saving";
     updateAutosaveIndicator();
-    autosaveFlushPromise = Promise.all(keys.map(function (key) {
-      var entry = batch[key];
-      return apiRequest("/marcacoes/" + encodeURIComponent(entry.id), {
-        method: "PATCH",
-        body: entry.payload,
-        timeout: 12000,
-        keepalive: true,
-      }).then(function (response) {
-        return { ok: true, entry: entry, response: response };
-      }).catch(function (error) {
-        return { ok: false, entry: entry, error: error };
+    autosaveFlushPromise = keys.reduce(function (chain, key) {
+      return chain.then(function (results) {
+        var entry = batch[key];
+        return apiRequest("/marcacoes/" + encodeURIComponent(entry.id), {
+          method: "PATCH",
+          body: entry.payload,
+          timeout: 12000,
+          keepalive: true,
+        }).then(function (response) {
+          var day = findDay(entry.id);
+          if (day && Array.isArray(response.historico)) {
+            day.history = response.historico;
+            day.historico = response.historico;
+          }
+          return { ok: true, entry: entry, response: response };
+        }).catch(function (error) {
+          return { ok: false, entry: entry, error: error };
+        }).then(function (result) { return results.concat(result); });
       });
-    })).then(function (results) {
+    }, Promise.resolve([])).then(function (results) {
       var failed = results.filter(function (result) { return !result.ok; });
       var closedFailures = failed.filter(function (result) { return isClosedCompetenceError(result.error); });
       var retryableFailures = failed.filter(function (result) { return !isClosedCompetenceError(result.error); });
@@ -2317,6 +2727,7 @@
       });
     }).finally(function () {
       autosaveFlushPromise = null;
+      activeDaySaves = Object.create(null);
       if (state.autosaveStatus !== "error" && Object.keys(pendingDaySaves).length && state.settings.autosave) {
         autosaveTimer = root.setTimeout(flushPendingDaySaves, 120);
       }
@@ -2333,12 +2744,11 @@
     state.autosaveRevision += 1;
     var revision = state.autosaveRevision;
     if (state.apiMode === "online" && day && day.id !== null && day.id !== undefined) {
-      var previousEntry = pendingDaySaves[String(day.id)];
       pendingDaySaves[String(day.id)] = {
         id: day.id,
         competenceId: day.competenceId || day.competencia_id || state.selectedCompetenceId,
         payload: daySavePayload(day),
-        syncCompetence: Boolean(previousEntry && previousEntry.syncCompetence || options && options.syncCompetence),
+        syncCompetence: true,
       };
     }
     if (!state.settings.autosave && !force) {
@@ -2395,13 +2805,13 @@
     return root.CSS && typeof root.CSS.escape === "function" ? root.CSS.escape(String(value)) : String(value).replace(/(["\\])/g, "\\$1");
   }
 
-  function focusCell(dayId, field) {
+  function focusCell(dayId, field, preventScroll) {
     var cell = document.querySelector(cellSelector(dayId, field));
     if (!cell) return;
     document.querySelectorAll(".editable-time-cell.is-active").forEach(function (item) { item.classList.remove("is-active"); item.tabIndex = -1; });
     cell.classList.add("is-active");
     cell.tabIndex = 0;
-    cell.focus({ preventScroll: false });
+    cell.focus({ preventScroll: preventScroll === true });
   }
 
   function beginEditing(cell, seed) {
@@ -2603,7 +3013,7 @@
       description: "A situação é independente da confirmação. Batidas originais nunca serão modificadas.",
       count: bulk ? targets.length : undefined,
       confirmLabel: "Aplicar situação",
-      field: { type: "select", label: "Situação", value: day ? day.status : "normal", options: Object.keys(STATUS_LABELS).map(function (key) { return { value: key, label: STATUS_LABELS[key] }; }) },
+      field: { type: "select", label: "Situação", value: day ? day.status_dia || day.status : "normal", options: Object.keys(DAY_STATUS_LABELS).map(function (key) { return { value: key, label: DAY_STATUS_LABELS[key] }; }) },
       onConfirm: function (value) {
         targets.forEach(function (target) { setDayStatus(target, value, { noUndo: true }); });
         state.selectedDayIds = bulk ? [] : state.selectedDayIds;
@@ -2669,7 +3079,7 @@
     showToast("Arquivo original aberto em modo somente leitura.", "info", file ? file.name : "A visualização é simulada neste protótipo.");
   }
 
-  function openCompetencePrintReport() {
+  function openCompetencePrintReport(employeeId, lote) {
     var competence = currentCompetency();
     if (!competence) {
       showToast("Não foi possível abrir o relatório.", "error", "Selecione uma competência e tente novamente.");
@@ -2679,8 +3089,13 @@
       showToast("Relatório indisponível no modo demonstração.", "info", "Ligue a API para abrir a versão real para impressão.");
       return;
     }
+    if (autosaveFlushPromise || Object.keys(pendingDaySaves).length) {
+      showToast("Salve as alterações antes de emitir o relatório.", "warning", "Use Salvar agora e aguarde a confirmação do salvamento para imprimir os dados atualizados.");
+      return;
+    }
     var link = document.createElement("a");
-    link.href = configuredApiBase() + "/relatorios/impressao?competencia_id=" + encodeURIComponent(competence.id);
+    link.href = configuredApiBase() + (lote ? "/relatorios/espelho-ponto-lote" : employeeId ? "/relatorios/espelho-ponto" : "/relatorios/impressao") + "?competencia_id=" + encodeURIComponent(competence.id)
+      + (!lote && employeeId ? "&funcionario_id=" + encodeURIComponent(employeeId) : "");
     link.target = "_blank";
     link.rel = "noopener noreferrer";
     link.hidden = true;
@@ -3078,6 +3493,8 @@
         loadedCompetenceFiles = Object.create(null);
         loadedCompetenceSummaries = Object.create(null);
         competenceSummarySequences = Object.create(null);
+        loadedCompanyScales = Object.create(null);
+        companyScaleLoadSequences = Object.create(null);
         importAnalysisSequence += 1;
         data = Mocks.reset();
         var collapsed = state.sidebarCollapsed;
@@ -3114,7 +3531,179 @@
       (Number(left.year || left.ano) * 100 + Number(left.month || left.mes));
   }
 
-  function openSimpleEntityDialog(kind, id) {
+  function invalidateCompanyCompetenceData(companyId) {
+    competencies().forEach(function (competence) {
+      if (!idsEqual(competence.companyId || competence.empresa_id, companyId)) return;
+      var key = String(competence.id);
+      delete loadedCompetenceDays[key];
+      delete loadedCompetenceSummaries[key];
+      if (data.competenceSummaries) delete data.competenceSummaries[key];
+    });
+  }
+
+  function dialogTimeMinutes(value) {
+    var match = String(value || "").match(/^(\d{2}):(\d{2})$/);
+    if (!match) return null;
+    return Number(match[1]) * 60 + Number(match[2]);
+  }
+
+  function nullableDialogNumber(value) {
+    return value === "" || value === null || value === undefined ? null : Number(value);
+  }
+
+  function openScaleDialog(id, options) {
+    var company = currentCompany();
+    if (!company) {
+      showToast("Selecione uma empresa antes de cadastrar uma escala.", "warning");
+      navigate("companies");
+      return;
+    }
+    var online = state.apiMode === "online";
+    if (online && !(options && options.scalesLoaded) && !loadedCompanyScales[String(company.id)]) {
+      return loadScalesForCompany(company.id).then(function () {
+        return openScaleDialog(id, { scalesLoaded: true });
+      }).catch(function (error) {
+        showToast("Não foi possível abrir o cadastro de escala.", "error", error && error.message);
+      });
+    }
+    var hasId = id !== undefined && id !== null && id !== "";
+    var entity = hasId ? companyScales(company.id).find(function (item) { return idsEqual(item.id, id); }) : null;
+    if (hasId && !entity) {
+      showToast("Escala não encontrada nesta empresa.", "error");
+      return;
+    }
+    var mode = entity ? entity.modo_apuracao || entity.mode : "carga_horaria";
+    var isWorkload = function (values) { return values.modo_apuracao === "carga_horaria"; };
+    var isFixed = function (values) { return values.modo_apuracao === "horario_fixo"; };
+    showDialog({
+      title: entity ? "Editar escala" : "Nova escala",
+      description: "Defina a jornada e as regras desta escala. Nenhum funcionário será vinculado automaticamente.",
+      confirmLabel: entity ? "Salvar alterações" : "Adicionar escala",
+      busyLabel: "Salvando...",
+      wide: true,
+      fieldLayout: "grid",
+      fields: [
+        { name: "nome", type: "text", label: "Nome da escala", value: entity ? entity.name || entity.nome : "", required: true, maxlength: 120, fullWidth: true },
+        { name: "modo_apuracao", type: "select", label: "Modo de apuração", value: mode, required: true, fullWidth: true, options: [{ value: "carga_horaria", label: "Carga horária" }, { value: "horario_fixo", label: "Horário fixo" }] },
+        { name: "jornada_seg_sex_horas", type: "number", label: "Jornada de segunda a sexta (horas)", value: entity && entity.jornada_seg_sex_horas !== null && entity.jornada_seg_sex_horas !== undefined ? entity.jornada_seg_sex_horas : "8", required: true, min: 0, max: 24, step: 0.01, visibleWhen: isWorkload },
+        { name: "jornada_sabado_horas", type: "number", label: "Jornada de sábado (horas)", value: entity && entity.jornada_sabado_horas !== null && entity.jornada_sabado_horas !== undefined ? entity.jornada_sabado_horas : "", min: 0, max: 24, step: 0.01, visibleWhen: isWorkload },
+        { name: "horario_entrada_prevista", type: "time", label: "Entrada prevista", value: entity ? normalizedTime(entity.horario_entrada_prevista) : "", required: true, visibleWhen: isFixed },
+        { name: "horario_saida_prevista", type: "time", label: "Saída prevista", value: entity ? normalizedTime(entity.horario_saida_prevista) : "", required: true, visibleWhen: isFixed },
+        { name: "horario_saida_almoco_prevista", type: "time", label: "Saída para almoço", value: entity ? normalizedTime(entity.horario_saida_almoco_prevista) : "", visibleWhen: isFixed },
+        { name: "horario_retorno_almoco_prevista", type: "time", label: "Retorno do almoço", value: entity ? normalizedTime(entity.horario_retorno_almoco_prevista) : "", visibleWhen: isFixed },
+        { name: "regime_sabado", type: "select", label: "Regime de sábado", value: entity ? entity.regime_sabado : "nao_trabalha", required: true, options: [{ value: "trabalha", label: "Trabalha" }, { value: "compensado", label: "Compensado" }, { value: "nao_trabalha", label: "Não trabalha" }] },
+        { name: "regime_domingo", type: "select", label: "Regime de domingo", value: entity ? entity.regime_domingo : "nao_trabalha", required: true, options: [{ value: "trabalha", label: "Trabalha" }, { value: "nao_trabalha", label: "Não trabalha" }] },
+        { name: "tolerancia_atraso_minutos", type: "number", label: "Tolerância de atraso (min)", value: entity ? entity.tolerancia_atraso_minutos : 0, required: true, min: 0, max: 1440, step: 1 },
+        { name: "tolerancia_extra_minutos", type: "number", label: "Tolerância de extra (min)", value: entity ? entity.tolerancia_extra_minutos : 0, required: true, min: 0, max: 1440, step: 1 },
+        { name: "tolerancia_intervalo_minutos", type: "number", label: "Tolerância de intervalo (min)", value: entity && entity.tolerancia_intervalo_minutos != null ? entity.tolerancia_intervalo_minutos : "", help: "Deixe em branco para usar a mesma tolerância de atraso da escala.", min: 0, max: 1440, step: 1 },
+        { name: "usa_banco_horas", type: "select", label: "Banco de horas", value: entity && entity.usa_banco_horas ? "true" : "false", options: [{value:"false",label:"Desabilitado"},{value:"true",label:"Habilitado"}], help: "Configure primeiro o prazo de compensação no cadastro da empresa." },
+        { name: "ativa", type: "select", label: "Situação", value: entity && (entity.active === false || entity.ativa === false) ? "false" : "true", required: true, options: [{ value: "true", label: "Ativa" }, { value: "false", label: "Inativa" }] },
+      ],
+      validate: function (values) {
+        if (values.modo_apuracao === "carga_horaria") {
+          if (values.regime_sabado === "trabalha" && values.jornada_sabado_horas === "") {
+            return { message: "Informe a jornada de sábado quando esse dia é trabalhado.", field: "jornada_sabado_horas" };
+          }
+          return null;
+        }
+        var hasLunchOut = Boolean(values.horario_saida_almoco_prevista);
+        var hasLunchReturn = Boolean(values.horario_retorno_almoco_prevista);
+        if (hasLunchOut !== hasLunchReturn) {
+          return { message: "Informe os dois horários de almoço ou deixe ambos vazios.", field: hasLunchOut ? "horario_retorno_almoco_prevista" : "horario_saida_almoco_prevista" };
+        }
+        var orderedFields = ["horario_entrada_prevista"];
+        if (hasLunchOut) orderedFields.push("horario_saida_almoco_prevista", "horario_retorno_almoco_prevista");
+        orderedFields.push("horario_saida_prevista");
+        for (var index = 0; index < orderedFields.length - 1; index += 1) {
+          if (dialogTimeMinutes(values[orderedFields[index]]) >= dialogTimeMinutes(values[orderedFields[index + 1]])) {
+            return { message: "A ordem deve ser entrada, saída para almoço, retorno do almoço e saída.", field: orderedFields[index + 1] };
+          }
+        }
+        return null;
+      },
+      onConfirm: function (values) {
+        var workload = values.modo_apuracao === "carga_horaria";
+        var payload = {
+          empresa_id: company.id,
+          nome: String(values.nome || "").trim(),
+          modo_apuracao: values.modo_apuracao,
+          jornada_seg_sex_horas: workload ? nullableDialogNumber(values.jornada_seg_sex_horas) : null,
+          jornada_sabado_horas: workload ? nullableDialogNumber(values.jornada_sabado_horas) : null,
+          horario_entrada_prevista: workload ? null : values.horario_entrada_prevista || null,
+          horario_saida_almoco_prevista: workload ? null : values.horario_saida_almoco_prevista || null,
+          horario_retorno_almoco_prevista: workload ? null : values.horario_retorno_almoco_prevista || null,
+          horario_saida_prevista: workload ? null : values.horario_saida_prevista || null,
+          regime_sabado: values.regime_sabado,
+          regime_domingo: values.regime_domingo,
+          tolerancia_atraso_minutos: Number(values.tolerancia_atraso_minutos),
+          tolerancia_extra_minutos: Number(values.tolerancia_extra_minutos),
+          tolerancia_intervalo_minutos: nullableDialogNumber(values.tolerancia_intervalo_minutos),
+          usa_banco_horas: values.usa_banco_horas === "true",
+          ativa: values.ativa === "true",
+        };
+        if (online) {
+          var endpoint = "/escalas" + (entity ? "/" + encodeURIComponent(entity.id) : "");
+          return apiRequest(endpoint, { method: entity ? "PUT" : "POST", body: payload }).then(function (response) {
+            upsertEntity(scales(), normalizeScale(response), compareEntityNames);
+            loadedCompanyScales[String(company.id)] = true;
+            invalidateCompanyCompetenceData(company.id);
+            render();
+            showToast(entity ? "Escala atualizada." : "Escala cadastrada.", "success");
+          });
+        }
+        var saved = normalizeScale(Object.assign({}, entity || {}, payload, { id: entity ? entity.id : nextLocalId(scales()) }));
+        if (!data.scales) {
+          data.scales = scales();
+          data.escalas = data.scales;
+        }
+        upsertEntity(scales(), saved, compareEntityNames);
+        invalidateCompanyCompetenceData(company.id);
+        render();
+        showToast("Escala salva no modo demonstração.", "success");
+      },
+    });
+  }
+
+  function deactivateScale(id) {
+    var company = currentCompany();
+    var scale = company && companyScales(company.id).find(function (item) { return idsEqual(item.id, id); });
+    if (!company || !scale) {
+      showToast("Escala não encontrada nesta empresa.", "error");
+      return;
+    }
+    var linkedCount = employees().filter(function (employee) { return idsEqual(employee.escala_id || employee.scaleId, scale.id); }).length;
+    showDialog({
+      title: "Desativar escala?",
+      description: linkedCount
+        ? linkedCount + " funcionário" + (linkedCount === 1 ? " permanece" : "s permanecem") + " vinculado" + (linkedCount === 1 ? "" : "s") + ". A escala deixará de aparecer para novos vínculos."
+        : "A escala não possui funcionários vinculados e poderá ser removida definitivamente.",
+      confirmLabel: "Desativar escala",
+      destructive: true,
+      busyLabel: "Desativando...",
+      onConfirm: function () {
+        if (state.apiMode === "online") {
+          return apiRequest("/escalas/" + encodeURIComponent(scale.id), { method: "DELETE" }).then(function () {
+            return loadScalesForCompany(company.id, { force: true });
+          }).then(function () {
+            invalidateCompanyCompetenceData(company.id);
+            render();
+            showToast(linkedCount ? "Escala desativada." : "Escala removida.", "success");
+          });
+        }
+        var list = scales();
+        var index = list.findIndex(function (item) { return idsEqual(item.id, scale.id); });
+        if (linkedCount) {
+          scale.active = false;
+          scale.ativa = false;
+        } else if (index !== -1) list.splice(index, 1);
+        invalidateCompanyCompetenceData(company.id);
+        render();
+        showToast(linkedCount ? "Escala desativada no modo demonstração." : "Escala removida do modo demonstração.", "success");
+      },
+    });
+  }
+
+  function openSimpleEntityDialog(kind, id, options) {
     var isCompany = kind === "company";
     var list = isCompany ? companies() : employees();
     var hasId = id !== undefined && id !== null && id !== "";
@@ -3129,13 +3718,37 @@
       return;
     }
     var online = state.apiMode === "online";
+    if (!isCompany && online && !(options && options.scalesLoaded) && !loadedCompanyScales[String(company.id)]) {
+      return loadScalesForCompany(company.id).then(function () {
+        return openSimpleEntityDialog(kind, id, { scalesLoaded: true });
+      }).catch(function (error) {
+        showToast("Não foi possível abrir o cadastro do funcionário.", "error", error && error.message || "Falha ao carregar as escalas da empresa.");
+      });
+    }
+    var currentScaleId = entity ? firstValue(entity.escala_id, entity.scaleId) : null;
+    var availableScales = isCompany ? [] : companyScales(company.id).filter(function (scale) {
+      return scale.active !== false && scale.ativa !== false || idsEqual(scale.id, currentScaleId);
+    });
+    var scaleOptions = [{ value: "", label: "Sem escala — pendência de cadastro" }].concat(availableScales.map(function (scale) {
+      var inactive = scale.active === false || scale.ativa === false;
+      return { value: String(scale.id), label: (scale.name || scale.nome) + (inactive ? " (inativa)" : "") };
+    }));
     var fields = isCompany ? [
-      { name: "nome", type: "text", label: "Nome da empresa", value: entity ? entity.name || entity.nome : "", required: true, maxlength: 180, autocomplete: "organization" },
+      { name: "nome", type: "text", label: "Nome da empresa", value: entity ? entity.name || entity.nome : "", required: true, maxlength: 180, autocomplete: "organization", fullWidth: true },
+      { name: "cnpj", type: "text", label: "CNPJ", value: entity ? entity.cnpj || "" : "", maxlength: 32, autocomplete: "off" },
+      { name: "prazo_compensacao_banco_horas_dias", type: "number", label: "Prazo do banco de horas (dias)", value: entity && entity.prazo_compensacao_banco_horas_dias || "", min: 1, step: 1, help: "Prazo definido para a empresa. Necessário para habilitar banco em uma escala." },
+      { name: "feriado_entra_banco", type: "select", label: "Horas de feriado entram no banco?", value: entity && entity.feriado_entra_banco ? "true" : "false", options: [{value:"false",label:"Não"},{value:"true",label:"Sim"}] },
+      { name: "cidade", type: "text", label: "Cidade", value: entity ? entity.city || entity.cidade || "" : "", maxlength: 120, autocomplete: "address-level2" },
+      { name: "uf", type: "select", label: "UF", value: entity ? entity.uf || "" : "", options: [{ value: "", label: "Não informada" }].concat(UF_OPTIONS.map(function (uf) { return { value: uf, label: uf }; })) },
+      { name: "ativa", type: "select", label: "Situação", value: entity && (entity.active === false || entity.ativa === false) ? "false" : "true", options: [{ value: "true", label: "Ativa" }, { value: "false", label: "Inativa" }] },
     ] : [
       { name: "nome", type: "text", label: "Nome do funcionário", value: entity ? entity.name || entity.nome : "", required: true, maxlength: 180, autocomplete: "name" },
       { name: "codigo", type: "text", label: "Código", value: entity ? entity.code || entity.codigo || "" : "", required: true, maxlength: 50, autocomplete: "off" },
       { name: "cargo", type: "text", label: "Cargo", value: entity ? entity.role || entity.cargo || "" : "", maxlength: 120, autocomplete: "organization-title" },
+      { name: "data_admissao", type: "date", label: "Data de admissão", value: entity && entity.data_admissao || "", help: "Opcional. Dias anteriores ficam fora da apuração; batidas existentes continuam disponíveis para conferência." },
+      { name: "data_demissao", type: "date", label: "Data de demissão", value: entity && entity.data_demissao || "", help: "Opcional. O dia da demissão ainda pertence ao vínculo; dias posteriores ficam fora da apuração." },
       { name: "ativo", type: "select", label: "Situação", value: entity && (entity.active === false || entity.ativo === false) ? "false" : "true", options: [{ value: "true", label: "Ativo" }, { value: "false", label: "Inativo" }] },
+      { name: "escala_id", type: "select", label: "Escala", value: currentScaleId === null ? "" : String(currentScaleId), options: scaleOptions, fullWidth: true, help: availableScales.length ? "A escala define jornada, horários, fins de semana e tolerâncias." : "Nenhuma escala ativa cadastrada. O funcionário ficará com uma pendência visível." },
     ];
     showDialog({
       title: (entity ? "Editar " : "Novo ") + noun,
@@ -3144,26 +3757,43 @@
         : "Modo demonstração: o cadastro ficará somente nesta sessão do navegador.",
       confirmLabel: entity ? "Salvar alterações" : "Adicionar " + noun,
       busyLabel: "Salvando...",
+      wide: true,
+      fieldLayout: "grid",
       fields: fields,
       validate: function (values) {
         if (isCompany) return null;
+        if (values.data_admissao && values.data_demissao && values.data_demissao < values.data_admissao) return {message:"A data de demissão não pode ser anterior à data de admissão.",field:"data_demissao"};
         var code = String(values.codigo || "").trim();
         var duplicate = employees().some(function (employee) {
           return (!entity || !idsEqual(employee.id, entity.id)) &&
             idsEqual(employee.companyId || employee.empresa_id, company.id) &&
             String(employee.code || employee.codigo || "").trim() === code;
         });
-        return duplicate ? { message: "Código já usado nesta empresa.", field: "codigo" } : null;
+        if (duplicate) return { message: "Código já usado nesta empresa.", field: "codigo" };
+        var selectedScaleId = asId(values.escala_id);
+        if (selectedScaleId !== null && !companyScales(company.id).some(function (scale) { return idsEqual(scale.id, selectedScaleId); })) {
+          return { message: "Selecione uma escala desta empresa.", field: "escala_id" };
+        }
+        return null;
       },
       onConfirm: function (values) {
         var payload = isCompany ? {
           nome: String(values.nome || "").trim(),
+          cnpj: String(values.cnpj || "").trim() || null,
+          prazo_compensacao_banco_horas_dias: nullableDialogNumber(values.prazo_compensacao_banco_horas_dias),
+          feriado_entra_banco: values.feriado_entra_banco === "true",
+          cidade: String(values.cidade || "").trim() || null,
+          uf: String(values.uf || "").trim().toUpperCase() || null,
+          ativa: values.ativa === "true",
         } : {
           empresa_id: company.id,
           nome: String(values.nome || "").trim(),
           codigo: String(values.codigo || "").trim(),
           cargo: String(values.cargo || "").trim() || null,
+          data_admissao: values.data_admissao || null,
+          data_demissao: values.data_demissao || null,
           ativo: values.ativo === "true",
+          escala_id: asId(values.escala_id),
         };
         if (online) {
           var endpoint = isCompany ? "/empresas" : "/funcionarios";
@@ -3171,6 +3801,7 @@
           return apiRequest(endpoint, { method: entity ? "PATCH" : "POST", body: payload }).then(function (response) {
             var saved = isCompany ? normalizeCompany(response) : normalizeEmployee(response);
             upsertEntity(list, saved, compareEntityNames);
+            if (!isCompany) invalidateCompanyCompetenceData(company.id);
             render();
             showToast(entity ? "Alteração salva." : (isCompany ? "Empresa cadastrada." : "Funcionário cadastrado."), "success");
           });
@@ -3181,6 +3812,7 @@
           ? normalizeCompany(Object.assign({}, entity || {}, payload, { id: localId }))
           : normalizeEmployee(Object.assign({}, entity || {}, payload, { id: localId }));
         upsertEntity(list, local, compareEntityNames);
+        if (!isCompany) invalidateCompanyCompetenceData(company.id);
         render();
         showToast((isCompany ? "Empresa" : "Funcionário") + " salvo no modo demonstração.", "success");
       },
@@ -3241,6 +3873,18 @@
     if (!element) return;
     var action = element.dataset.action;
 
+    if (root.OnPontoOcorrencias.action(action, element, event)) return;
+    if (root.OnPontoBancoHoras && root.OnPontoBancoHoras.action(action, element, event)) return;
+    if (root.OnPontoCalendario.action(action, element, event)) return;
+    // Form actions belong to submit events; preserve native label activation.
+    if (element.tagName === "FORM") return;
+    if (action === "open-file-picker") {
+      if (element.tagName === "LABEL") return;
+      event.preventDefault();
+      var fileInput = document.getElementById(element.getAttribute("aria-controls"));
+      if (!element.disabled && fileInput && !fileInput.disabled && !competencyIsClosed()) fileInput.click();
+      return;
+    }
     if (action === "search-companies") return;
     if (element.matches('input[type="checkbox"], input[type="radio"], input[type="file"], select, input[type="range"]')) return;
     if (action === "analyze-import" && element.type === "submit") return;
@@ -3326,7 +3970,7 @@
     if (action === "confirm-day") { confirmDay(findDay(element.dataset.dayId || state.selectedDayId)); return render(); }
     if (action === "reopen-day") return reopenDay(findDay(element.dataset.dayId || state.selectedDayId));
     if (action === "set-day-absence") return setDayStatus(findDay(element.dataset.dayId || state.selectedDayId), "falta");
-    if (action === "set-day-certificate") return setDayStatus(findDay(element.dataset.dayId || state.selectedDayId), "atestado");
+    if (action === "set-day-certificate") return addReviewCertificate(findDay(element.dataset.dayId || state.selectedDayId));
     if (action === "set-day-dayoff") return setDayStatus(findDay(element.dataset.dayId || state.selectedDayId), "folga");
     if (action === "set-day-no-schedule") return setDayStatus(findDay(element.dataset.dayId || state.selectedDayId), "sem_expediente");
     if (action === "focus-first-time") return focusFirstTime(element.dataset.dayId);
@@ -3344,11 +3988,16 @@
     if (action === "export-competence") return navigate("competency-exports");
     if (action === "preview-summary-report") return navigate("competency-summary");
     if (action === "export-excel") return exportCompetenceExcel();
+    if (action === "open-espelhos-lote") return openCompetencePrintReport(null, true);
     if (action === "open-print-report") return openCompetencePrintReport();
+    if (action === "open-employee-timesheet") return openCompetencePrintReport(element.getAttribute("data-employee-id"));
     if (action === "new-company") return openSimpleEntityDialog("company");
     if (action === "edit-company") return openSimpleEntityDialog("company", element.dataset.companyId || element.dataset.id || state.selectedCompanyId);
     if (action === "new-employee") return openSimpleEntityDialog("employee");
     if (action === "edit-employee") return openSimpleEntityDialog("employee", element.dataset.employeeId || element.dataset.id);
+    if (action === "new-scale") return openScaleDialog();
+    if (action === "edit-scale") return openScaleDialog(element.dataset.scaleId || element.dataset.id);
+    if (action === "deactivate-scale") return deactivateScale(element.dataset.scaleId || element.dataset.id);
     if (action === "new-competence") return newCompetency();
     if (action === "reset-demo-data") return resetDemo();
   }
@@ -3357,6 +4006,9 @@
     var element = event.target.closest("[data-action]");
     if (!element) return;
     var action = element.dataset.action;
+    if (root.OnPontoOcorrencias.change(action, element)) return;
+    if (root.OnPontoBancoHoras && root.OnPontoBancoHoras.change(action, element)) return;
+    if (root.OnPontoCalendario.change(action, element)) return;
     if (competencyIsClosed() && [
       "select-import-file", "select-import-type", "toggle-import-row", "toggle-all-import-rows",
       "toggle-day-selection", "toggle-all-days", "edit-ocr-time", "edit-ocr-observation",
@@ -3450,7 +4102,7 @@
     if (competencyIsClosed() && state.route === "review") {
       var closedShortcut = (event.ctrlKey || event.metaKey) && ["s", "z"].indexOf(event.key.toLowerCase()) !== -1;
       var closedCell = target.classList && target.classList.contains("time-cell-input") || target.closest && target.closest(".editable-time-cell");
-      var closedSingleKey = state.settings.singleKeyShortcuts && !isTextEditingTarget(target) && !event.ctrlKey && !event.altKey && !event.metaKey && ["n", "f", "a", "r", "c"].indexOf(event.key.toLowerCase()) !== -1;
+      var closedSingleKey = state.settings.singleKeyShortcuts && !isTextEditingTarget(target) && !event.ctrlKey && !event.altKey && !event.metaKey && ["n", "f", "a", "c"].indexOf(event.key.toLowerCase()) !== -1;
       if (closedShortcut || closedCell || closedSingleKey) {
         event.preventDefault();
         closedCompetencyWarning();
@@ -3493,7 +4145,6 @@
     if (key === "n") { event.preventDefault(); setStatusForSelected("normal"); }
     if (key === "f") { event.preventDefault(); setStatusForSelected("falta"); }
     if (key === "a") { event.preventDefault(); setStatusForSelected("atestado"); }
-    if (key === "r") { event.preventDefault(); setStatusForSelected("conferir"); }
     if (key === "c") {
       event.preventDefault();
       var day = findDay(state.selectedDayId);
@@ -3554,6 +4205,14 @@
     });
   }
 
+  function guardUnsavedPageExit(event) {
+    if (state.apiMode !== "online") return;
+    if (editSession || autosaveFlushPromise || Object.keys(pendingDaySaves).length) {
+      event.preventDefault();
+      event.returnValue = "";
+    }
+  }
+
   function flushAutosaveBeforePageExit() {
     if (state.apiMode !== "online" || !state.settings.autosave) return;
     if (editSession && !finishEditing({ move: null })) return;
@@ -3575,6 +4234,22 @@
     var canonicalHash = routeHash(route);
     if (root.location.hash !== canonicalHash) root.history.replaceState(null, "", canonicalHash);
     applyRouteContext(route);
+    if (route.view === "calendar") return root.OnPontoCalendario.load();
+    if (route.view === "company-ocorrencias") return root.OnPontoOcorrencias.load();
+    if (route.view === "company-banco-horas") return root.OnPontoBancoHoras.load();
+    if (state.apiMode === "online" && route.companyId && ["company-employees", "company-scales", "company-settings"].indexOf(route.view) !== -1 && !loadedCompanyScales[String(route.companyId)]) {
+      var scalesLoading = loadScalesForCompany(route.companyId);
+      render(options);
+      return scalesLoading.then(function () {
+        if (sequence !== routeLoadSequence) return;
+        applyRouteContext(route);
+        render(options);
+      }).catch(function (error) {
+        if (sequence !== routeLoadSequence) return;
+        render(options);
+        showToast("Não foi possível carregar as escalas da empresa.", "error", error && error.message);
+      });
+    }
     if (state.apiMode !== "online" || !route.competenceId) {
       render(options);
       return Promise.resolve();
@@ -3607,6 +4282,7 @@
       if (document.visibilityState === "hidden") flushAutosaveBeforePageExit();
     });
     root.addEventListener("pagehide", flushAutosaveBeforePageExit);
+    root.addEventListener("beforeunload", guardUnsavedPageExit);
     byId("sidebarExpandButton").addEventListener("click", toggleSidebar);
     root.addEventListener("hashchange", function () {
       syncRouteFromLocation({ focusMain: true });
@@ -3615,6 +4291,18 @@
   }
 
   function init() {
+    if (root.OnPontoBancoHoras) root.OnPontoBancoHoras.configure({state:function(){return state;},data:function(){return data;},api:apiRequest,
+      render:render,dialog:showDialog,invalidate:function(){
+        loadedCompetenceSummaries = Object.create(null); data.competenceSummaries = {};
+      }});
+    root.OnPontoCalendario.configure({state:function(){return state;},data:function(){return data;},api:apiRequest,
+      render:render,dialog:showDialog,toast:showToast,invalidate:function(){
+        loadedCompetenceDays = Object.create(null); loadedCompetenceSummaries = Object.create(null); data.competenceSummaries = {};
+      }});
+    root.OnPontoOcorrencias.configure({state:function(){return state;},data:function(){return data;},api:apiRequest,apiBase:configuredApiBase,
+      render:render,navigate:navigate,dialog:showDialog,toast:showToast,invalidate:function(){
+        loadedCompetenceDays = Object.create(null); loadedCompetenceSummaries = Object.create(null); data.competenceSummaries = {};
+      }});
     bindEvents();
     root.OnPontoApp = {
       getState: function () { return state; },

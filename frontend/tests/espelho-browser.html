@@ -1,0 +1,9 @@
+<!doctype html><meta charset="utf-8"><title>Validação local do espelho</title>
+<p>Ambiente de teste com dados fictícios.</p>
+<script>
+  // Fixture de navegador; só pode configurar a origem reservada para os testes.
+  if (location.origin === "http://127.0.0.1:8128") {
+    localStorage.setItem("onponto.apiBase", "http://127.0.0.1:8127");
+    location.replace("/index.html#/empresas/1/competencias/1/conferencia");
+  }
+</script>

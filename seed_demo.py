@@ -19,7 +19,7 @@ from sqlalchemy.exc import IntegrityError  # noqa: E402
 
 from app.database import models  # noqa: E402,F401
 from app.database.migrations import aplicar_migracoes_compativeis  # noqa: E402
-from app.database.models import Competencia, Empresa, Funcionario  # noqa: E402
+from app.database.models import Competencia, Empresa, Escala, Funcionario  # noqa: E402
 from app.database.session import Base, SessionLocal, engine  # noqa: E402
 
 
@@ -96,10 +96,6 @@ def _empresa_demo(db, resultado: ResultadoSeed) -> Empresa:
     empresa = Empresa(
         nome=EMPRESA_NOME,
         cnpj=None,
-        jornada_seg_sex_horas=8,
-        jornada_sabado_horas=4,
-        tolerancia_atraso_minutos=5,
-        tolerancia_extra_minutos=10,
         ativa=True,
         observacoes=EMPRESA_OBSERVACOES,
     )
@@ -107,6 +103,36 @@ def _empresa_demo(db, resultado: ResultadoSeed) -> Empresa:
     db.flush()
     resultado.criado.append(f'empresa "{empresa.nome}" (id {empresa.id})')
     return empresa
+
+
+def _escala_demo(db, empresa: Empresa, resultado: ResultadoSeed) -> Escala:
+    escala = (
+        db.query(Escala)
+        .filter(Escala.empresa_id == empresa.id, Escala.nome == "Padrão")
+        .order_by(Escala.id)
+        .first()
+    )
+    if escala:
+        resultado.reutilizado.append(f'escala "{escala.nome}" (id {escala.id})')
+        return escala
+
+    escala = Escala(
+        empresa_id=empresa.id,
+        nome="Padrão",
+        modo_apuracao="carga_horaria",
+        jornada_seg_sex_horas=8,
+        jornada_sabado_horas=4,
+        regime_sabado="trabalha",
+        regime_domingo="nao_trabalha",
+        tolerancia_atraso_minutos=5,
+        tolerancia_extra_minutos=10,
+        tolerancia_intervalo_minutos=0,
+        ativa=True,
+    )
+    db.add(escala)
+    db.flush()
+    resultado.criado.append(f'escala "{escala.nome}" (id {escala.id})')
+    return escala
 
 
 def _validar_funcionarios_existentes(db, empresa: Empresa) -> dict[str, Funcionario]:
@@ -161,6 +187,7 @@ def _validar_funcionarios_existentes(db, empresa: Empresa) -> dict[str, Funciona
 def _funcionarios_demo(
     db,
     empresa: Empresa,
+    escala: Escala,
     resultado: ResultadoSeed,
 ) -> None:
     reutilizaveis = _validar_funcionarios_existentes(db, empresa)
@@ -178,6 +205,7 @@ def _funcionarios_demo(
             nome=nome,
             cargo="Cadastro fictício para demonstração",
             ativo=True,
+            escala_id=escala.id,
             observacoes=f"Dado fictício criado pelo seed {EMPRESA_MARCADOR}.",
         )
         db.add(funcionario)
@@ -224,7 +252,8 @@ def executar_seed() -> ResultadoSeed:
     with SessionLocal() as db:
         with db.begin():
             empresa = _empresa_demo(db, resultado)
-            _funcionarios_demo(db, empresa, resultado)
+            escala = _escala_demo(db, empresa, resultado)
+            _funcionarios_demo(db, empresa, escala, resultado)
             _competencia_demo(db, empresa, resultado)
 
     return resultado

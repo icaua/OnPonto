@@ -132,6 +132,7 @@
     day_off: { label: "Folga", tone: "neutral", icon: "calendar" },
     holiday: { label: "Feriado", tone: "neutral", icon: "calendar" },
     sunday: { label: "Domingo", tone: "neutral", icon: "sun" },
+    fora_vinculo: { label: "Fora do vínculo", tone: "neutral", icon: "calendar_off" },
     off_schedule: { label: "Sem expediente", tone: "neutral", icon: "calendar_off" },
     external_work: { label: "Trabalho externo", tone: "neutral", icon: "briefcase" },
     leave: { label: "Afastamento", tone: "neutral", icon: "clock" },
@@ -211,7 +212,7 @@
     var secondary = settings.secondaryItems || DEFAULT_SECONDARY_NAV;
     var secondaryMarkup = secondary.length ? '<div class="sidebar-secondary"><span class="sidebar-section-label">' + text(settings.secondaryLabel || "Administração") + '</span><nav aria-label="Navegação secundária"><ul>' + secondary.map(function (item) { return navItem(item, active, collapsed); }).join("") + "</ul></nav></div>" : "";
     return '<div class="op-sidebar' + (collapsed ? " is-collapsed" : "") + '" data-component="sidebar">' +
-      '<div class="sidebar-brand" role="img" aria-label="ON PONTO."><span class="sidebar-brand-mark" aria-hidden="true"><svg viewBox="0 0 48 48" focusable="false"><circle class="brand-symbol-ring" cx="24" cy="24" r="11"></circle><path class="brand-symbol-axis" d="M24 5v6M24 37v6M5 24h6M37 24h6"></path><circle class="brand-symbol-point" cx="24" cy="24" r="3.5"></circle></svg></span><span class="sidebar-brand-name">' + text(settings.brand || "ON PONTO.") + "</span></div>" +
+      '<div class="sidebar-brand"><img class="sidebar-brand-logo" src="brand/on-ponto-logo-white.svg" alt="On Ponto" width="190" height="47"><img class="sidebar-brand-symbol" src="brand/on-ponto-symbol-white.svg" alt="On Ponto" width="36" height="36"></div>' +
       '<nav class="sidebar-nav" aria-label="Navegação principal"><ul>' + primary.map(function (item) { return navItem(item, active, collapsed); }).join("") + "</ul></nav>" +
       secondaryMarkup +
       '<button type="button" class="sidebar-collapse" data-action="toggle-sidebar" aria-expanded="' + (collapsed ? "false" : "true") + '" aria-label="' + text(collapsed ? "Expandir menu" : "Recolher menu") + '">' +
@@ -233,7 +234,7 @@
     var meta = settings.meta ? '<div class="page-header-meta">' + array(settings.meta).map(function (item) {
       return '<span class="page-meta-item">' + (item.icon ? Icon(item.icon) : "") + text(valueOf(item.label, item)) + "</span>";
     }).join("") + "</div>" : "";
-    return '<header class="op-page-header" data-component="page-header"><div class="page-header-copy op-page-header__copy">' + breadcrumbs + eyebrow + '<h1 id="' + text(settings.headingId || "page-title") + '">' + text(settings.title) + "</h1>" + subtitle + meta + "</div>" +
+    return '<header class="op-page-header" data-component="page-header"><div class="page-header-copy op-page-header__copy">' + breadcrumbs + eyebrow + '<div class="page-title-row"><h1 id="' + text(settings.headingId || "page-title") + '">' + text(settings.title) + "</h1>" + (settings.titleStatus ? StatusChip(settings.titleStatus) : "") + '</div>' + subtitle + meta + "</div>" +
       (actions ? '<div class="page-header-actions op-page-header__actions">' + actions + "</div>" : "") + "</header>";
   }
 
@@ -374,7 +375,7 @@
         (selectable ? '<td class="selection-cell"><input type="checkbox" data-action="toggle-day-selection" data-day-id="' + text(dayId) + '" aria-label="Incluir ' + text(Utils.formatDate(date)) + ' nas ações em massa"' + boolAttr("checked", isBulkSelected) + "></td>" : "") +
         '<th scope="row" class="day-cell"><button type="button" class="day-select-button" data-action="select-day" data-day-id="' + text(dayId) + '" aria-controls="day-details-panel" aria-label="Ver detalhes de ' + text(Utils.formatDate(date)) + (confirmed ? ", dia conferido" : "") + '"' + (isSelected ? ' aria-current="date"' : "") + '><span class="day-number">' + text(Utils.formatDayLabel(date)) + "</span>" + (confirmed ? Icon("check_circle", { label: "Dia conferido" }) : "") + "</button></th>" +
         editableCells + '<td class="journey-cell">' + text(formatMinutesOrValue(worked, false)) + '</td><td class="balance-cell' + (Number(balance) > 0 ? " is-positive" : Number(balance) < 0 ? " is-negative" : "") + '">' + text(formatMinutesOrValue(balance, true)) + "</td>" +
-        '<td class="situation-cell"><button type="button" class="chip-button" data-action="choose-situation" data-day-id="' + text(dayId) + '" aria-label="Situação de ' + text(Utils.formatDate(date)) + ": " + text(resolveStatus(dayStatus(day)).meta.label) + (readonly ? '" disabled' : '. Alterar situação"') + ">" + StatusChip(dayStatus(day), { compact: true }) + "</button></td>" +
+        '<td class="situation-cell"><button type="button" class="chip-button" data-action="choose-situation" data-day-id="' + text(dayId) + '" aria-label="Situação de ' + text(Utils.formatDate(date)) + ": " + text(resolveStatus(day.effectiveStatus || dayStatus(day)).meta.label) + (readonly ? '" disabled' : '. Alterar situação"') + ">" + StatusChip(day.effectiveStatus || dayStatus(day), { compact: true }) + "</button>" + (day.occurrenceLabel ? '<small class="occurrence-type">' + text(day.occurrenceLabel) + "</small>" : "") + (day.calendarNote ? '<small class="calendar-day-note">' + text(day.calendarNote) + "</small>" : "") + "</td>" +
         '<td class="observation-cell"><button type="button" class="observation-button' + (note ? " has-content" : "") + '" data-action="edit-observation" data-day-id="' + text(dayId) + '" aria-label="' + text((readonly ? "Observação de " : note ? "Editar observação de " : "Adicionar observação em ") + Utils.formatDate(date) + (note ? ": " + note : "")) + '"' + boolAttr("disabled", readonly) + ">" + (note ? Icon("note") + '<span class="observation-text">' + text(note) + "</span>" : '<span class="empty-value">—</span>') + "</button></td></tr>";
     }).join("");
     var columnCount = selectable ? 10 : 9;
@@ -439,12 +440,14 @@
       { action: "set-day-no-schedule", label: "Marcar como sem expediente", variant: "ghost" },
     ];
     if (resolveStatus(dayStatus(day)).key === "needs_review" || array(day.issues || day.pendencias).length) return [
+      { action: "set-day-certificate", label: "Adicionar atestado", variant: "secondary" },
       { action: "focus-first-time", label: "Corrigir marcações", variant: "secondary" },
       { action: "keep-interpretation", label: "Manter interpretação", variant: "secondary" },
       { action: "focus-observation", label: "Adicionar observação", variant: "ghost" },
       { action: "confirm-day", label: "Marcar como conferido", icon: "check", variant: "primary" },
     ];
-    return [{ action: "confirm-day", label: "Marcar dia como conferido", icon: "check", variant: "primary" }];
+    return [{ action: "set-day-certificate", label: "Adicionar atestado", variant: "secondary" },
+      { action: "confirm-day", label: "Marcar dia como conferido", icon: "check", variant: "primary" }];
   }
 
   function DayDetailsPanel(props) {
@@ -477,7 +480,8 @@
     var hasRegion = Boolean(valueOf(source.region, source.regiao, original.region, original.regiao, punches.some(function (punch) { return punch.region || punch.regiao; })));
     var actions = readonly ? [] : valueOf(settings.actions, defaultDayActions(day, punches));
     return '<aside id="day-details-panel" class="day-details-panel" data-component="day-details-panel" data-day-id="' + text(dayId) + '" aria-labelledby="day-details-title">' +
-      '<header class="details-header day-details-panel__header"><div><p class="details-eyebrow">' + text(Utils.formatWeekday(date, { long: true })) + '</p><h2 id="day-details-title">' + text(Utils.formatDate(date)) + "</h2></div>" + StatusChip(dayStatus(day)) + "</header>" +
+      '<header class="details-header day-details-panel__header"><div><p class="details-eyebrow">' + text(Utils.formatWeekday(date, { long: true })) + '</p><h2 id="day-details-title">' + text(Utils.formatDate(date)) + "</h2></div>" + StatusChip(day.effectiveStatus || dayStatus(day)) + "</header>" + (day.calendarNote ? '<p class="context-note">' + text(day.calendarNote) + "</p>" : "") +
+      (day.occurrenceLabel ? '<p class="context-note"><strong>' + text(day.occurrenceLabel) + '</strong> · Abono calculado: ' + text(day.excusedMinutes || 0) + ' min. As batidas permanecem preservadas.</p>' : "") +
       OriginalPunchesList({ punches: punches }) +
       '<section class="details-section current-interpretation"><h3>Interpretação atual</h3><dl>' + detailRow("Entrada", slots.entry) + detailRow("Saída intervalo", slots.breakOut) + detailRow("Retorno", slots.breakIn) + detailRow("Saída", slots.exit) + detailRow("Jornada prevista", formatMinutesOrValue(expected, false)) + detailRow("Jornada apurada", formatMinutesOrValue(worked, false)) + detailRow("Saldo", formatMinutesOrValue(balance, true), Number(balance) > 0 ? "is-positive" : Number(balance) < 0 ? "is-negative" : "") + "</dl>" +
       (valueOf(current.differenceReason, current.motivoDiferenca, day.differenceReason, day.motivoDiferenca) ? '<p class="difference-reason"><strong>Motivo:</strong> ' + text(valueOf(current.differenceReason, current.motivoDiferenca, day.differenceReason, day.motivoDiferenca)) + "</p>" : "") + "</section>" +
@@ -485,7 +489,7 @@
       '<section class="details-section origin-section"><h3>Origem</h3><dl>' + detailRow("Arquivo", sourceFile) + detailRow("Importado em", importedAt ? Utils.formatDateTime(importedAt) : "—") + detailRow("Linhas de origem", array(sourceLines).join(", ") || "—") + '</dl><div class="context-buttons">' +
       actionButton("open-original-file", "Ver arquivo original", { icon: "file", variant: "secondary", fileId: valueOf(file.id, source.fileId, original.fileId), disabled: sourceFile === "—" }) +
       actionButton("open-source-region", "Ver região de origem", { icon: "eye", variant: "ghost", fileId: valueOf(file.id, source.fileId, original.fileId), disabled: !hasRegion }) + "</div></section>" +
-      ActivityTimeline({ items: valueOf(day.history, day.historico, []), title: "Atividades desta sessão" }) +
+      ActivityTimeline({ items: valueOf(day.history, day.historico, []), title: "Histórico de alterações" }) +
       '<footer class="details-actions" aria-label="Ações para o dia">' + (readonly
         ? '<p class="muted-text" role="note">Competência fechada: este dia está disponível somente para consulta.</p>'
         : array(actions).map(function (action) { return actionButton(action.action || action.id, action.label, Object.assign({}, action, { dayId: dayId })); }).join("")) + "</footer></aside>";
@@ -497,10 +501,10 @@
     var file = settings.file || null;
     var accept = settings.accept || ".txt,.xls,.xlsx,.pdf,.png,.jpg,.jpeg";
     return '<div class="import-dropzone' + (settings.dragging ? " is-dragging" : "") + (settings.disabled ? " is-disabled" : "") + '" data-component="import-dropzone" data-drop-action="select-import-file">' +
-      '<input class="sr-only dropzone-input" id="' + text(inputId) + '" type="file" data-action="select-import-file" accept="' + text(accept) + '"' + boolAttr("disabled", settings.disabled) + ">" +
+      '<input class="sr-only dropzone-input" id="' + text(inputId) + '" type="file" tabindex="-1" data-action="select-import-file" accept="' + text(accept) + '"' + boolAttr("disabled", settings.disabled) + ">" +
       '<label for="' + text(inputId) + '" class="dropzone-label">' + '<span class="import-dropzone__icon">' + Icon(file ? "file" : "upload") + '</span><span class="dropzone-title">' + text(file ? valueOf(file.name, file.nome) : settings.title || "Arraste o arquivo ou escolha no computador") + "</span>" +
       '<span class="dropzone-description">' + text(file ? (file.size != null ? Utils.formatFileSize(file.size) : "Arquivo pronto para análise") : settings.description || "TXT, XLS, XLSX, PDF, PNG ou JPG") + "</span>" +
-      '<span class="button button-secondary" aria-hidden="true">' + text(file ? "Trocar arquivo" : "Escolher arquivo") + "</span></label>" +
+      '</label><button type="button" class="button button-secondary" data-action="open-file-picker" aria-controls="' + text(inputId) + '"' + boolAttr("disabled", settings.disabled) + '>' + text(file ? "Trocar arquivo" : "Escolher arquivo") + "</button>" +
       (file ? actionButton("clear-import-file", "Remover arquivo", { icon: "trash", variant: "ghost", ariaLabel: "Remover " + valueOf(file.name, file.nome, "arquivo") }) : "") + "</div>";
   }
 

@@ -1,16 +1,26 @@
-from datetime import datetime
+from datetime import date, datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
-class FuncionarioBase(BaseModel):
+class DatasVinculo(BaseModel):
+    data_admissao: date | None = None
+    data_demissao: date | None = None
+
+    @model_validator(mode="after")
+    def validar_datas_vinculo(self):
+        if self.data_admissao and self.data_demissao and self.data_demissao < self.data_admissao:
+            raise ValueError("A data de demissão não pode ser anterior à data de admissão.")
+        return self
+
+
+class FuncionarioBase(DatasVinculo):
     empresa_id: int
     codigo: str | None = None
     nome: str = Field(..., min_length=1, max_length=180)
     cargo: str | None = None
     ativo: bool = True
-    jornada_especifica_seg_sex_horas: float | None = None
-    jornada_especifica_sabado_horas: float | None = None
+    escala_id: int | None = None
     observacoes: str | None = None
 
 
@@ -18,14 +28,13 @@ class FuncionarioCreate(FuncionarioBase):
     pass
 
 
-class FuncionarioUpdate(BaseModel):
+class FuncionarioUpdate(DatasVinculo):
     empresa_id: int | None = None
     codigo: str | None = None
     nome: str | None = Field(default=None, min_length=1, max_length=180)
     cargo: str | None = None
     ativo: bool | None = None
-    jornada_especifica_seg_sex_horas: float | None = None
-    jornada_especifica_sabado_horas: float | None = None
+    escala_id: int | None = None
     observacoes: str | None = None
 
 

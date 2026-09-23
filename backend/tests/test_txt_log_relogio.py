@@ -10,7 +10,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from app.importadores.txt_log_relogio import ErroImportacaoTxt, parse_txt_log_relogio
+from app.importadores.txt_log_relogio import ErroImportacaoTxt, detectar, parse_txt_log_relogio
 
 
 CABECALHO = [
@@ -47,6 +47,18 @@ def montar_txt(registros: list[tuple[str, str, str]], cabecalho: list[str] | Non
             )
         )
     return "\r\n".join(linhas) + "\r\n"
+
+
+class DetectarTests(unittest.TestCase):
+    def test_reconhece_cabecalho_esperado(self) -> None:
+        self.assertTrue(detectar(montar_txt([("5", "LANA FERNANDA", "2026-07-01 08:03:17")]).encode("utf-8")))
+
+    def test_nao_reconhece_cabecalho_do_outro_adaptador_txt(self) -> None:
+        conteudo = "ID\tNome\tDepart.\tTempo\tNúmero da máquina\r\n1\tFulano\tNot Set1\t 01/06/2026     07:12:36\t1\r\n"
+        self.assertFalse(detectar(conteudo.encode("utf-8")))
+
+    def test_nao_reconhece_conteudo_sem_relacao(self) -> None:
+        self.assertFalse(detectar(b"qualquer coisa\nsem cabecalho tabulado"))
 
 
 class ParseTxtLogRelogioTests(unittest.TestCase):

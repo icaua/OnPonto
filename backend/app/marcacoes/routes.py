@@ -1,3 +1,5 @@
+from datetime import date
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -6,6 +8,7 @@ from app.competencias.service import exigir_competencia_editavel, sincronizar_st
 from app.database.models import Competencia, Funcionario, MarcacaoPonto
 from app.database.session import get_db
 from app.marcacoes.schemas import MarcacaoCreate, MarcacaoRead, MarcacaoUpdate, ORIGENS, STATUS_DIA
+from app.marcacoes.auditoria import estado, registrar_alteracao, validar_sequencia
 
 
 router = APIRouter(prefix="/marcacoes", tags=["Marcações de ponto"])
@@ -32,6 +35,20 @@ def validar_vinculos(db: Session, competencia_id: int, funcionario_id: int) -> C
     return competencia
 
 
+def validar_data_competencia(
+    competencia: Competencia,
+    data_marcacao: date,
+) -> None:
+    if (data_marcacao.year, data_marcacao.month) != (
+        competencia.ano,
+        competencia.mes,
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="A data da marcação não pertence à competência informada.",
+        )
+
+
 @router.get("", response_model=list[MarcacaoRead])
 def listar_marcacoes(
     competencia_id: int = Query(...),
@@ -49,6 +66,7 @@ def salvar_marcacao(payload: MarcacaoCreate, db: Session = Depends(get_db)) -> M
     validar_status_origem(payload.status_dia, payload.origem)
     competencia = validar_vinculos(db, payload.competencia_id, payload.funcionario_id)
     exigir_competencia_editavel(competencia)
+    validar_data_competencia(competencia, payload.data)
 
     marcacao = (
         db.query(MarcacaoPonto)
@@ -60,6 +78,7 @@ def salvar_marcacao(payload: MarcacaoCreate, db: Session = Depends(get_db)) -> M
         .first()
     )
 
+    antes = estado(marcacao) if marcacao else None
     if marcacao:
         for campo, valor in payload.model_dump().items():
             if campo == "origem" and marcacao.arquivo_origem_id is not None:
@@ -69,6 +88,8 @@ def salvar_marcacao(payload: MarcacaoCreate, db: Session = Depends(get_db)) -> M
         marcacao = MarcacaoPonto(**payload.model_dump())
         db.add(marcacao)
 
+    validar_sequencia(marcacao)
+    registrar_alteracao(marcacao, antes)
     try:
         sincronizar_status_competencia(db, competencia)
         db.commit()
@@ -109,9 +130,14 @@ def atualizar_marcacao(
     competencia_destino = validar_vinculos(db, competencia_id, funcionario_id)
     exigir_competencia_editavel(competencia_destino)
 
+    antes = estado(marcacao)
     for campo, valor in dados.items():
         setattr(marcacao, campo, valor)
+    if dados and marcacao.origem == "calendario":
+        marcacao.origem = "manual"
 
+    validar_sequencia(marcacao)
+    registrar_alteracao(marcacao, antes)
     try:
         sincronizar_status_competencia(db, competencia_original)
         if competencia_destino.id != competencia_original.id:

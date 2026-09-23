@@ -1,16 +1,32 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 import unicodedata
+from collections.abc import Iterable, Mapping
 from datetime import date, datetime, time
 from pathlib import Path
 from typing import Any
 
 from openpyxl import load_workbook
+from openpyxl.workbook.workbook import Workbook
 from openpyxl.worksheet.worksheet import Worksheet
 
+from app.importadores.interpretacao_batidas import interpretar_batidas
 
+
+NOME_ADAPTER = "xlsx_ponto_generico"
 HORARIO_RE = re.compile(r"\b([01]?\d|2[0-3]):([0-5]\d)\b")
+
+
+class ErroImportacaoXlsxPontoGenerico(ValueError):
+    """Erro esperado e apresentável durante a leitura deste XLSX de ponto."""
+
+    def __init__(self, codigo: str, mensagem: str) -> None:
+        self.codigo = codigo
+        self.mensagem = mensagem
+        super().__init__(mensagem)
 
 
 def normalizar_texto(valor: Any) -> str:
@@ -52,6 +68,82 @@ def valores_linha(ws: Worksheet, row: int, lookup_mescladas: dict[tuple[int, int
 
 def linha_eh_inicio_bloco(valores: list[Any]) -> bool:
     return any("NUMERO DE FUNCI" in normalizar_texto(valor) for valor in valores)
+
+
+def detectar(workbook: Workbook) -> bool:
+    """Checagem estrutural barata: alguma planilha tem um bloco marcado por
+    uma célula contendo 'NUMERO DE FUNCIONÁRIO'."""
+
+    for ws in workbook.worksheets:
+        lookup_mescladas = construir_lookup_mescladas(ws)
+        for row_idx in range(1, max(ws.max_row - 1, 1)):
+            if linha_eh_inicio_bloco(valores_linha(ws, row_idx, lookup_mescladas)):
+                return True
+    return False
+
+
+def _valor_funcionario(funcionario: Any, campo: str) -> Any:
+    if isinstance(funcionario, Mapping):
+        return funcionario.get(campo)
+    return getattr(funcionario, campo, None)
+
+
+def _indexar_funcionarios(
+    funcionarios: Iterable[Any],
+) -> tuple[dict[str, list[Any]], dict[str, list[Any]]]:
+    por_codigo: dict[str, list[Any]] = {}
+    por_nome: dict[str, list[Any]] = {}
+
+    for funcionario in funcionarios:
+        codigo_bruto = _valor_funcionario(funcionario, "codigo")
+        codigo = "" if codigo_bruto is None else str(codigo_bruto).strip()
+        nome = normalizar_texto(_valor_funcionario(funcionario, "nome"))
+        if codigo:
+            por_codigo.setdefault(codigo, []).append(funcionario)
+        if nome:
+            por_nome.setdefault(nome, []).append(funcionario)
+
+    return por_codigo, por_nome
+
+
+def _localizar_funcionario(
+    codigo: str | None,
+    nome: str,
+    por_codigo: dict[str, list[Any]],
+    por_nome: dict[str, list[Any]],
+) -> Any | None:
+    if codigo:
+        candidatos_codigo = por_codigo.get(codigo, [])
+        if len(candidatos_codigo) == 1:
+            return candidatos_codigo[0]
+
+    candidatos_nome = por_nome.get(normalizar_texto(nome), [])
+    if len(candidatos_nome) == 1:
+        return candidatos_nome[0]
+    return None
+
+
+def _id_registro(
+    arquivo_nome: str,
+    chave_funcionario: tuple[str, str],
+    funcionario_id: Any | None,
+    data_registro: str,
+    batidas: list[str],
+) -> str:
+    conteudo = json.dumps(
+        {
+            "arquivo": arquivo_nome,
+            "funcionario": chave_funcionario,
+            "funcionario_resolvido": funcionario_id,
+            "data": data_registro,
+            "batidas": batidas,
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+    digest = hashlib.sha256(conteudo.encode("utf-8")).hexdigest()[:20]
+    return f"{NOME_ADAPTER}-{digest}"
 
 
 def extrair_codigo_funcionario(valores: list[Any]) -> str | None:
@@ -133,59 +225,32 @@ def value_is_time(valor: Any) -> bool:
 
 
 def montar_marcacao(data_marcacao: date, horarios: list[str]) -> dict[str, Any]:
-    marcacao = {
+    interpretacao = interpretar_batidas(horarios)
+    return {
         "data": data_marcacao.isoformat(),
-        "entrada": None,
-        "saida_almoco": None,
-        "retorno_almoco": None,
-        "saida": None,
-        "status": "pendente",
-        "status_dia": "pendente",
-        "observacoes": "Sem marcações",
+        **interpretacao,
         "horarios_extraidos": horarios,
     }
 
-    if len(horarios) >= 4:
-        marcacao.update(
-            {
-                "entrada": horarios[0],
-                "saida_almoco": horarios[1],
-                "retorno_almoco": horarios[2],
-                "saida": horarios[3],
-                "status": "normal" if len(horarios) == 4 else "pendente_conferencia",
-                "status_dia": "normal" if len(horarios) == 4 else "pendente_conferencia",
-                "observacoes": None if len(horarios) == 4 else "Mais de quatro marcações encontradas",
-            }
-        )
-    elif len(horarios) == 2:
-        marcacao.update(
-            {
-                "entrada": horarios[0],
-                "saida": horarios[1],
-                "status": "pendente_conferencia",
-                "status_dia": "pendente_conferencia",
-                "observacoes": "Apenas duas marcações encontradas",
-            }
-        )
-    elif len(horarios) in {1, 3}:
-        campos = ["entrada", "saida_almoco", "retorno_almoco"]
-        for campo, horario in zip(campos, horarios):
-            marcacao[campo] = horario
-        marcacao.update(
-            {
-                "status": "pendente_conferencia",
-                "status_dia": "pendente_conferencia",
-                "observacoes": "Quantidade incompleta de marcações",
-            }
-        )
 
-    return marcacao
+def parse_xlsx_ponto_generico(
+    file_path: str,
+    *,
+    arquivo_nome: str,
+    mes: int,
+    ano: int,
+    funcionarios: Iterable[Any] = (),
+) -> dict[str, Any]:
+    """Lê um XLSX no layout 'largo' (bloco por funcionário, com uma linha de
+    dias e uma linha de marcações em colunas)."""
 
-
-def parse_xlsx_ponto_generico(file_path: str, mes: int, ano: int, empresa_id: int) -> list[dict[str, Any]]:
     caminho = Path(file_path)
     workbook = load_workbook(caminho, data_only=True)
-    funcionarios: list[dict[str, Any]] = []
+
+    por_codigo, por_nome = _indexar_funcionarios(funcionarios)
+    nome_arquivo = str(arquivo_nome)
+    registros: list[dict[str, Any]] = []
+    total_linhas_validas = 0
 
     for ws in workbook.worksheets:
         lookup_mescladas = construir_lookup_mescladas(ws)
@@ -199,7 +264,12 @@ def parse_xlsx_ponto_generico(file_path: str, mes: int, ano: int, empresa_id: in
             nome = extrair_nome_funcionario(valores_header, row_idx)
             linha_marcacoes = row_idx + 1
             linha_dias = row_idx + 2
-            marcacoes = []
+
+            funcionario = _localizar_funcionario(codigo, nome, por_codigo, por_nome)
+            funcionario_id = _valor_funcionario(funcionario, "id") if funcionario is not None else None
+            encontrado = funcionario is not None and funcionario_id is not None
+            nome_cadastrado = _valor_funcionario(funcionario, "nome") if encontrado else None
+            chave_funcionario = ("codigo", codigo) if codigo else ("nome", normalizar_texto(nome))
 
             for col_idx in range(1, ws.max_column + 1):
                 dia = extrair_dia(valor_celula(ws, linha_dias, col_idx, lookup_mescladas))
@@ -212,17 +282,57 @@ def parse_xlsx_ponto_generico(file_path: str, mes: int, ano: int, empresa_id: in
 
                 valor_marcacoes = valor_celula(ws, linha_marcacoes, col_idx, lookup_mescladas)
                 horarios = extrair_horarios(valor_marcacoes)
-                marcacoes.append(montar_marcacao(data_marcacao, horarios))
+                total_linhas_validas += 1
 
-            funcionarios.append(
-                {
-                    "empresa_id": empresa_id,
-                    "codigo": codigo,
-                    "nome": nome,
-                    "sheet": ws.title,
-                    "linha_cabecalho": row_idx,
-                    "marcacoes": marcacoes,
+                resultado_interpretacao = interpretar_batidas(horarios)
+                interpretacao = {
+                    "entrada": resultado_interpretacao["entrada"],
+                    "saida_intervalo": resultado_interpretacao["saida_almoco"],
+                    "retorno_intervalo": resultado_interpretacao["retorno_almoco"],
+                    "saida": resultado_interpretacao["saida"],
                 }
-            )
+                status = "nao_conferido" if resultado_interpretacao["status"] == "normal" else "conferir"
+                pendencias = (
+                    [resultado_interpretacao["observacoes"]] if resultado_interpretacao["observacoes"] else []
+                )
+                if not encontrado:
+                    pendencias.append("Funcionário não cadastrado para esta empresa")
 
-    return funcionarios
+                data_iso = data_marcacao.isoformat()
+                registros.append(
+                    {
+                        "id": _id_registro(
+                            nome_arquivo,
+                            chave_funcionario,
+                            funcionario_id if encontrado else None,
+                            data_iso,
+                            horarios,
+                        ),
+                        "funcionario": {
+                            "id": funcionario_id if encontrado else None,
+                            "codigo_origem": codigo,
+                            "nome_origem": nome,
+                            "nome_cadastrado": nome_cadastrado,
+                            "encontrado": encontrado,
+                        },
+                        "data": data_iso,
+                        "batidas_originais": horarios,
+                        "interpretacao": interpretacao,
+                        "status": status,
+                        "pendencias": pendencias,
+                        # O mês/ano já vêm do parâmetro de competência: esta
+                        # planilha não guarda o próprio ano, então nunca há
+                        # como o dia estar fora da competência informada.
+                        "fora_da_competencia": False,
+                        "selecionado": encontrado,
+                        "origem": {"tipo": NOME_ADAPTER, "arquivo": nome_arquivo},
+                    }
+                )
+
+    if not total_linhas_validas:
+        raise ErroImportacaoXlsxPontoGenerico(
+            "arquivo_vazio", "O arquivo XLSX não contém registros de ponto."
+        )
+
+    registros.sort(key=lambda item: (normalizar_texto(item["funcionario"]["nome_origem"]), item["data"]))
+    return {"total_linhas_validas": total_linhas_validas, "registros": registros}

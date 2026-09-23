@@ -5,7 +5,7 @@ import os
 import socket
 import subprocess
 import sys
-import tempfile
+from test_support import TemporaryDirectory
 import time
 import unittest
 from datetime import date, datetime, time as horario, timedelta
@@ -30,6 +30,7 @@ CABECALHO_RESUMO = [
     "Pendências",
     "Situação",
     "Observações",
+    "Horas 100% (feriado)",
 ]
 
 CABECALHO_MARCACOES = [
@@ -44,13 +45,14 @@ CABECALHO_MARCACOES = [
     "Status",
     "Conferido",
     "Observações",
+    "Horas 100% (feriado)",
 ]
 
 
 class RelatorioExcelApiTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        cls.temp_dir = tempfile.TemporaryDirectory(prefix="onponto-relatorio-excel-")
+        cls.temp_dir = TemporaryDirectory(prefix="onponto-relatorio-excel-")
         cls.addClassCleanup(cls.temp_dir.cleanup)
 
         raiz = Path(cls.temp_dir.name)
@@ -148,13 +150,41 @@ class RelatorioExcelApiTest(unittest.TestCase):
     def criar_empresa(self, nome: str) -> dict:
         status_http, empresa = self.json_request("POST", "/empresas", {"nome": nome})
         self.assertEqual(status_http, 201)
+        status_http, escala = self.json_request(
+            "POST",
+            "/escalas",
+            {
+                "empresa_id": empresa["id"],
+                "nome": "Padrão",
+                "modo_apuracao": "carga_horaria",
+                "jornada_seg_sex_horas": 8,
+                "jornada_sabado_horas": 4,
+                "regime_sabado": "trabalha",
+                "regime_domingo": "nao_trabalha",
+                "tolerancia_atraso_minutos": 5,
+                "tolerancia_extra_minutos": 10,
+                "tolerancia_intervalo_minutos": 0,
+            },
+        )
+        self.assertEqual(status_http, 201)
+        if not hasattr(self, "escalas_por_empresa"):
+            self.escalas_por_empresa = {}
+        self.escalas_por_empresa[empresa["id"]] = escala["id"]
         return empresa
 
     def criar_funcionario(self, empresa_id: int, codigo: str, nome: str) -> dict:
         status_http, funcionario = self.json_request(
             "POST",
             "/funcionarios",
-            {"empresa_id": empresa_id, "codigo": codigo, "nome": nome},
+            {
+                "empresa_id": empresa_id,
+                "codigo": codigo,
+                "nome": nome,
+                "escala_id": self.escalas_por_empresa[empresa_id],
+                # Este teste isola a formatação do relatório. O calendário completo
+                # para funcionários ativos é coberto na suíte de apuração.
+                "ativo": False,
+            },
         )
         self.assertEqual(status_http, 201)
         return funcionario
@@ -222,7 +252,7 @@ class RelatorioExcelApiTest(unittest.TestCase):
                 "funcionario_id": caio["id"],
                 "data": "2026-07-02",
                 "entrada": "08:00",
-                "status_dia": "pendente_conferencia",
+                "status_dia": "normal",
                 "origem": "manual",
                 "conferido": False,
             }
@@ -252,8 +282,8 @@ class RelatorioExcelApiTest(unittest.TestCase):
         self.assertEqual([celula.value for celula in marcacoes[1]], CABECALHO_MARCACOES)
         self.assertEqual(resumo.freeze_panes, "A2")
         self.assertEqual(marcacoes.freeze_panes, "A2")
-        self.assertEqual(resumo.auto_filter.ref, "A1:J4")
-        self.assertEqual(marcacoes.auto_filter.ref, "A1:K4")
+        self.assertEqual(resumo.auto_filter.ref, "A1:K4")
+        self.assertEqual(marcacoes.auto_filter.ref, "A1:L4")
         self.assertTrue(resumo["A1"].fill.fgColor.rgb.endswith("16845B"))
         self.assertTrue(marcacoes["A1"].fill.fgColor.rgb.endswith("16845B"))
 
@@ -295,7 +325,7 @@ class RelatorioExcelApiTest(unittest.TestCase):
         self.assertEqual(marcacoes["H3"].number_format, "@")
         self.assertEqual(marcacoes["G4"].value, "Indisponível")
         self.assertEqual(marcacoes["H4"].value, "Indisponível")
-        self.assertEqual(marcacoes["I4"].value, "Pendente de conferência")
+        self.assertEqual(marcacoes["I4"].value, "Normal")
         self.assertEqual(marcacoes["J2"].value, "Sim")
         self.assertEqual(marcacoes["J3"].value, "Não")
         self.assertEqual(marcacoes["K2"].value, "'=SOMA(1;1)")

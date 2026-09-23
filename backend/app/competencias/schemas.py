@@ -40,6 +40,7 @@ class CompetenciaRead(CompetenciaBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    versao_fechamento: int = 0
     created_at: datetime
     updated_at: datetime
 

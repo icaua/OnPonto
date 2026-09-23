@@ -15,11 +15,16 @@ __pycache__/
 .coverage
 htmlcov/
 
-# Logs
+# Variáveis de ambiente / segredos locais
+.env
+.env.*
+!.env.example
+
+# Logs e artefatos locais de validação
 logs/
 *.log
 
-# SQLite validado e arquivos transitórios
+# SQLite principal e arquivos transitórios
 backend/onponto.db
 *.db-wal
 *.db-shm
@@ -36,6 +41,9 @@ test*.db
 tmp*.db
 backend/.test-data/
 
+# Backups locais do projeto
+backups/
+
 # Uploads locais
 backend/uploads/*
 !backend/uploads/.gitkeep
@@ -43,9 +51,13 @@ backend/uploads/*
 # Artefatos recriáveis das fixtures
 fixtures/generated/
 
+# Configuração local de desenvolvimento
+.claude/launch.json
+
 # Relatórios locais de ativação
 RELATORIO-ATIVACAO-LINUX.md
 
 # Sistema operacional
 .DS_Store
 Thumbs.db
+Desktop.ini

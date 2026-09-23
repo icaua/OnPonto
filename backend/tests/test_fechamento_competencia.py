@@ -5,7 +5,7 @@ import os
 import socket
 import subprocess
 import sys
-import tempfile
+from test_support import TemporaryDirectory
 import time
 import unittest
 from datetime import datetime
@@ -23,7 +23,7 @@ FUSO_HORARIO_LOCAL = ZoneInfo("America/Sao_Paulo")
 class FechamentoCompetenciaApiTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        cls.temp_dir = tempfile.TemporaryDirectory(prefix="onponto-fechamento-")
+        cls.temp_dir = TemporaryDirectory(prefix="onponto-fechamento-")
         cls.addClassCleanup(cls.temp_dir.cleanup)
 
         raiz = Path(cls.temp_dir.name)
@@ -155,6 +155,23 @@ class FechamentoCompetenciaApiTest(unittest.TestCase):
             "POST", "/empresas", {"nome": f"Empresa Fechamento {sufixo}"}
         )
         self.assertEqual(status_http, 201)
+        status_http, escala = self.json_request(
+            "POST",
+            "/escalas",
+            {
+                "empresa_id": empresa["id"],
+                "nome": "Padrão",
+                "modo_apuracao": "carga_horaria",
+                "jornada_seg_sex_horas": 8,
+                "jornada_sabado_horas": 4,
+                "regime_sabado": "trabalha",
+                "regime_domingo": "nao_trabalha",
+                "tolerancia_atraso_minutos": 5,
+                "tolerancia_extra_minutos": 10,
+                "tolerancia_intervalo_minutos": 0,
+            },
+        )
+        self.assertEqual(status_http, 201)
         funcionarios = []
         for indice, codigo in enumerate(codigos, start=1):
             status_http, funcionario = self.json_request(
@@ -164,6 +181,7 @@ class FechamentoCompetenciaApiTest(unittest.TestCase):
                     "empresa_id": empresa["id"],
                     "codigo": codigo,
                     "nome": f"Pessoa Fictícia {sufixo} {indice}",
+                    "escala_id": escala["id"],
                 },
             )
             self.assertEqual(status_http, 201)
@@ -211,16 +229,34 @@ class FechamentoCompetenciaApiTest(unittest.TestCase):
         self.assertEqual(status_http, 201)
         return marcacao
 
-    def analisar_txt(self, empresa_id: int, competencia_id: int) -> dict:
+    def resolver_calendario(self, competencia_id: int) -> None:
+        status_http, apuracao = self.json_request(
+            "GET", f"/apuracao?competencia_id={competencia_id}"
+        )
+        self.assertEqual(status_http, 200)
+        for marcacao in apuracao["marcacoes"]:
+            if not marcacao["pendente_operacional"]:
+                continue
+            payload = {"conferido": True}
+            if marcacao["pendente_calculo"]:
+                payload["status_dia"] = "folga"
+            status_http, _ = self.json_request(
+                "PATCH",
+                f'/marcacoes/{marcacao["id"]}',
+                payload,
+            )
+            self.assertEqual(status_http, 200)
+
+    def analisar_txt(self, empresa_id: int, competencia_id: int, mes: int, ano: int) -> dict:
         corpo, content_type = self.multipart(
-            {"empresa_id": empresa_id, "competencia_id": competencia_id},
+            {"empresa_id": empresa_id, "competencia_id": competencia_id, "mes": mes, "ano": ano},
             "relogio_ficticio.txt",
             FIXTURE_TXT.read_bytes(),
             "text/plain",
         )
         status_http, _, conteudo = self.requisicao(
             "POST",
-            "/importadores/txt-log-relogio/analisar",
+            "/importadores/analisar",
             corpo,
             {"Content-Type": content_type},
         )
@@ -266,6 +302,9 @@ class FechamentoCompetenciaApiTest(unittest.TestCase):
             "PATCH", f'/marcacoes/{marcacao["id"]}', {"conferido": True}
         )
         self.assertEqual(status_http, 200)
+        self.assertEqual(self.obter_competencia(competencia["id"])["status"], "conferida")
+
+        self.resolver_calendario(competencia["id"])
         self.assertEqual(self.obter_competencia(competencia["id"])["status"], "conferida")
 
         status_http, _ = self.json_request(
@@ -329,13 +368,11 @@ class FechamentoCompetenciaApiTest(unittest.TestCase):
             "POST", f'/competencias/{competencia["id"]}/fechar', {}
         )
         self.assertEqual(status_http, 409)
+        self.assertEqual(bloqueio["detail"]["codigo"], "competencia_com_pendencias")
+        self.assertEqual(bloqueio["detail"]["total_pendencias"], 54)
         self.assertEqual(
-            bloqueio["detail"],
-            {
-                "codigo": "competencia_com_pendencias",
-                "mensagem": "2 registros ainda precisam de conferência.",
-                "total_pendencias": 2,
-            },
+            bloqueio["detail"]["mensagem"],
+            "54 registros ainda precisam de conferência.",
         )
         ainda_aberta = self.obter_competencia(competencia["id"])
         self.assertEqual(ainda_aberta["status"], "em_conferencia")
@@ -348,7 +385,7 @@ class FechamentoCompetenciaApiTest(unittest.TestCase):
         )
         self.assertEqual(status_http, 200)
         self.assertEqual(fechamento["status"], "fechada")
-        self.assertEqual(fechamento["total_pendencias"], 2)
+        self.assertEqual(fechamento["total_pendencias"], 54)
         self.assertTrue(fechamento["fechamento_excepcional"])
         self.assertEqual(
             fechamento["data_fechamento"],
@@ -364,10 +401,11 @@ class FechamentoCompetenciaApiTest(unittest.TestCase):
             "GET", f'/marcacoes?competencia_id={competencia["id"]}'
         )
         self.assertEqual(status_http, 200)
-        self.assertEqual({item["id"] for item in marcacoes}, set(ids_marcacoes))
+        self.assertEqual(len(marcacoes), 62)
+        self.assertTrue(set(ids_marcacoes).issubset({item["id"] for item in marcacoes}))
 
     def test_competencia_vazia_tambem_exige_fechamento_excepcional(self) -> None:
-        _, _, competencia = self.criar_contexto("Vazia")
+        _, _, competencia = self.criar_contexto("Vazia", codigos=())
 
         status_http, bloqueio = self.json_request(
             "POST", f'/competencias/{competencia["id"]}/fechar', {}
@@ -394,7 +432,7 @@ class FechamentoCompetenciaApiTest(unittest.TestCase):
 
     def test_fechada_bloqueia_mutadores_e_reabertura_preserva_txt(self) -> None:
         empresa, (funcionario,), competencia = self.criar_contexto("Guards", codigos=("F001",))
-        analise = self.analisar_txt(empresa["id"], competencia["id"])
+        analise = self.analisar_txt(empresa["id"], competencia["id"], competencia["mes"], competencia["ano"])
         registro_valido = next(
             item
             for item in analise["preview"]
@@ -402,7 +440,7 @@ class FechamentoCompetenciaApiTest(unittest.TestCase):
         )
         status_http, confirmacao = self.json_request(
             "POST",
-            "/importadores/txt-log-relogio/confirmar",
+            "/importadores/confirmar",
             {
                 "empresa_id": empresa["id"],
                 "competencia_id": competencia["id"],
@@ -422,7 +460,9 @@ class FechamentoCompetenciaApiTest(unittest.TestCase):
         self.assertEqual(status_http, 200)
         self.assertEqual(self.obter_competencia(competencia["id"])["status"], "conferida")
         status_http, _ = self.json_request(
-            "POST", f'/competencias/{competencia["id"]}/fechar', {}
+            "POST",
+            f'/competencias/{competencia["id"]}/fechar',
+            {"confirmar_pendencias": True},
         )
         self.assertEqual(status_http, 200)
 
@@ -448,14 +488,19 @@ class FechamentoCompetenciaApiTest(unittest.TestCase):
         self.assertIn("está fechada", bloqueio_patch["detail"])
 
         corpo_txt, tipo_txt = self.multipart(
-            {"empresa_id": empresa["id"], "competencia_id": competencia["id"]},
+            {
+                "empresa_id": empresa["id"],
+                "competencia_id": competencia["id"],
+                "mes": competencia["mes"],
+                "ano": competencia["ano"],
+            },
             "novo_relogio.txt",
             FIXTURE_TXT.read_bytes(),
             "text/plain",
         )
         status_http, _, conteudo = self.requisicao(
             "POST",
-            "/importadores/txt-log-relogio/analisar",
+            "/importadores/analisar",
             corpo_txt,
             {"Content-Type": tipo_txt},
         )
@@ -464,7 +509,7 @@ class FechamentoCompetenciaApiTest(unittest.TestCase):
 
         status_http, bloqueio_confirmar = self.json_request(
             "POST",
-            "/importadores/txt-log-relogio/confirmar",
+            "/importadores/confirmar",
             {
                 "empresa_id": empresa["id"],
                 "competencia_id": competencia["id"],
@@ -500,7 +545,7 @@ class FechamentoCompetenciaApiTest(unittest.TestCase):
         )
         status_http, _, conteudo = self.requisicao(
             "POST",
-            "/importadores/xlsx-ponto-generico",
+            "/importadores/analisar",
             corpo_xlsx,
             {"Content-Type": tipo_xlsx},
         )

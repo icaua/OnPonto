@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="pt-BR"><meta charset="utf-8"><title>Verificação de layout On Ponto</title>
+<style>body{font:14px system-ui;margin:16px}iframe{height:850px;border:1px solid #888;display:block;margin-bottom:24px}pre{white-space:pre-wrap}</style>
+<h1>Verificação de layout On Ponto</h1><pre id="resultado">Aguardando renderização…</pre>
+<script>
+const larguras=[1280,1024,720,480];
+for(const largura of larguras){
+  const frame=document.createElement('iframe');frame.width=largura;
+  frame.title='Conferência em '+largura+'px';
+  frame.src='../index.html?validacao=final2#/empresas/1/competencias/1001/conferencia';
+  document.body.append(frame);
+}
+const timer=setInterval(()=>{
+  const frames=[...document.querySelectorAll('iframe')];
+  if(!frames.every(f=>f.contentDocument?.querySelector('.attendance-table')))return;
+  const results=frames.map(f=>{
+    const d=f.contentDocument,w=f.contentWindow,main=d.querySelector('main'),table=d.querySelector('.attendance-table-wrap');
+    return {faixa:{margem:w.getComputedStyle(d.querySelector('.demo-banner')).marginRight,padding:w.getComputedStyle(d.querySelector('.screen')).paddingRight,largura:d.querySelector('.demo-banner').getBoundingClientRect().width},fora:[...main.querySelectorAll('*')].filter(e=>e.getBoundingClientRect().right>main.getBoundingClientRect().left+main.clientWidth+1 && !e.closest('.attendance-table-wrap, .competency-tabs')).slice(0,12).map(e=>({classe:e.className,largura:e.getBoundingClientRect().width})), botao:d.querySelector('[data-action="save-now"]').className, largura:w.innerWidth,pagina:d.documentElement.scrollWidth,conteudo:main.clientWidth,
+      conteudoScroll:main.scrollWidth,scrollTabela:w.getComputedStyle(table).overflowX,scrollAbas:w.getComputedStyle(d.querySelector('.competency-tabs')).overflowX,
+      sidebar:w.getComputedStyle(d.querySelector('.sidebar')).backgroundColor,
+      botaoSalvar:w.getComputedStyle(d.querySelector('[data-action="save-now"]')).backgroundColor,
+      contexto:d.querySelector('#topbarContext').textContent,
+      logoCarregada:[...d.querySelectorAll('.sidebar img')].every(i=>i.complete&&i.naturalWidth>0)};
+  });
+  document.querySelector('#resultado').textContent=JSON.stringify(results,null,2);
+  clearInterval(timer);
+},250);
+</script></html>

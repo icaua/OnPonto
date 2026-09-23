@@ -5,7 +5,7 @@ import os
 import socket
 import subprocess
 import sys
-import tempfile
+from test_support import TemporaryDirectory
 import time
 import unittest
 from pathlib import Path
@@ -19,7 +19,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 class CadastrosApiTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        cls.temp_dir = tempfile.TemporaryDirectory(prefix="onponto-cadastros-")
+        cls.temp_dir = TemporaryDirectory(prefix="onponto-cadastros-")
         cls.addClassCleanup(cls.temp_dir.cleanup)
 
         raiz = Path(cls.temp_dir.name)
@@ -79,6 +79,9 @@ class CadastrosApiTest(unittest.TestCase):
                 cls.processo.kill()
                 cls.processo.wait(timeout=5)
 
+        if cls.processo.stdout:
+            cls.processo.stdout.close()
+
     def requisicao(
         self,
         metodo: str,
@@ -102,6 +105,31 @@ class CadastrosApiTest(unittest.TestCase):
         self.assertIsInstance(empresa, dict)
         return empresa
 
+    def test_auditoria_http_persistida_e_validacao_patch(self) -> None:
+        empresa = self.criar_empresa("Empresa Auditoria")
+        _, funcionario = self.requisicao("POST", "/funcionarios", {
+            "empresa_id": empresa["id"], "nome": "Pessoa Auditoria", "codigo": "AUD-1"})
+        _, competencia = self.requisicao("POST", "/competencias", {
+            "empresa_id": empresa["id"], "mes": 7, "ano": 2026})
+        codigo, marcacao = self.requisicao("POST", "/marcacoes", {
+            "competencia_id": competencia["id"], "funcionario_id": funcionario["id"],
+            "data": "2026-07-01", "entrada": "08:00", "saida_almoco": "12:00",
+            "retorno_almoco": "13:00", "saida": "17:00"})
+        self.assertEqual(codigo, 201)
+        rota = f'/marcacoes/{marcacao["id"]}'
+        codigo, _ = self.requisicao("PATCH", rota, {"retorno_almoco": "11:00"})
+        self.assertEqual(codigo, 422)
+        codigo, _ = self.requisicao("PATCH", rota, {"saida": "18:00"})
+        self.assertEqual(codigo, 200)
+        codigo, recarregada = self.requisicao("GET", rota)
+        self.assertEqual(codigo, 200)
+        self.assertEqual(recarregada["retorno_almoco"], "13:00:00")
+        self.assertEqual(len(recarregada["historico"]), 2)
+        self.assertEqual(recarregada["historico"][-1]["alteracoes"]["saida"], {
+            "antes": "17:00:00", "depois": "18:00:00"})
+        codigo, _ = self.requisicao("PATCH", rota, {"historico": []})
+        self.assertEqual(codigo, 422)
+
     def test_empresa_listar_criar_e_editar(self) -> None:
         empresa = self.criar_empresa("Empresa Cadastro Fictícia")
         self.assertEqual(empresa["nome"], "Empresa Cadastro Fictícia")
@@ -114,15 +142,118 @@ class CadastrosApiTest(unittest.TestCase):
         status_http, atualizada = self.requisicao(
             "PATCH",
             f'/empresas/{empresa["id"]}',
-            {"nome": "Empresa Cadastro Editada", "ativa": False},
+            {
+                "nome": "Empresa Cadastro Editada",
+                "cidade": "São Paulo",
+                "uf": "SP",
+                "ativa": False,
+            },
         )
         self.assertEqual(status_http, 200)
         self.assertEqual(atualizada["nome"], "Empresa Cadastro Editada")
+        self.assertEqual((atualizada["cidade"], atualizada["uf"]), ("São Paulo", "SP"))
         self.assertFalse(atualizada["ativa"])
 
         status_http, aberta = self.requisicao("GET", f'/empresas/{empresa["id"]}')
         self.assertEqual(status_http, 200)
         self.assertEqual(aberta["nome"], "Empresa Cadastro Editada")
+
+    def test_escalas_crud_validacao_e_exclusao_compativel_com_vinculo(self) -> None:
+        empresa = self.criar_empresa("Empresa Escalas Fictícia")
+        outra_empresa = self.criar_empresa("Outra Empresa Escalas Fictícia")
+        payload = {
+            "empresa_id": empresa["id"],
+            "nome": "Administrativo",
+            "modo_apuracao": "carga_horaria",
+            "jornada_seg_sex_horas": 8,
+            "jornada_sabado_horas": 4,
+            "regime_sabado": "trabalha",
+            "regime_domingo": "nao_trabalha",
+            "tolerancia_atraso_minutos": 5,
+            "tolerancia_extra_minutos": 10,
+            "tolerancia_intervalo_minutos": 5,
+        }
+        status_http, escala = self.requisicao("POST", "/escalas", payload)
+        self.assertEqual(status_http, 201)
+        self.assertEqual(escala["nome"], "Administrativo")
+
+        status_http, escalas = self.requisicao(
+            "GET", f'/escalas?empresa_id={empresa["id"]}'
+        )
+        self.assertEqual(status_http, 200)
+        self.assertEqual([item["id"] for item in escalas], [escala["id"]])
+
+        status_http, atualizada = self.requisicao(
+            "PUT",
+            f'/escalas/{escala["id"]}',
+            {"nome": "Administrativo atualizado", "tolerancia_atraso_minutos": 7},
+        )
+        self.assertEqual(status_http, 200)
+        self.assertEqual(atualizada["nome"], "Administrativo atualizado")
+        self.assertEqual(atualizada["tolerancia_atraso_minutos"], 7)
+
+        status_http, invalida = self.requisicao(
+            "POST",
+            "/escalas",
+            {
+                "empresa_id": empresa["id"],
+                "nome": "Horário inválido",
+                "modo_apuracao": "horario_fixo",
+                "horario_entrada_prevista": "08:00",
+                "horario_saida_almoco_prevista": "13:00",
+                "horario_retorno_almoco_prevista": "12:00",
+                "horario_saida_prevista": "17:00",
+            },
+        )
+        self.assertEqual(status_http, 422)
+        self.assertTrue(invalida["detail"])
+
+        status_http, funcionario = self.requisicao(
+            "POST",
+            "/funcionarios",
+            {
+                "empresa_id": empresa["id"],
+                "codigo": "ESC-001",
+                "nome": "Pessoa com Escala",
+                "escala_id": escala["id"],
+            },
+        )
+        self.assertEqual(status_http, 201)
+        self.assertEqual(funcionario["escala_id"], escala["id"])
+
+        status_http, erro_empresa = self.requisicao(
+            "POST",
+            "/funcionarios",
+            {
+                "empresa_id": outra_empresa["id"],
+                "codigo": "ESC-002",
+                "nome": "Pessoa com Escala de Outra Empresa",
+                "escala_id": escala["id"],
+            },
+        )
+        self.assertEqual(status_http, 400)
+        self.assertIn("não pertence", erro_empresa["detail"])
+
+        status_http, resposta = self.requisicao(
+            "DELETE", f'/escalas/{escala["id"]}'
+        )
+        self.assertEqual(status_http, 204)
+        self.assertIsNone(resposta)
+        status_http, desativada = self.requisicao("GET", f'/escalas/{escala["id"]}')
+        self.assertEqual(status_http, 200)
+        self.assertFalse(desativada["ativa"])
+
+        status_http, avulsa = self.requisicao(
+            "POST",
+            "/escalas",
+            {**payload, "nome": "Sem vínculo"},
+        )
+        self.assertEqual(status_http, 201)
+        status_http, _ = self.requisicao("DELETE", f'/escalas/{avulsa["id"]}')
+        self.assertEqual(status_http, 204)
+        status_http, removida = self.requisicao("GET", f'/escalas/{avulsa["id"]}')
+        self.assertEqual(status_http, 404)
+        self.assertEqual(removida["detail"], "Escala não encontrada.")
 
     def test_funcionarios_por_empresa_edicao_status_codigo_e_duplicidade(self) -> None:
         empresa = self.criar_empresa("Empresa Funcionários Fictícia")
@@ -247,6 +378,59 @@ class CadastrosApiTest(unittest.TestCase):
         )
         self.assertEqual(status_http, 400)
         self.assertEqual(duplicada["detail"], "Competência já cadastrada para esta empresa.")
+
+    def test_competencia_materializada_bloqueia_periodo_e_rejeita_data_externa(self) -> None:
+        empresa = self.criar_empresa("Empresa Calendário Estrutural")
+        status_http, funcionario = self.requisicao(
+            "POST",
+            "/funcionarios",
+            {
+                "empresa_id": empresa["id"],
+                "codigo": "CAL-001",
+                "nome": "Pessoa Calendário Estrutural",
+            },
+        )
+        self.assertEqual(status_http, 201)
+        status_http, competencia_julho = self.requisicao(
+            "POST",
+            "/competencias",
+            {"empresa_id": empresa["id"], "mes": 7, "ano": 2026},
+        )
+        self.assertEqual(status_http, 201)
+
+        status_http, apuracao = self.requisicao(
+            "GET", f'/apuracao?competencia_id={competencia_julho["id"]}'
+        )
+        self.assertEqual(status_http, 200)
+        self.assertEqual(len(apuracao["marcacoes"]), 31)
+
+        status_http, bloqueio = self.requisicao(
+            "PATCH",
+            f'/competencias/{competencia_julho["id"]}',
+            {"mes": 8},
+        )
+        self.assertEqual(status_http, 409)
+        self.assertIn("não podem ser alterados", bloqueio["detail"])
+
+        status_http, competencia_agosto = self.requisicao(
+            "POST",
+            "/competencias",
+            {"empresa_id": empresa["id"], "mes": 8, "ano": 2026},
+        )
+        self.assertEqual(status_http, 201)
+        status_http, data_externa = self.requisicao(
+            "POST",
+            "/marcacoes",
+            {
+                "competencia_id": competencia_agosto["id"],
+                "funcionario_id": funcionario["id"],
+                "data": "2026-07-01",
+                "status_dia": "normal",
+                "origem": "manual",
+            },
+        )
+        self.assertEqual(status_http, 400)
+        self.assertIn("não pertence à competência", data_externa["detail"])
 
 
 if __name__ == "__main__":

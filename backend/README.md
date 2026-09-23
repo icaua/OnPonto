@@ -26,25 +26,36 @@ Por padrão, o SQLite fica em `backend/onponto.db` e os arquivos enviados em `ba
 - `ONPONTO_DATABASE_URL`, com uma URL SQLAlchemy;
 - `ONPONTO_UPLOADS_DIR`, com um caminho absoluto para os uploads.
 
-Na inicialização, migrações SQLite incrementais e idempotentes acrescentam os campos necessários ao MVP. Elas não apagam nem recriam o banco existente.
+Na inicialização, migrações SQLite incrementais e idempotentes evoluem o schema e preservam os cadastros existentes.
 
 ## Contrato principal
 
 - `GET/POST/PATCH /empresas`
+- `GET/POST /escalas`, `GET/PUT/DELETE /escalas/{id}`
 - `GET/POST/PATCH /funcionarios`
 - `GET/POST/PATCH /competencias`
 - `POST /competencias/{id}/fechar`
 - `POST /competencias/{id}/reabrir`
 - `GET/POST /arquivos`
 - `GET /arquivos/{arquivo_id}/download`
-- `POST /importadores/txt-log-relogio/analisar`
-- `POST /importadores/txt-log-relogio/confirmar`
+- `POST /importadores/analisar`
+- `POST /importadores/confirmar`
 - `GET/POST/PATCH /marcacoes`
 - `GET /apuracao?competencia_id={id}`
 - `GET /relatorios/excel?competencia_id={id}`
 - `GET /relatorios/impressao?competencia_id={id}`
+- `GET /banco-horas/saldo?funcionario_id={id}&data_limite=AAAA-MM-DD`
+- `GET /banco-horas/extrato?funcionario_id={id}&data_limite=AAAA-MM-DD`
+- `GET /banco-horas/resumo?empresa_id={id}`
+- `GET /banco-horas/alertas?empresa_id={id}&dias=30`
+- `POST /banco-horas/ajustes`
+- `POST /banco-horas/lancamentos/{id}/estornar`
 
-O parser TXT aceita UTF-16, UTF-8 com BOM e UTF-8, exige as colunas `EnNo`, `Name` e `DateTime` e preserva todas as batidas originais com segundos. A confirmação persiste somente registros válidos e selecionados; funcionário desconhecido, data fora da competência e reimportação permanecem conflitos explícitos.
+O banco de horas usa o schema 9 e é ativado por escala. Fechamento, lançamentos diários e FIFO pertencem à mesma transação; reabertura estorna a geração da versão anterior e reconstrói as compensações. O contrato, a política para folga insuficiente e as limitações do histórico de escala estão no [relatório de implementação](../RELATORIO-BANCO-DE-HORAS.md). `data_limite` é opcional e filtra a data de referência no ledger atualmente ativo.
+
+`POST /importadores/analisar` detecta automaticamente o adaptador adequado para o arquivo (`.txt` ou `.xlsx`). Nos TXT, os layouts homologados `txt_log_relogio` e `txt_id_tempo_maquina` continuam com prioridade; se nenhum deles reconhecer o conteúdo, entra o fallback `txt_generico`, que tenta localizar semanticamente ID/código/matrícula, nome e data/horário, aceitando aliases de cabeçalho, separadores comuns (TAB, `;`, `|`, `,`), datas brasileiras/ISO, UTF-8/UTF-16/CP1252 e linhas livres estruturadas. O fallback ignora linhas de rodapé/metadados que não contenham identificação e horário suficientes, em vez de inventar dados. Os XLSX continuam nos adaptadores `xlsx_ponto_generico` e `xlsx_cartao_ponto`. Todos compartilham a mesma regra de interpretação de batidas (`app/importadores/interpretacao_batidas.py`): 4 horários = normal, 2 = pendente (só entrada/saída), qualquer outra quantidade = pendente sem inventar qual horário é qual. A confirmação persiste somente registros válidos e selecionados; funcionário desconhecido, data fora da competência e reimportação permanecem conflitos explícitos, e `MarcacaoPonto.origem`/`batidas_originais` preservam qual adaptador interpretou cada marcação.
+
+A primeira apuração, relatório ou tentativa de fechamento gera, de forma idempotente, os dias ainda ausentes da competência para cada funcionário ativo. Dias sem batidas continuam visíveis para conferência; domingos e sábados sem expediente seguem a escala vinculada ao funcionário.
 
 O status da competência é controlado pelas ações de fechamento e reabertura. Uma competência fechada continua disponível para consulta, download e exportação, mas rejeita importações, uploads e edições até ser reaberta.
 

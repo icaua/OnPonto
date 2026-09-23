@@ -112,6 +112,10 @@
     return valueOf(employee, ["name", "nome", "employeeName", "funcionario"], "Funcionário não selecionado");
   }
 
+  function scaleName(scale) {
+    return valueOf(scale, ["name", "nome"], "Escala não identificada");
+  }
+
   function normalizeStatus(raw) {
     var key = statusKey(raw || "conferir");
     var aliases = {
@@ -296,6 +300,7 @@
     var companies = collection(context.data, ["companies", "empresas"]);
     var competencies = collection(context.data, ["competencies", "competencias"]);
     var employees = collection(context.data, ["employees", "funcionarios"]);
+    var scales = collection(context.data, ["scales", "escalas"]);
     var competenceId = valueOf(state, ["selectedCompetenceId", "selectedCompetencyId", "competenceId", "competencyId", "competenciaId", "competencia_id"], null);
     var employeeId = valueOf(state, ["selectedEmployeeId", "employeeId", "funcionarioId", "funcionario_id"], null);
     var companyId = valueOf(state, ["selectedCompanyId", "companyId", "empresaId", "empresa_id"], null);
@@ -306,13 +311,18 @@
     var companyEmployees = company ? employees.filter(function (employee) {
       return idsEqual(valueOf(employee, ["companyId", "empresaId", "empresa_id"], null), idOf(company));
     }) : [];
+    var companyScales = company ? scales.filter(function (scale) {
+      return idsEqual(valueOf(scale, ["companyId", "empresaId", "empresa_id"], null), idOf(company));
+    }) : [];
     var employee = valueOf(state, ["selectedEmployee", "funcionarioSelecionado"], null) || (employeeId == null ? null : findById(employees, employeeId));
     if (employee && company && !idsEqual(valueOf(employee, ["companyId", "empresaId", "empresa_id"], null), idOf(company))) employee = null;
     return {
       companies: companies,
       competencies: competencies,
       employees: employees,
+      scales: scales,
       companyEmployees: companyEmployees,
+      companyScales: companyScales,
       company: company,
       competence: competence,
       employee: employee,
@@ -448,16 +458,78 @@
     var entities = selectedEntities(context);
     var company = entities.company;
     if (!company) return missingContextScreen(context, "Funcionários", "Abra uma empresa para visualizar seus funcionários.", false);
+    var scalesLoading = valueOf(context.state, ["scalesLoading"], false) === true;
+    var scalesError = valueOf(context.state, ["scalesError"], "");
     var rows = entities.companyEmployees.map(function (employee) {
       var active = valueOf(employee, ["active", "ativo"], true) !== false;
-      return '<tr><td><strong>' + escapeHtml(employeeName(employee)) + "</strong></td><td>" + escapeHtml(valueOf(employee, ["code", "codigo"], "—")) + "</td><td>" + escapeHtml(valueOf(employee, ["role", "cargo"], "—")) + "</td><td>" + statusChip(context.components, active ? "normal" : "sem_expediente", active ? "Ativo" : "Inativo") + '</td><td><button class="table-link" type="button" data-action="edit-employee" data-employee-id="' + escapeHtml(idOf(employee)) + '">Editar</button></td></tr>';
+      var scaleId = valueOf(employee, ["scaleId", "escala_id"], null);
+      var scale = findById(entities.companyScales, scaleId);
+      var scaleCell = scale
+        ? '<strong>' + escapeHtml(scaleName(scale)) + "</strong>" + (valueOf(scale, ["active", "ativa"], true) === false ? '<small class="muted-text">Escala inativa</small>' : "")
+        : scaleId == null
+          ? '<span class="registration-pending">' + statusChip(context.components, "conferir", "Sem escala") + "<small>Pendência de cadastro</small></span>"
+          : '<span class="registration-pending">' + statusChip(context.components, "conferir", scalesLoading ? "Carregando escala" : "Escala indisponível") + "</span>";
+      return '<tr><td><strong>' + escapeHtml(employeeName(employee)) + "</strong></td><td>" + escapeHtml(valueOf(employee, ["code", "codigo"], "—")) + "</td><td>" + escapeHtml(valueOf(employee, ["role", "cargo"], "—")) + "</td><td>" + escapeHtml(employee.data_admissao ? formatDate(employee.data_admissao) : "Não informada") + "</td><td>" + escapeHtml(employee.data_demissao ? formatDate(employee.data_demissao) : "Não informada") + "</td><td>" + scaleCell + "</td><td>" + statusChip(context.components, active ? "normal" : "sem_expediente", active ? "Ativo" : "Inativo") + '</td><td><button class="table-link" type="button" data-action="edit-employee" data-employee-id="' + escapeHtml(idOf(employee)) + '">Editar</button></td></tr>';
     }).join("");
     return '<section class="screen screen--company-employees" data-screen="company-employees">' + demoBanner() + pageHeader(context.components, {
       title: "Funcionários",
       subtitle: companyName(company),
       breadcrumbs: companyBreadcrumbs(company, "Funcionários"),
-      actions: [{ label: "Novo funcionário", variant: "button--primary", action: "new-employee" }],
-    }) + '<section class="work-card">' + (rows ? '<div class="table-frame"><table class="data-table"><thead><tr><th>Funcionário</th><th>Código</th><th>Cargo</th><th>Status</th><th><span class="sr-only">Ação</span></th></tr></thead><tbody>' + rows + "</tbody></table></div>" : emptyState(context.components, "Nenhum funcionário cadastrado", "Cadastre os funcionários da empresa antes de importar o ponto.", { label: "Cadastrar funcionário", action: "new-employee" })) + "</section></section>";
+      actions: [{ label: "Gerenciar escalas", variant: "button--secondary", action: "navigate", route: "company-scales" }, { label: "Novo funcionário", variant: "button--primary", action: "new-employee" }],
+    }) + (scalesError ? '<div class="inline-feedback inline-feedback--error" role="alert">' + escapeHtml(scalesError) + "</div>" : "") + '<section class="work-card"' + (scalesLoading ? ' aria-busy="true"' : "") + '>' + (rows ? '<div class="table-frame"><table class="data-table"><thead><tr><th>Funcionário</th><th>Código</th><th>Cargo</th><th>Admissão</th><th>Demissão</th><th>Escala</th><th>Status</th><th><span class="sr-only">Ação</span></th></tr></thead><tbody>' + rows + "</tbody></table></div>" : emptyState(context.components, "Nenhum funcionário cadastrado", "Cadastre os funcionários da empresa antes de importar o ponto.", { label: "Cadastrar funcionário", action: "new-employee" })) + "</section></section>";
+  }
+
+  function scaleTime(value) {
+    return value ? String(value).slice(0, 5) : "—";
+  }
+
+  function scaleRegimeLabel(value) {
+    return {
+      trabalha: "Trabalha",
+      compensado: "Compensado",
+      nao_trabalha: "Não trabalha",
+    }[value] || value || "—";
+  }
+
+  function scaleScheduleLabel(scale) {
+    var mode = valueOf(scale, ["modo_apuracao", "mode"], "carga_horaria");
+    if (mode === "horario_fixo") {
+      var first = scaleTime(valueOf(scale, ["horario_entrada_prevista"], null));
+      var last = scaleTime(valueOf(scale, ["horario_saida_prevista"], null));
+      var lunchOut = scaleTime(valueOf(scale, ["horario_saida_almoco_prevista"], null));
+      var lunchReturn = scaleTime(valueOf(scale, ["horario_retorno_almoco_prevista"], null));
+      return first + "–" + last + (lunchOut !== "—" ? " · intervalo " + lunchOut + "–" + lunchReturn : "");
+    }
+    var weekday = valueOf(scale, ["jornada_seg_sex_horas"], null);
+    var saturday = valueOf(scale, ["jornada_sabado_horas"], null);
+    return (weekday == null ? "—" : weekday + " h seg–sex") + (saturday == null ? "" : " · " + saturday + " h sábado");
+  }
+
+  function renderCompanyScales(state, data, components) {
+    var context = normalizeArgs(state, data, components);
+    var entities = selectedEntities(context);
+    var company = entities.company;
+    if (!company) return missingContextScreen(context, "Escalas", "Abra uma empresa para visualizar suas escalas.", false);
+    var loading = valueOf(context.state, ["scalesLoading"], false) === true;
+    var error = valueOf(context.state, ["scalesError"], "");
+    var rows = entities.companyScales.map(function (scale) {
+      var active = valueOf(scale, ["active", "ativa"], true) !== false;
+      var mode = valueOf(scale, ["modo_apuracao", "mode"], "carga_horaria");
+      var tolerances = [
+        valueOf(scale, ["tolerancia_atraso_minutos"], 0) + " min atraso",
+        valueOf(scale, ["tolerancia_extra_minutos"], 0) + " min extra",
+        valueOf(scale, ["tolerancia_intervalo_minutos"], 0) + " min intervalo",
+      ].join(" · ");
+      return '<tr><td><strong>' + escapeHtml(scaleName(scale)) + '</strong></td><td>' + escapeHtml(mode === "horario_fixo" ? "Horário fixo" : "Carga horária") + '<small>' + escapeHtml(scaleScheduleLabel(scale)) + '</small></td><td>' + escapeHtml(scaleRegimeLabel(valueOf(scale, ["regime_sabado"], null))) + '</td><td>' + escapeHtml(scaleRegimeLabel(valueOf(scale, ["regime_domingo"], null))) + '</td><td><small>' + escapeHtml(tolerances) + '</small></td><td>' + statusChip(context.components, active ? "normal" : "sem_expediente", active ? "Ativa" : "Inativa") + '</td><td><div class="table-actions"><button class="table-link" type="button" data-action="edit-scale" data-scale-id="' + escapeHtml(idOf(scale)) + '">Editar</button><button class="table-link table-link--danger" type="button" data-action="deactivate-scale" data-scale-id="' + escapeHtml(idOf(scale)) + '">' + (active ? "Desativar" : "Remover") + '</button></div></td></tr>';
+    }).join("");
+    return [
+      '<section class="screen screen--company-scales" data-screen="company-scales">', demoBanner(),
+      pageHeader(context.components, { title: "Escalas", subtitle: companyName(company), breadcrumbs: companyBreadcrumbs(company, "Escalas"), actions: [{ label: "Nova escala", variant: "button--primary", action: "new-scale" }] }),
+      error ? '<div class="inline-feedback inline-feedback--error" role="alert">' + escapeHtml(error) + '</div>' : "",
+      '<section class="work-card"' + (loading ? ' aria-busy="true"' : "") + '>',
+      rows ? '<div class="table-frame"><table class="data-table"><thead><tr><th>Escala</th><th>Apuração e jornada</th><th>Sábado</th><th>Domingo</th><th>Tolerâncias</th><th>Status</th><th><span class="sr-only">Ações</span></th></tr></thead><tbody>' + rows + '</tbody></table></div>' : loading ? '<div class="empty-state"><p>Carregando escalas…</p></div>' : emptyState(context.components, "Nenhuma escala cadastrada", "Cadastre uma escala antes de vincular funcionários.", { label: "Cadastrar escala", action: "new-scale" }),
+      '</section></section>',
+    ].join("");
   }
 
   function renderCompanyCompetencies(state, data, components) {
@@ -589,21 +661,17 @@
     var loading = valueOf(context.state, ["importLoading"], false) === true;
     var closed = competenceIsClosed(entities.competence);
     var importError = valueOf(context.state, ["importError"], "");
-    var fileTypes = [
-      { value: "auto", label: "Detectar automaticamente" },
-      { value: "txt_clock", label: "TXT estruturado" },
-    ];
     var dropzone = component(context.components, ["ImportDropzone", "importDropzone"], {
       id: "importFile",
       inputId: "importFile",
       action: "select-import-file",
-      accept: ".txt,text/plain",
+      accept: ".txt,.xlsx,text/plain,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       disabled: loading || closed,
       file: valueOf(context.state, ["selectedImportFile", "arquivoSelecionado"], null),
       title: "Arraste o arquivo aqui",
       description: "ou escolha um arquivo do computador",
     }, function () {
-      return '<label class="import-dropzone' + (loading || closed ? " is-disabled" : "") + '" for="importFile" data-action="open-file-picker"><span class="import-dropzone__icon" aria-hidden="true">⇧</span><strong>Arraste o arquivo aqui</strong><span>ou escolha um arquivo do computador</span><small>Somente TXT estruturado nesta etapa</small><input id="importFile" name="importFile" type="file" accept=".txt,text/plain" data-action="select-import-file"' + (loading || closed ? " disabled" : "") + "></label>";
+      return '<label class="import-dropzone' + (loading || closed ? " is-disabled" : "") + '" for="importFile" data-action="open-file-picker"><span class="import-dropzone__icon" aria-hidden="true">⇧</span><strong>Arraste o arquivo aqui</strong><span>ou escolha um arquivo do computador</span><small>TXT ou XLSX de ponto · o formato é detectado automaticamente</small><input id="importFile" name="importFile" type="file" accept=".txt,.xlsx,text/plain,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" data-action="select-import-file"' + (loading || closed ? " disabled" : "") + "></label>";
     });
 
     return [
@@ -614,13 +682,6 @@
       '<section class="work-card competency-hero"><div>' + statusChip(context.components, entities.competence.status, entities.competence.statusLabel) + '</div><dl class="summary-grid summary-grid--four">' + summaryItem("Empresa", companyName(entities.company)) + summaryItem("Competência", formatCompetence(entities.competence)) + summaryItem("Arquivos recebidos", valueOf(entities.competence, ["fileCount", "quantidadeArquivos"], 0)) + summaryItem("Pendências", valueOf(entities.competence, ["pendingCount", "quantidadePendencias"], 0)) + "</dl></section>",
       '<div class="content-grid content-grid--form">',
       '<form class="work-card import-form" data-form="import" data-action="analyze-import"' + (closed ? ' aria-disabled="true"' : "") + ">",
-      '<fieldset class="field"><legend>Tipo de arquivo</legend><div class="segmented-options segmented-options--wrap">',
-      fileTypes.map(function (type, index) {
-        var typeValue = valueOf(type, ["value", "id"], "auto");
-        var checked = idsEqual(typeValue, valueOf(context.state, ["importType", "tipoImportacao"], "auto")) || (index === 0 && !valueOf(context.state, ["importType", "tipoImportacao"], null));
-        return '<label><input type="radio" name="importType" value="' + escapeHtml(typeValue) + '" data-action="select-import-type"' + (checked ? " checked" : "") + (closed ? " disabled" : "") + "><span>" + escapeHtml(valueOf(type, ["label", "nome"], typeValue)) + "</span></label>";
-      }).join(""),
-      "</div></fieldset>",
       dropzone,
       '<div class="form-footer"><p class="helper-text">' + (closed ? "Reabra a competência para analisar novos arquivos." : online ? "A análise salva o arquivo original, mas só cria marcações depois da sua confirmação." : "A API está offline; a análise usará dados de demonstração e não enviará o arquivo.") + '</p><button class="button button--primary" type="submit" data-action="analyze-import"' + (loading || closed ? " disabled" : "") + ">" + (loading ? "Analisando..." : "Analisar arquivo") + "</button></div>",
       "</form>",
@@ -847,10 +908,17 @@
     return formatDuration(minutes);
   }
 
+  function summaryDurationMarkup(value, minutes) {
+    var formatted = summaryDuration(value, minutes);
+    return formatted === "Indisponível" ? '<span class="summary-unavailable">Indisponível</span>' : escapeHtml(formatted);
+  }
+
   function summarySituationChip(components, value) {
     var key = statusKey(value);
     if (key === "conferido" || key === "confirmed") return statusChip(components, "normal", "Conferido");
     if (key === "pendente" || key === "pending") return statusChip(components, "conferir", "Pendente");
+    if (["erro", "error", "bloqueio", "bloqueado"].indexOf(key) !== -1) return statusChip(components, "inconsistente", key === "bloqueio" || key === "bloqueado" ? "Bloqueado" : "Erro");
+    if (key === "fora_vinculo") return statusChip(components, "sem_expediente", "Fora do vínculo");
     return statusChip(components, "sem_expediente", "Indisponível");
   }
 
@@ -878,7 +946,7 @@
     if (!competenceIsClosed(competence)) return "";
     var closedAt = valueOf(competence, ["closedAt", "data_fechamento"], null);
     var dateLabel = closedAt ? " em " + formatDate(closedAt) : "";
-    return '<div class="inline-feedback" role="note"><strong>Competência fechada' + escapeHtml(dateLabel) + '</strong><span>Os dados permanecem disponíveis para consulta e exportação. Reabra a competência para importar, editar ou confirmar registros.</span></div>';
+    return '<div class="closed-competence-notice" role="note"><span aria-hidden="true" class="closed-competence-notice__icon">✓</span><div><strong>Competência fechada' + escapeHtml(dateLabel) + '</strong><p>Os dados permanecem disponíveis para consulta e exportação.</p><p>Reabra a competência para importar, editar ou confirmar registros.</p></div></div>';
   }
 
   function lifecycleErrorNotice(context) {
@@ -891,7 +959,7 @@
     return pageHeader(context.components, {
       eyebrow: companyName(entities.company),
       title: formatCompetence(entities.competence),
-      subtitle: valueOf(entities.competence, ["statusLabel"], statusMeta(entities.competence.status).label),
+      titleStatus: entities.competence.status,
       breadcrumbs: competenceBreadcrumbs(entities, "Resumo"),
       actions: [
         { label: "Adicionar arquivos", variant: "button--secondary", route: "imports", action: "navigate", disabled: closed },
@@ -924,15 +992,16 @@
     var rows = asArray(summary.rows);
     var table = rows.length ? [
       '<div class="table-frame"><table class="data-table"><caption class="sr-only">Resumo da apuração por funcionário</caption><thead><tr>',
-      '<th scope="col">Funcionário</th><th scope="col">Dias processados</th><th scope="col">Atrasos</th><th scope="col">Extras</th><th scope="col">Faltas</th><th scope="col">Atestados</th><th scope="col">Pendências</th><th scope="col">Situação</th>',
+      '<th scope="col">Funcionário</th><th scope="col">Dias processados</th><th scope="col">Atrasos</th><th scope="col">Extras</th><th scope="col">Horas 100% (feriado)</th><th scope="col">Faltas</th><th scope="col">Atestados</th><th scope="col">Pendências</th><th scope="col">Situação</th>',
       "</tr></thead><tbody>",
       rows.map(function (row) {
         var name = availableSummaryValue(row.employeeName);
         var code = row.employeeCode === null || row.employeeCode === undefined || row.employeeCode === "" ? "" : '<small>Código ' + escapeHtml(row.employeeCode) + "</small>";
-        return '<tr><th scope="row"><strong>' + escapeHtml(name) + "</strong>" + code + "</th>" +
+        return '<tr><th scope="row"><div class="summary-employee"><strong>' + escapeHtml(name) + "</strong>" + code + "</div></th>" +
           "<td>" + escapeHtml(availableSummaryValue(row.processedDays)) + "</td>" +
-          "<td>" + escapeHtml(summaryDuration(row.delays, row.delayMinutes)) + "</td>" +
-          "<td>" + escapeHtml(summaryDuration(row.extras, row.extraMinutes)) + "</td>" +
+          "<td>" + summaryDurationMarkup(row.delays, row.delayMinutes) + "</td>" +
+          "<td>" + summaryDurationMarkup(row.extras, row.extraMinutes) + "</td>" +
+          "<td>" + summaryDurationMarkup(null, row.holidayMinutes === undefined ? 0 : row.holidayMinutes) + "</td>" +
           "<td>" + escapeHtml(availableSummaryValue(row.absences)) + "</td>" +
           "<td>" + escapeHtml(availableSummaryValue(row.certificates)) + "</td>" +
           "<td>" + escapeHtml(availableSummaryValue(row.pending)) + "</td>" +
@@ -946,14 +1015,19 @@
       { label: "Cadastrar funcionário", route: "company-employees", action: "navigate" }
     );
 
+    var bankRows = rows.filter(function(row){return row.bank;});
+    var bankTable = bankRows.length ? '<section class="work-card"><div class="section-heading"><div><h2>Banco de horas</h2><p>Saldos dos lançamentos consolidados. A competência aberta entra no banco ao fechar.</p></div><button type="button" class="button button--secondary" data-action="navigate" data-route="company-banco-horas">Ver extrato</button></div><div class="table-frame"><table class="data-table"><thead><tr><th>Funcionário</th><th>Saldo anterior</th><th>Créditos da competência</th><th>Débitos da competência</th><th>Saldo final</th><th>Desligamento</th></tr></thead><tbody>' + bankRows.map(function(row){
+      var b=row.bank, format=root.OnPontoBancoHoras.duration;
+      return '<tr><th scope="row">'+escapeHtml(row.employeeName)+'</th><td>'+format(b.saldo_anterior_minutos,true)+'</td><td>'+format(b.creditos_competencia_minutos,true)+'</td><td>'+format(-b.debitos_competencia_minutos,true)+'</td><td><strong>'+format(b.saldo_final_minutos,true)+'</strong></td><td>'+(b.data_demissao ? escapeHtml(formatDate(b.data_demissao))+': <strong>'+format(b.saldo_demissao_minutos,true)+'</strong>' : '—')+'</td></tr>';
+    }).join('')+'</tbody></table></div></section>' : '';
     return prefix +
-      '<section class="work-card competency-hero"><div>' + statusChip(context.components, competence.status, competence.statusLabel) + '</div><dl class="summary-grid">' +
+      '<section class="work-card competency-hero"><dl class="summary-grid">' +
         summaryItem("Funcionários", availableSummaryValue(general.employees)) +
         summaryItem("Conferidos", availableSummaryValue(general.confirmed)) +
         summaryItem("Pendentes", availableSummaryValue(general.pending)) +
         summaryItem("Dias com pendência", availableSummaryValue(general.pendingDays)) +
         summaryItem("Arquivos recebidos", availableSummaryValue(general.totalFiles)) +
-      '</dl></section><section class="work-card"><div class="section-heading"><div><h2>Resumo por funcionário</h2><p>Totais calculados pela apuração desta competência.</p></div></div>' + table + "</section></section>";
+      '</dl></section><section class="work-card"><div class="section-heading"><div><h2>Resumo por funcionário</h2><p>Totais calculados pela apuração desta competência.</p></div></div>' + table + "</section>" + bankTable + "</section>";
   }
 
   function renderCompetencySummary(state, data, components) {
@@ -973,7 +1047,7 @@
       pageHeader(context.components, {
         eyebrow: companyName(entities.company),
         title: formatCompetence(competence),
-        subtitle: valueOf(competence, ["statusLabel"], statusMeta(competence.status).label),
+        titleStatus: competence.status,
         breadcrumbs: competenceBreadcrumbs(entities, "Resumo"),
         actions: [
           { label: "Adicionar arquivos", variant: "button--secondary", route: "imports", action: "navigate", disabled: closed },
@@ -984,7 +1058,7 @@
       }),
       competencyAreaNavigation("competency-summary"),
       lifecycleErrorNotice(context), closedCompetenceNotice(competence),
-      '<section class="work-card competency-hero"><div>' + statusChip(context.components, competence.status, competence.statusLabel) + '</div><dl class="summary-grid">' +
+      '<section class="work-card competency-hero"><dl class="summary-grid">' +
         summaryItem("Funcionários", employeeCount) +
         summaryItem("Funcionários conferidos", confirmedCount) +
         summaryItem("Pendências", valueOf(competence, ["pendingCount", "quantidadePendencias"], 0)) +
@@ -1109,7 +1183,7 @@
           "<td>" + editableTimeCell(context, day, "exit", slots.exit, "Saída", readonly) + "</td>",
           '<td class="duration-cell">' + escapeHtml(formatDuration(worked)) + "</td>",
           '<td class="balance-cell balance-cell--' + (Number(balance) > 0 ? "positive" : Number(balance) < 0 ? "negative" : "neutral") + '">' + escapeHtml(formatBalance(balance)) + "</td>",
-          "<td>" + statusChip(context.components, dayStatus(day), valueOf(day, ["statusLabel"], "")) + "</td>",
+          "<td>" + statusChip(context.components, day.effectiveStatus || dayStatus(day), day.effectiveStatus === "fora_vinculo" ? "Fora do vínculo" : day.effectiveStatus === "feriado" ? "Feriado" : valueOf(day, ["statusLabel"], "")) + "</td>",
           '<td><input class="observation-cell" type="text" value="' + escapeHtml(valueOf(day, ["observation", "observacao"], "")) + '" aria-label="Observação de ' + escapeHtml(formatDate(dayDate(day), true)) + '" data-action="edit-observation" data-day-id="' + escapeHtml(idOf(day)) + '"' + (readonly ? " disabled" : "") + "></td>",
           "</tr>",
         ].join("");
@@ -1150,7 +1224,7 @@
 
   function dayTimeline(context, day) {
     var history = asArray(valueOf(day, ["history", "historico"], null));
-    return activityTimeline(context, history.map(function (item) {
+    return (day.occurrenceLabel ? '<p class="context-note"><strong>' + escapeHtml(day.occurrenceLabel) + '</strong> · Abono calculado: ' + escapeHtml(day.excusedMinutes || 0) + ' min. As batidas permanecem preservadas.</p>' : "") + activityTimeline(context, history.map(function (item) {
       return {
         title: valueOf(item, ["title", "description", "descricao"], "Atividade"),
         description: valueOf(item, ["description", "descricao"], ""),
@@ -1177,13 +1251,15 @@
     }
     if (["conferir", "inconsistente"].indexOf(status) !== -1) {
       return [
+        { label: "Adicionar atestado", action: "set-day-certificate" },
         { label: "Corrigir marcações", action: "focus-first-time" },
         { label: "Manter interpretação", action: "keep-interpretation" },
         { label: "Adicionar observação", action: "focus-observation", variant: "button--secondary" },
         { label: "Marcar como conferido", action: "confirm-day", variant: "button--primary" },
       ];
     }
-    return [{ label: "Marcar dia como conferido", action: "confirm-day", variant: "button--primary" }];
+    return [{ label: "Adicionar atestado", action: "set-day-certificate" },
+      { label: "Marcar dia como conferido", action: "confirm-day", variant: "button--primary" }];
   }
 
   function fallbackDayDetailsPanel(context, day, readonly) {
@@ -1196,7 +1272,8 @@
     var balance = dayMetric(day, ["balanceMinutes", "saldoMinutos"], ["balanceMinutes", "saldoMinutos"]);
     return [
       '<aside id="day-details-panel" class="day-details-panel" aria-label="Detalhes do dia selecionado" data-day-id="' + escapeHtml(idOf(day)) + '">',
-      '<header class="day-details-panel__header"><div><span class="eyebrow">' + escapeHtml(valueOf(day, ["weekday"], "Dia selecionado")) + '</span><h2>' + escapeHtml(formatDate(dayDate(day))) + "</h2></div>" + statusChip(context.components, dayStatus(day), valueOf(day, ["statusLabel"], "")) + "</header>",
+      '<header class="day-details-panel__header"><div><span class="eyebrow">' + escapeHtml(valueOf(day, ["weekday"], "Dia selecionado")) + '</span><h2>' + escapeHtml(formatDate(dayDate(day))) + "</h2></div>" + statusChip(context.components, day.effectiveStatus || dayStatus(day), day.effectiveStatus === "fora_vinculo" ? "Fora do vínculo" : day.effectiveStatus === "feriado" ? "Feriado" : valueOf(day, ["statusLabel"], "")) + "</header>",
+      (day.calendarNote ? '<p class="context-note">' + escapeHtml(day.calendarNote) + '</p>' : ''),
       '<section><h3>Batidas originais <span class="readonly-label">Somente leitura</span></h3>' + originalPunchesList(context, day) + "</section>",
       '<section><h3>Interpretação atual</h3><dl class="detail-grid">',
       summaryItem("Entrada", slots.entry || "—"), summaryItem("Saída intervalo", slots.breakStart || "—"), summaryItem("Retorno", slots.breakEnd || "—"), summaryItem("Saída", slots.exit || "—"),
@@ -1307,12 +1384,13 @@
         title: "Conferência",
         subtitle: companyName(entities.company) + " · " + formatCompetence(entities.competence),
         breadcrumbs: competenceBreadcrumbs(entities, "Conferência"),
-        actions: [{ label: closed ? "Somente leitura" : "Salvar agora", action: "save-now", disabled: closed }],
+        actions: [{ label: closed ? "Somente leitura" : "Salvar agora", action: "save-now", variant: "primary", disabled: closed }],
       }),
       competencyAreaNavigation("review"),
       closedCompetenceNotice(entities.competence),
       '<section class="review-toolbar work-card">',
       '<div class="employee-navigation"><button class="icon-button" type="button" data-action="previous-employee" aria-label="Funcionário anterior" title="Funcionário anterior (Alt + ↑)">←</button><label><span class="sr-only">Funcionário</span><select data-action="select-review-employee">' + selectOptions(entities.companyEmployees, entities.employee ? idOf(entities.employee) : "", employeeName) + '</select></label><button class="icon-button" type="button" data-action="next-employee" aria-label="Próximo funcionário" title="Próximo funcionário (Alt + ↓)">→</button><span class="position-label">' + escapeHtml(position) + " de " + escapeHtml(totalEmployees) + " funcionários</span></div>",
+      '<button class="button button--secondary" type="button" data-action="open-employee-timesheet" data-employee-id="' + escapeHtml(entities.employee ? idOf(entities.employee) : "") + '"' + (!entities.employee || context.state.apiMode !== "online" ? " disabled" : "") + '>Emitir espelho</button>',
       '<div class="review-progress">' + progressIndicator(context.components, confirmedDays, eligibleDays, "Progresso") + (closed ? '<span class="autosave-indicator" role="status">Somente leitura</span>' : autosaveIndicator(context)) + "</div>",
       '<div class="filter-group review-filters" role="group" aria-label="Filtrar dias">' + filterButton("Todos os dias", "all", filter, "review") + filterButton("Pendências", "pending", filter, "review") + filterButton("Não conferidos", "unconfirmed", filter, "review") + filterButton("Ausências", "absences", filter, "review") + "</div>",
       "</section>",
@@ -1392,6 +1470,7 @@
       reportCard("Resumo da competência", "Visão consolidada de saldo, ausências e pendências por funcionário.", "Abrir prévia", "preview-summary-report"),
       reportCard("Planilha de conferência", "Exportação operacional com as marcações e o resultado atual da conferência.", exporting ? "Gerando..." : "Exportar Excel", "export-excel", { disabled: exporting, busy: exporting }),
       reportCard("Relatório para impressão", "Layout limpo para imprimir ou salvar como PDF no navegador.", "Abrir impressão", "open-print-report"),
+      reportCard("Espelhos de ponto (todos os funcionários)", "Um espelho por funcionário, pronto para impressão e assinatura.", "Abrir espelhos", "open-espelhos-lote"),
       "</div>",
       '<section class="work-card report-readiness"><div class="section-heading"><div><h2>Prontidão para exportação</h2><p>' + (online ? "Indicadores da apuração mais recente desta competência." : "Os indicadores abaixo são simulados.") + "</p></div>" + readinessStatus + '</div><dl class="summary-grid summary-grid--four">' + summaryItem("Empresa", companyName(entities.company)) + summaryItem("Competência", formatCompetence(competence)) + summaryItem("Progresso", progress) + summaryItem("Pendências", pendingValue) + "</dl></section>",
     ].join("");
@@ -1467,13 +1546,13 @@
     if (!company) return missingContextScreen(context, "Configurações", "Abra uma empresa para ajustar suas configurações.", false);
     var settings = valueOf(context.state, ["settings", "configuracoes"], {}) || {};
     var online = valueOf(context.state, ["apiMode"], "offline") === "online";
-    var weekdayMinutes = Math.round(Number(valueOf(company, ["jornada_seg_sex_horas"], 8)) * 60);
-    var saturdayMinutes = Math.round(Number(valueOf(company, ["jornada_sabado_horas"], 4)) * 60);
+    var activeScales = entities.companyScales.filter(function (scale) { return valueOf(scale, ["active", "ativa"], true) !== false; });
+    var employeesWithoutScale = entities.companyEmployees.filter(function (employee) { return valueOf(employee, ["scaleId", "escala_id"], null) == null; });
     return [
       '<section class="screen screen--company-settings" data-screen="company-settings">', demoBanner(),
       pageHeader(context.components, { title: "Configurações", subtitle: companyName(company) + " · Preferências locais da interface.", breadcrumbs: companyBreadcrumbs(company, "Configurações") }),
       '<div class="settings-layout">',
-      '<section class="work-card settings-section"><div class="section-heading"><div><h2>Jornada padrão</h2><p>Valores do cadastro da empresa usados no cálculo atual.</p></div><button class="button button--secondary" type="button" data-action="edit-company" data-company-id="' + escapeHtml(idOf(company)) + '">Editar empresa</button></div><dl class="summary-grid summary-grid--four">' + summaryItem("Segunda a sexta", formatDuration(weekdayMinutes)) + summaryItem("Sábado", formatDuration(saturdayMinutes)) + summaryItem("Tolerância de atraso", valueOf(company, ["tolerancia_atraso_minutos"], 5) + " min") + summaryItem("Tolerância de saldo positivo", valueOf(company, ["tolerancia_extra_minutos"], 10) + " min") + "</dl></section>",
+      '<section class="work-card settings-section"><div class="section-heading"><div><h2>Escalas de trabalho</h2><p>Jornadas, horários, fins de semana e tolerâncias são definidos por escala.</p></div><button class="button button--secondary" type="button" data-action="navigate" data-route="company-scales">Gerenciar escalas</button></div><dl class="summary-grid summary-grid--four">' + summaryItem("Escalas ativas", activeScales.length) + summaryItem("Total de escalas", entities.companyScales.length) + summaryItem("Funcionários sem escala", employeesWithoutScale.length) + summaryItem("Localidade", [valueOf(company, ["city", "cidade"], ""), valueOf(company, ["uf"], "")].filter(Boolean).join(" / ") || "Não informada") + "</dl></section>",
       '<section class="work-card settings-section"><div class="section-heading"><div><h2>Experiência de conferência</h2><p>Preferências válidas somente durante esta sessão do navegador.</p></div></div><label class="switch-row"><span><strong>Salvamento automático</strong><small>' + (online ? "Persiste cada edição na API." : "Simula o estado de salvamento enquanto a API está offline.") + '</small></span><input type="checkbox" role="switch"' + (valueOf(settings, ["autosave"], true) ? " checked" : "") + ' data-action="toggle-autosave"></label><label class="switch-row"><span><strong>Alertar horários incomuns</strong><small>Permite o horário e pede uma confirmação adicional.</small></span><input type="checkbox" role="switch"' + (valueOf(settings, ["unusualTimeAlerts"], true) ? " checked" : "") + ' data-action="toggle-unusual-time-alert"></label><label class="switch-row"><span><strong>Atalhos de uma tecla</strong><small>Desativados automaticamente durante edição de texto.</small></span><input type="checkbox" role="switch"' + (valueOf(settings, ["singleKeyShortcuts"], true) ? " checked" : "") + ' data-action="toggle-single-key-shortcuts"></label></section>',
       online
         ? '<section class="work-card settings-section"><span class="eyebrow">Ambiente atual</span><h2>Integração ativa</h2><p>Empresas, competências, funcionários, importações e marcações são carregados da API.</p><dl class="detail-grid">' + summaryItem("Empresa ativa", companyName(company)) + summaryItem("Armazenamento", "Backend") + summaryItem("API", valueOf(context.state, ["apiBase"], "Ativa")) + "</dl></section>"
@@ -1499,6 +1578,9 @@
     panel: renderCompanies,
     company_overview: renderCompanyOverview,
     company_employees: renderCompanyEmployees,
+    company_scales: renderCompanyScales,
+    company_ocorrencias: function(state,data,components){return root.OnPontoOcorrencias.render(state,data,components);},
+    company_banco_horas: function(state,data,components){return root.OnPontoBancoHoras.render(state,data,components);},
     company_competencies: renderCompanyCompetencies,
     competency_summary: renderCompetencySummary,
     imports: renderImports,
@@ -1556,6 +1638,8 @@
     companyOverview: renderCompanyOverview,
     renderCompanyEmployees: renderCompanyEmployees,
     companyEmployees: renderCompanyEmployees,
+    renderCompanyScales: renderCompanyScales,
+    companyScales: renderCompanyScales,
     renderCompanyCompetencies: renderCompanyCompetencies,
     companyCompetencies: renderCompanyCompetencies,
     renderCompetencySummary: renderCompetencySummary,

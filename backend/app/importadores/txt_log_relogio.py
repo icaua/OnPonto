@@ -13,9 +13,17 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
+from app.importadores.interpretacao_batidas import interpretar_batidas
 
+
+NOME_ADAPTER = "txt_log_relogio"
 COLUNAS_OBRIGATORIAS = ("EnNo", "Name", "DateTime")
 FORMATO_DATA_HORA = "%Y-%m-%d %H:%M:%S"
+
+_PENDENCIA_UMA_BATIDA = "Apenas uma batida encontrada"
+_PENDENCIA_DUAS_BATIDAS = "Apenas duas batidas encontradas"
+_PENDENCIA_QUANTIDADE_IMPAR = "Quantidade ímpar de batidas"
+_PENDENCIA_MAIS_DE_QUATRO = "Mais de quatro batidas encontradas"
 
 
 class ErroImportacaoTxt(ValueError):
@@ -144,34 +152,24 @@ def _localizar_funcionario(
 
 
 def _interpretar_batidas(batidas: list[str]) -> tuple[dict[str, str | None], str, list[str]]:
+    resultado = interpretar_batidas([batida[:5] for batida in batidas])
     interpretacao: dict[str, str | None] = {
-        "entrada": None,
-        "saida_intervalo": None,
-        "retorno_intervalo": None,
-        "saida": None,
+        "entrada": resultado["entrada"],
+        "saida_intervalo": resultado["saida_almoco"],
+        "retorno_intervalo": resultado["retorno_almoco"],
+        "saida": resultado["saida"],
     }
-    quantidade = len(batidas)
 
-    if quantidade == 1:
-        interpretacao["entrada"] = batidas[0][:5]
-        return interpretacao, "conferir", ["Apenas uma batida encontrada"]
-    if quantidade == 2:
-        interpretacao["entrada"] = batidas[0][:5]
-        interpretacao["saida"] = batidas[1][:5]
-        return interpretacao, "conferir", ["Apenas duas batidas encontradas"]
-    if quantidade == 3:
-        return interpretacao, "conferir", ["Quantidade ímpar de batidas"]
+    quantidade = len(batidas)
     if quantidade == 4:
-        interpretacao.update(
-            {
-                "entrada": batidas[0][:5],
-                "saida_intervalo": batidas[1][:5],
-                "retorno_intervalo": batidas[2][:5],
-                "saida": batidas[3][:5],
-            }
-        )
         return interpretacao, "nao_conferido", []
-    return interpretacao, "conferir", ["Mais de quatro batidas encontradas"]
+    if quantidade == 1:
+        return interpretacao, "conferir", [_PENDENCIA_UMA_BATIDA]
+    if quantidade == 2:
+        return interpretacao, "conferir", [_PENDENCIA_DUAS_BATIDAS]
+    if quantidade == 3:
+        return interpretacao, "conferir", [_PENDENCIA_QUANTIDADE_IMPAR]
+    return interpretacao, "conferir", [_PENDENCIA_MAIS_DE_QUATRO]
 
 
 def _id_registro(
@@ -195,6 +193,33 @@ def _id_registro(
     )
     digest = hashlib.sha256(conteudo.encode("utf-8")).hexdigest()[:20]
     return f"txt-{digest}"
+
+
+def detectar(conteudo: bytes) -> bool:
+    """Checagem estrutural barata: cabeçalho com as colunas EnNo, Name e DateTime."""
+
+    try:
+        texto, _encoding = _decodificar(conteudo)
+    except ErroImportacaoTxt:
+        return False
+    if not texto.strip():
+        return False
+    try:
+        leitor = csv.reader(io.StringIO(texto, newline=""), delimiter="\t", strict=True)
+        linhas = list(leitor)
+    except csv.Error:
+        return False
+
+    indice_cabecalho = next(
+        (indice for indice, linha in enumerate(linhas) if any(celula.strip() for celula in linha)),
+        None,
+    )
+    if indice_cabecalho is None:
+        return False
+
+    colunas = {_normalizar_cabecalho(coluna) for coluna in linhas[indice_cabecalho]}
+    obrigatorias = {_normalizar_cabecalho(coluna) for coluna in COLUNAS_OBRIGATORIAS}
+    return obrigatorias.issubset(colunas)
 
 
 def _validar_competencia(mes: int, ano: int) -> None:

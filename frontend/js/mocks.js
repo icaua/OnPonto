@@ -107,8 +107,6 @@
 
   var statusDefinitions = [
     { id: "normal", label: "Normal", icon: "✓", tone: "success", requiresReview: false },
-    { id: "conferir", label: "Conferir", icon: "!", tone: "warning", requiresReview: true },
-    { id: "inconsistente", label: "Inconsistente", icon: "×", tone: "danger", requiresReview: true },
     { id: "falta", label: "Falta", icon: "!", tone: "danger", requiresReview: false },
     { id: "atestado", label: "Atestado", icon: "+", tone: "info", requiresReview: false },
     { id: "folga", label: "Folga", icon: "○", tone: "neutral", requiresReview: false },
@@ -131,10 +129,12 @@
       nome: "Queen",
       legalName: "Queen Serviços Administrativos Ltda.",
       cnpj: "12.345.678/0001-90",
+      cidade: "São Paulo",
+      uf: "SP",
       initials: "QU",
       active: true,
       ativa: true,
-      color: "#3b82f6",
+      color: "var(--brand-primary)",
     },
     {
       id: 2,
@@ -142,10 +142,12 @@
       nome: "Jianbin Wu",
       legalName: "Jianbin Wu Comércio de Alimentos Ltda.",
       cnpj: "23.456.789/0001-01",
+      cidade: "São Paulo",
+      uf: "SP",
       initials: "JW",
       active: true,
       ativa: true,
-      color: "#8b5cf6",
+      color: "var(--brand-primary)",
     },
     {
       id: 3,
@@ -153,10 +155,12 @@
       nome: "Empresa Exemplo",
       legalName: "Empresa Exemplo Tecnologia Ltda.",
       cnpj: "34.567.890/0001-12",
+      cidade: "Campinas",
+      uf: "SP",
       initials: "EE",
       active: true,
       ativa: true,
-      color: "#0ea5e9",
+      color: "var(--brand-primary)",
     },
     {
       id: 4,
@@ -164,10 +168,51 @@
       nome: "Loja Modelo",
       legalName: "Loja Modelo Varejo Ltda.",
       cnpj: "45.678.901/0001-23",
+      cidade: "Santos",
+      uf: "SP",
       initials: "LM",
       active: true,
       ativa: true,
-      color: "#14b8a6",
+      color: "var(--brand-primary)",
+    },
+  ];
+
+  var scales = [
+    {
+      id: 10001, empresa_id: 1, companyId: 1, nome: "Comercial 44h", name: "Comercial 44h",
+      modo_apuracao: "carga_horaria", jornada_seg_sex_horas: 8, jornada_sabado_horas: 4,
+      horario_entrada_prevista: null, horario_saida_almoco_prevista: null,
+      horario_retorno_almoco_prevista: null, horario_saida_prevista: null,
+      regime_sabado: "trabalha", regime_domingo: "nao_trabalha",
+      tolerancia_atraso_minutos: 10, tolerancia_extra_minutos: 10,
+      tolerancia_intervalo_minutos: 10, ativa: true, active: true,
+    },
+    {
+      id: 10002, empresa_id: 2, companyId: 2, nome: "Administrativo", name: "Administrativo",
+      modo_apuracao: "horario_fixo", jornada_seg_sex_horas: null, jornada_sabado_horas: null,
+      horario_entrada_prevista: "08:00", horario_saida_almoco_prevista: "12:00",
+      horario_retorno_almoco_prevista: "13:00", horario_saida_prevista: "17:00",
+      regime_sabado: "nao_trabalha", regime_domingo: "nao_trabalha",
+      tolerancia_atraso_minutos: 10, tolerancia_extra_minutos: 10,
+      tolerancia_intervalo_minutos: 10, ativa: true, active: true,
+    },
+    {
+      id: 10003, empresa_id: 3, companyId: 3, nome: "Segunda a sexta", name: "Segunda a sexta",
+      modo_apuracao: "carga_horaria", jornada_seg_sex_horas: 8, jornada_sabado_horas: null,
+      horario_entrada_prevista: null, horario_saida_almoco_prevista: null,
+      horario_retorno_almoco_prevista: null, horario_saida_prevista: null,
+      regime_sabado: "compensado", regime_domingo: "nao_trabalha",
+      tolerancia_atraso_minutos: 0, tolerancia_extra_minutos: 0,
+      tolerancia_intervalo_minutos: 0, ativa: true, active: true,
+    },
+    {
+      id: 10004, empresa_id: 4, companyId: 4, nome: "Varejo", name: "Varejo",
+      modo_apuracao: "carga_horaria", jornada_seg_sex_horas: 7.33, jornada_sabado_horas: 6,
+      horario_entrada_prevista: null, horario_saida_almoco_prevista: null,
+      horario_retorno_almoco_prevista: null, horario_saida_prevista: null,
+      regime_sabado: "trabalha", regime_domingo: "nao_trabalha",
+      tolerancia_atraso_minutos: 5, tolerancia_extra_minutos: 5,
+      tolerancia_intervalo_minutos: 5, ativa: true, active: true,
     },
   ];
 
@@ -285,17 +330,17 @@
   ];
 
   var employees = [
-    { id: 101, companyId: 1, empresa_id: 1, code: "Q001", codigo: "Q001", name: "André Luiz", nome: "André Luiz", role: "Assistente administrativo", active: true, expectedWeekdayMinutes: 480, expectedSaturdayMinutes: 240 },
-    { id: 102, companyId: 1, empresa_id: 1, code: "Q002", codigo: "Q002", name: "Beatriz Costa", nome: "Beatriz Costa", role: "Analista financeiro", active: true, expectedWeekdayMinutes: 480, expectedSaturdayMinutes: 240 },
-    { id: 103, companyId: 1, empresa_id: 1, code: "Q003", codigo: "Q003", name: "Lana Fernanda", nome: "Lana Fernanda", role: "Coordenadora operacional", active: true, expectedWeekdayMinutes: 480, expectedSaturdayMinutes: 240 },
-    { id: 104, companyId: 1, empresa_id: 1, code: "Q004", codigo: "Q004", name: "Carlos Henrique", nome: "Carlos Henrique", role: "Auxiliar de logística", active: true, expectedWeekdayMinutes: 480, expectedSaturdayMinutes: 240 },
-    { id: 105, companyId: 1, empresa_id: 1, code: "Q005", codigo: "Q005", name: "Débora Almeida", nome: "Débora Almeida", role: "Supervisora de atendimento", active: true, expectedWeekdayMinutes: 480, expectedSaturdayMinutes: 240 },
-    { id: 106, companyId: 1, empresa_id: 1, code: "Q006", codigo: "Q006", name: "Eduardo Martins", nome: "Eduardo Martins", role: "Assistente comercial", active: true, expectedWeekdayMinutes: 480, expectedSaturdayMinutes: 240 },
-    { id: 107, companyId: 1, empresa_id: 1, code: "Q007", codigo: "Q007", name: "Fernanda Rocha", nome: "Fernanda Rocha", role: "Analista de cadastro", active: true, expectedWeekdayMinutes: 480, expectedSaturdayMinutes: 240 },
-    { id: 108, companyId: 1, empresa_id: 1, code: "Q008", codigo: "Q008", name: "Gustavo Nunes", nome: "Gustavo Nunes", role: "Auxiliar administrativo", active: true, expectedWeekdayMinutes: 480, expectedSaturdayMinutes: 240 },
-    { id: 201, companyId: 2, empresa_id: 2, code: "JW01", codigo: "JW01", name: "Marina Wu", nome: "Marina Wu", role: "Atendimento", active: true, expectedWeekdayMinutes: 480, expectedSaturdayMinutes: 240 },
-    { id: 301, companyId: 3, empresa_id: 3, code: "EX01", codigo: "EX01", name: "Paulo Mendes", nome: "Paulo Mendes", role: "Desenvolvedor", active: true, expectedWeekdayMinutes: 480, expectedSaturdayMinutes: 0 },
-    { id: 401, companyId: 4, empresa_id: 4, code: "LM01", codigo: "LM01", name: "Sofia Ribeiro", nome: "Sofia Ribeiro", role: "Vendedora", active: true, expectedWeekdayMinutes: 440, expectedSaturdayMinutes: 360 },
+    { id: 101, companyId: 1, empresa_id: 1, escala_id: 10001, scaleId: 10001, code: "Q001", codigo: "Q001", name: "André Luiz", nome: "André Luiz", role: "Assistente administrativo", active: true, expectedWeekdayMinutes: 480, expectedSaturdayMinutes: 240 },
+    { id: 102, companyId: 1, empresa_id: 1, escala_id: 10001, scaleId: 10001, code: "Q002", codigo: "Q002", name: "Beatriz Costa", nome: "Beatriz Costa", role: "Analista financeiro", active: true, expectedWeekdayMinutes: 480, expectedSaturdayMinutes: 240 },
+    { id: 103, companyId: 1, empresa_id: 1, escala_id: 10001, scaleId: 10001, code: "Q003", codigo: "Q003", name: "Lana Fernanda", nome: "Lana Fernanda", role: "Coordenadora operacional", active: true, expectedWeekdayMinutes: 480, expectedSaturdayMinutes: 240 },
+    { id: 104, companyId: 1, empresa_id: 1, escala_id: 10001, scaleId: 10001, code: "Q004", codigo: "Q004", name: "Carlos Henrique", nome: "Carlos Henrique", role: "Auxiliar de logística", active: true, expectedWeekdayMinutes: 480, expectedSaturdayMinutes: 240 },
+    { id: 105, companyId: 1, empresa_id: 1, escala_id: 10001, scaleId: 10001, code: "Q005", codigo: "Q005", name: "Débora Almeida", nome: "Débora Almeida", role: "Supervisora de atendimento", active: true, expectedWeekdayMinutes: 480, expectedSaturdayMinutes: 240 },
+    { id: 106, companyId: 1, empresa_id: 1, escala_id: 10001, scaleId: 10001, code: "Q006", codigo: "Q006", name: "Eduardo Martins", nome: "Eduardo Martins", role: "Assistente comercial", active: true, expectedWeekdayMinutes: 480, expectedSaturdayMinutes: 240 },
+    { id: 107, companyId: 1, empresa_id: 1, escala_id: 10001, scaleId: 10001, code: "Q007", codigo: "Q007", name: "Fernanda Rocha", nome: "Fernanda Rocha", role: "Analista de cadastro", active: true, expectedWeekdayMinutes: 480, expectedSaturdayMinutes: 240 },
+    { id: 108, companyId: 1, empresa_id: 1, escala_id: 10001, scaleId: 10001, code: "Q008", codigo: "Q008", name: "Gustavo Nunes", nome: "Gustavo Nunes", role: "Auxiliar administrativo", active: true, expectedWeekdayMinutes: 480, expectedSaturdayMinutes: 240 },
+    { id: 201, companyId: 2, empresa_id: 2, escala_id: 10002, scaleId: 10002, code: "JW01", codigo: "JW01", name: "Marina Wu", nome: "Marina Wu", role: "Atendimento", active: true, expectedWeekdayMinutes: 480, expectedSaturdayMinutes: 240 },
+    { id: 301, companyId: 3, empresa_id: 3, escala_id: 10003, scaleId: 10003, code: "EX01", codigo: "EX01", name: "Paulo Mendes", nome: "Paulo Mendes", role: "Desenvolvedor", active: true, expectedWeekdayMinutes: 480, expectedSaturdayMinutes: 0 },
+    { id: 401, companyId: 4, empresa_id: 4, escala_id: 10004, scaleId: 10004, code: "LM01", codigo: "LM01", name: "Sofia Ribeiro", nome: "Sofia Ribeiro", role: "Vendedora", active: true, expectedWeekdayMinutes: 440, expectedSaturdayMinutes: 360 },
   ];
 
   var files = [
@@ -549,32 +594,32 @@
 
   var lana = employees.find(function (employee) { return employee.id === 103; });
   var lanaDayConfigurations = [
-    { day: 1, originalPunches: ["08:03:17", "14:22:59", "15:27:54", "17:08:23"], sourceLines: [32, 46, 49, 55], suggestion: { entry: "08:03", breakStart: "14:22", breakEnd: "15:27", exit: "17:08" }, status: "conferir", caseTags: ["intervalo_fora_do_padrao"], expectedMinutes: 480, workedMinutes: 480, balanceMinutes: 0, issues: [{ type: "interval", message: "Intervalo iniciado fora do padrão esperado." }], observation: "O sistema manteve as quatro batidas originais para revisão.", confirmed: false },
+    { day: 1, originalPunches: ["08:03:17", "14:22:59", "15:27:54", "17:08:23"], sourceLines: [32, 46, 49, 55], suggestion: { entry: "08:03", breakStart: "14:22", breakEnd: "15:27", exit: "17:08" }, status: "normal", caseTags: ["intervalo_fora_do_padrao"], expectedMinutes: 480, workedMinutes: 480, balanceMinutes: 0, issues: [{ type: "interval", message: "Intervalo iniciado fora do padrão esperado." }], observation: "O sistema manteve as quatro batidas originais para revisão.", confirmed: false },
     { day: 2, originalPunches: ["08:03:09", "13:46:41", "14:44:02", "17:12:11"], suggestion: { entry: "08:03", breakStart: "13:46", breakEnd: "14:44", exit: "17:12" }, status: "normal", caseTags: ["normal"], expectedMinutes: 480, workedMinutes: 489, balanceMinutes: 9, differenceReason: "Pequena variação positiva dentro da política configurada.", confirmed: true },
     { day: 3, originalPunches: ["07:56:12", "13:02:04", "14:03:18", "17:04:37"], suggestion: { entry: "07:56", breakStart: "13:02", breakEnd: "14:03", exit: "17:04" }, status: "normal", caseTags: ["normal"], expectedMinutes: 480, workedMinutes: 487, balanceMinutes: 7, confirmed: true },
-    { day: 4, originalPunches: ["07:54:28", "13:04:52"], suggestion: { entry: "07:54", exit: "13:04" }, status: "conferir", caseTags: ["sabado", "hora_extra"], expectedMinutes: 240, workedMinutes: 310, balanceMinutes: 70, issues: [{ type: "overtime", message: "Jornada de sábado excedeu a previsão em 1h10." }], differenceReason: "Permanência após o horário previsto de sábado.", confirmed: false },
-    { day: 5, originalPunches: [], suggestion: {}, status: "domingo", caseTags: ["domingo"], expectedMinutes: 0, workedMinutes: null, balanceMinutes: null, observation: "Domingo sem expediente.", confirmed: false },
+    { day: 4, originalPunches: ["07:54:28", "13:04:52"], suggestion: { entry: "07:54", exit: "13:04" }, status: "normal", caseTags: ["sabado", "hora_extra"], expectedMinutes: 240, workedMinutes: 310, balanceMinutes: 70, issues: [{ type: "overtime", message: "Jornada de sábado excedeu a previsão em 1h10." }], differenceReason: "Permanência após o horário previsto de sábado.", confirmed: false },
+    { day: 5, originalPunches: [], suggestion: {}, status: "domingo", caseTags: ["domingo"], expectedMinutes: 0, workedMinutes: null, balanceMinutes: null, observation: "Domingo sem expediente.", confirmed: true },
     { day: 6, originalPunches: ["08:27:03", "12:00:18", "13:00:42", "17:00:11"], suggestion: { entry: "08:27", breakStart: "12:00", breakEnd: "13:00", exit: "17:00" }, status: "normal", caseTags: ["atraso"], expectedMinutes: 480, workedMinutes: 453, balanceMinutes: -27, differenceReason: "Entrada 27 minutos após o horário previsto; ocorrência aceita na conferência.", observation: "Atraso informado pela gestora.", confirmed: true },
     { day: 7, originalPunches: ["07:48:08", "12:03:30", "13:01:12", "17:58:44"], suggestion: { entry: "07:48", breakStart: "12:03", breakEnd: "13:01", exit: "17:58" }, status: "normal", caseTags: ["hora_extra"], expectedMinutes: 480, workedMinutes: 552, balanceMinutes: 72, differenceReason: "Atendimento excepcional após o expediente.", confirmed: true },
-    { day: 8, originalPunches: ["08:02:14", "12:01:06", "13:04:55"], suggestion: { entry: "08:02", breakStart: "12:01", breakEnd: "13:04", exit: null }, status: "inconsistente", caseTags: ["incompleta", "tres_batidas"], expectedMinutes: 480, workedMinutes: null, balanceMinutes: null, issues: [{ type: "missing_punch", severity: "danger", message: "Apenas três batidas encontradas." }, { type: "missing_exit", severity: "danger", message: "Saída final não identificada." }], observation: "Aguardando confirmação do cliente.", confirmed: false },
-    { day: 9, originalPunches: ["08:00:02", "10:15:09", "10:22:44", "12:00:10", "13:00:21", "17:06:39"], suggestion: { entry: "08:00", breakStart: "12:00", breakEnd: "13:00", exit: "17:06" }, status: "conferir", caseTags: ["mais_de_quatro_batidas"], expectedMinutes: 480, workedMinutes: 486, balanceMinutes: 6, issues: [{ type: "extra_punches", message: "Mais de quatro batidas encontradas; duas marcações intermediárias não foram usadas na sugestão." }], observation: "Batidas das 10:15 e 10:22 permanecem preservadas no original.", confirmed: false },
+    { day: 8, originalPunches: ["08:02:14", "12:01:06", "13:04:55"], suggestion: { entry: "08:02", breakStart: "12:01", breakEnd: "13:04", exit: null }, status: "normal", caseTags: ["incompleta", "tres_batidas"], expectedMinutes: 480, workedMinutes: null, balanceMinutes: null, issues: [{ type: "missing_punch", severity: "danger", message: "Apenas três batidas encontradas." }, { type: "missing_exit", severity: "danger", message: "Saída final não identificada." }], observation: "Aguardando confirmação do cliente.", confirmed: false },
+    { day: 9, originalPunches: ["08:00:02", "10:15:09", "10:22:44", "12:00:10", "13:00:21", "17:06:39"], suggestion: { entry: "08:00", breakStart: "12:00", breakEnd: "13:00", exit: "17:06" }, status: "normal", caseTags: ["mais_de_quatro_batidas"], expectedMinutes: 480, workedMinutes: 486, balanceMinutes: 6, issues: [{ type: "extra_punches", message: "Mais de quatro batidas encontradas; duas marcações intermediárias não foram usadas na sugestão." }], observation: "Batidas das 10:15 e 10:22 permanecem preservadas no original.", confirmed: false },
     { day: 10, originalPunches: ["08:01:08", "12:04:37", "13:02:22", "17:06:05"], suggestion: { entry: "08:01", breakStart: "12:04", breakEnd: "13:02", exit: "17:06" }, userEdition: { values: { entry: "08:01", breakStart: "12:04", breakEnd: "13:02", exit: "17:08" }, changedFields: ["exit"], author: "Marina Souza", changedAt: "2026-08-01T14:20:00-03:00", reason: "Saída confirmada no espelho assinado." }, status: "normal", caseTags: ["alteracao_manual"], expectedMinutes: 480, workedMinutes: 489, balanceMinutes: 9, issues: [{ type: "manual_change", message: "Horário alterado manualmente.", resolved: true, resolution: "Saída confirmada no espelho assinado." }], history: [{ id: "history-10-import", at: IMPORTED_AT, timeLabel: "09:13", type: "imported", actor: "Sistema", description: "Batidas importadas de ALOG_001.txt." }, { id: "history-10-edit", at: "2026-08-01T14:20:00-03:00", timeLabel: "14:20", type: "edited", actor: "Marina Souza", description: "Saída alterada de 17:06 para 17:08." }, { id: "history-10-review", at: "2026-08-01T14:21:00-03:00", timeLabel: "14:21", type: "review", actor: "Marina Souza", description: "Dia marcado para conferência." }, { id: "history-10-confirm", at: "2026-08-01T14:25:00-03:00", timeLabel: "14:25", type: "confirmed", actor: "Marina Souza", description: "Dia marcado como conferido." }], confirmed: true },
     { day: 11, originalPunches: [], suggestion: {}, status: "folga", caseTags: ["sabado", "folga"], expectedMinutes: 0, workedMinutes: 0, balanceMinutes: 0, observation: "Folga compensatória registrada.", confirmed: true },
-    { day: 12, originalPunches: [], suggestion: {}, status: "domingo", caseTags: ["domingo"], expectedMinutes: 0, workedMinutes: null, balanceMinutes: null, confirmed: false },
+    { day: 12, originalPunches: [], suggestion: {}, status: "domingo", caseTags: ["domingo"], expectedMinutes: 0, workedMinutes: null, balanceMinutes: null, confirmed: true },
     { day: 13, originalPunches: [], suggestion: {}, status: "falta", caseTags: ["falta"], expectedMinutes: 480, workedMinutes: 0, balanceMinutes: -480, differenceReason: "Ausência sem marcações registrada como falta.", observation: "Falta confirmada pelo cliente.", confirmed: true },
     { day: 14, originalPunches: [], suggestion: {}, status: "atestado", caseTags: ["atestado"], expectedMinutes: 480, workedMinutes: 480, balanceMinutes: 0, differenceReason: "Jornada abonada por atestado médico.", observation: "Atestado recebido em 31/07/2026.", confirmed: true },
     { day: 15, originalPunches: [], suggestion: {}, status: "folga", caseTags: ["folga"], expectedMinutes: 0, workedMinutes: 0, balanceMinutes: 0, observation: "Folga programada.", confirmed: true },
     { day: 16, originalPunches: [], suggestion: {}, status: "feriado", caseTags: ["feriado"], expectedMinutes: 0, workedMinutes: 0, balanceMinutes: 0, observation: "Feriado municipal cadastrado para demonstração.", confirmed: true },
     { day: 17, originalPunches: [], suggestion: {}, status: "sem_expediente", caseTags: ["sem_expediente"], expectedMinutes: 0, workedMinutes: null, balanceMinutes: null, observation: "Unidade sem expediente nesta data.", confirmed: false },
     { day: 18, originalPunches: ["08:10:14", "12:12:31"], suggestion: { entry: "08:10", exit: "12:12" }, status: "trabalho_externo", caseTags: ["sabado", "externo"], expectedMinutes: 240, workedMinutes: 242, balanceMinutes: 2, differenceReason: "Atendimento externo em cliente.", confirmed: true },
-    { day: 19, originalPunches: [], suggestion: {}, status: "domingo", caseTags: ["domingo"], expectedMinutes: 0, workedMinutes: null, balanceMinutes: null, confirmed: false },
+    { day: 19, originalPunches: [], suggestion: {}, status: "domingo", caseTags: ["domingo"], expectedMinutes: 0, workedMinutes: null, balanceMinutes: null, confirmed: true },
     { day: 20, originalPunches: [], suggestion: {}, status: "afastamento", caseTags: ["afastamento"], expectedMinutes: 0, workedMinutes: 0, balanceMinutes: 0, observation: "Afastamento previamente informado.", confirmed: true },
     { day: 21, originalPunches: ["08:00:18", "12:01:09", "13:00:45", "16:59:57"], suggestion: { entry: "08:00", breakStart: "12:01", breakEnd: "13:00", exit: "16:59" }, status: "normal", caseTags: ["normal"], expectedMinutes: 480, workedMinutes: 480, balanceMinutes: 0, confirmed: true },
     { day: 22, originalPunches: ["07:59:49", "12:03:21", "13:01:18", "16:58:51"], suggestion: { entry: "07:59", breakStart: "12:03", breakEnd: "13:01", exit: "16:58" }, status: "normal", caseTags: ["normal"], expectedMinutes: 480, workedMinutes: 481, balanceMinutes: 1, confirmed: true },
     { day: 23, originalPunches: ["08:04:02", "12:02:47", "13:02:04", "17:04:12"], suggestion: { entry: "08:04", breakStart: "12:02", breakEnd: "13:02", exit: "17:04" }, status: "normal", caseTags: ["normal"], expectedMinutes: 480, workedMinutes: 480, balanceMinutes: 0, confirmed: true },
     { day: 24, originalPunches: ["07:42:17", "12:00:08", "13:01:33", "18:06:45"], suggestion: { entry: "07:42", breakStart: "12:00", breakEnd: "13:01", exit: "18:06" }, status: "normal", caseTags: ["hora_extra"], expectedMinutes: 480, workedMinutes: 563, balanceMinutes: 83, differenceReason: "Fechamento mensal realizado após o expediente.", confirmed: true },
     { day: 25, originalPunches: ["08:01:19", "12:03:12"], suggestion: { entry: "08:01", exit: "12:03" }, status: "normal", caseTags: ["sabado"], expectedMinutes: 240, workedMinutes: 242, balanceMinutes: 2, confirmed: true },
-    { day: 26, originalPunches: [], suggestion: {}, status: "domingo", caseTags: ["domingo"], expectedMinutes: 0, workedMinutes: null, balanceMinutes: null, confirmed: false },
+    { day: 26, originalPunches: [], suggestion: {}, status: "domingo", caseTags: ["domingo"], expectedMinutes: 0, workedMinutes: null, balanceMinutes: null, confirmed: true },
     { day: 27, originalPunches: ["08:02:03", "12:01:42", "13:00:29", "17:01:11"], suggestion: { entry: "08:02", breakStart: "12:01", breakEnd: "13:00", exit: "17:01" }, status: "normal", caseTags: ["normal"], expectedMinutes: 480, workedMinutes: 480, balanceMinutes: 0, confirmed: true },
     { day: 28, originalPunches: ["03:00:11", "07:02:49", "08:01:14", "12:03:33"], suggestion: { entry: "03:00", breakStart: "07:02", breakEnd: "08:01", exit: "12:03" }, status: "trabalho_externo", caseTags: ["horario_incomum", "externo"], expectedMinutes: 480, workedMinutes: 484, balanceMinutes: 4, issues: [{ type: "unusual_time", message: "Horário incomum de 03:00 confirmado para trabalho externo.", resolved: true, resolution: "Escala especial confirmada pelo cliente." }], differenceReason: "Escala externa iniciada durante a madrugada.", confirmed: true },
     { day: 29, originalPunches: ["08:00:03", "12:00:31", "13:00:20", "17:00:51"], suggestion: { entry: "08:00", breakStart: "12:00", breakEnd: "13:00", exit: "17:00" }, status: "normal", caseTags: ["normal"], expectedMinutes: 480, workedMinutes: 480, balanceMinutes: 0, confirmed: true },
@@ -589,7 +634,7 @@
   function generatedConfiguration(employee, day, employeeIndex) {
     var weekday = weekdayInfo(day);
     if (weekday.index === 0) {
-      return { day: day, originalPunches: [], suggestion: {}, status: "domingo", caseTags: ["domingo"], expectedMinutes: 0, workedMinutes: null, balanceMinutes: null, confirmed: false };
+      return { day: day, originalPunches: [], suggestion: {}, status: "domingo", caseTags: ["domingo"], expectedMinutes: 0, workedMinutes: null, balanceMinutes: null, confirmed: true };
     }
 
     if (weekday.index === 6) {
@@ -616,7 +661,7 @@
         day: day,
         originalPunches: ["08:" + pad2(entryMinute) + ":11", "12:00:24", "13:00:08"],
         suggestion: { entry: "08:" + pad2(entryMinute), breakStart: "12:00", breakEnd: "13:00", exit: null },
-        status: "inconsistente",
+        status: "normal",
         caseTags: ["incompleta"],
         issues: [{ type: "missing_exit", severity: "danger", message: "Saída final não identificada." }],
         expectedMinutes: 480,
@@ -809,7 +854,6 @@
     { keys: "N", action: "status_normal", label: "Normal", disabledWhileEditing: true },
     { keys: "F", action: "status_absence", label: "Falta", disabledWhileEditing: true },
     { keys: "A", action: "status_certificate", label: "Atestado", disabledWhileEditing: true },
-    { keys: "R", action: "status_review", label: "Revisar", disabledWhileEditing: true },
     { keys: "C", action: "confirm_day", label: "Marcar como conferido", disabledWhileEditing: true },
   ];
 
@@ -821,6 +865,8 @@
 
   var rawData = {
     companies: companies,
+    scales: scales,
+    escalas: scales,
     competencias: competencies,
     competencies: competencies,
     employees: employees,
@@ -927,6 +973,8 @@
     data: rawData,
     companies: companies,
     empresas: companies,
+    scales: scales,
+    escalas: scales,
     competencies: competencies,
     competencias: competencies,
     employees: employees,

@@ -1,9 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.database.models import Empresa
+from app.database.models import Empresa, Escala
 from app.database.session import get_db
 from app.empresas.schemas import EmpresaCreate, EmpresaRead, EmpresaUpdate
+from app.ocorrencias.service import iniciar_escrita
 
 
 router = APIRouter(prefix="/empresas", tags=["Empresas"])
@@ -33,11 +34,16 @@ def obter_empresa(empresa_id: int, db: Session = Depends(get_db)) -> Empresa:
 
 @router.patch("/{empresa_id}", response_model=EmpresaRead)
 def atualizar_empresa(empresa_id: int, payload: EmpresaUpdate, db: Session = Depends(get_db)) -> Empresa:
+    iniciar_escrita(db)
     empresa = db.get(Empresa, empresa_id)
     if not empresa:
         raise HTTPException(status_code=404, detail="Empresa não encontrada.")
 
-    for campo, valor in payload.model_dump(exclude_unset=True).items():
+    dados = payload.model_dump(exclude_unset=True)
+    if "prazo_compensacao_banco_horas_dias" in dados and dados["prazo_compensacao_banco_horas_dias"] is None:
+        if db.query(Escala.id).filter_by(empresa_id=empresa.id, usa_banco_horas=True).first():
+            raise HTTPException(409, "Não é possível remover o prazo enquanto houver escala com banco de horas habilitado.")
+    for campo, valor in dados.items():
         setattr(empresa, campo, valor)
 
     db.commit()

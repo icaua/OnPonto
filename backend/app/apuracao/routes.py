@@ -16,6 +16,7 @@ def obter_apuracao(
     resultado = apurar_competencia(db, competencia_id)
     if not resultado:
         raise HTTPException(status_code=404, detail="Competência não encontrada.")
+    db.commit()
     return resultado
 
 
@@ -24,4 +25,5 @@ def obter_apuracao_por_rota(competencia_id: int, db: Session = Depends(get_db)) 
     resultado = apurar_competencia(db, competencia_id)
     if not resultado:
         raise HTTPException(status_code=404, detail="Competência não encontrada.")
+    db.commit()
     return resultado

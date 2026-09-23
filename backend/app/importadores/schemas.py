@@ -1,7 +1,7 @@
 from pydantic import BaseModel, Field
 
 
-class ConfirmacaoImportacaoTxt(BaseModel):
+class ConfirmacaoImportacao(BaseModel):
     empresa_id: int
     competencia_id: int
     arquivo_id: int

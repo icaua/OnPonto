@@ -23,8 +23,17 @@ def contar_marcacoes(db: Session, competencia_id: int) -> int:
     )
 
 
-def contar_pendencias_operacionais(db: Session, competencia_id: int) -> int:
-    resultado = apurar_competencia(db, competencia_id)
+def contar_pendencias_operacionais(
+    db: Session,
+    competencia_id: int,
+    *,
+    gerar_calendario: bool = False,
+) -> int:
+    resultado = apurar_competencia(
+        db,
+        competencia_id,
+        gerar_calendario=gerar_calendario,
+    )
     return len(resultado["pendencias"]) if resultado else 0
 
 
@@ -34,13 +43,33 @@ def mensagem_pendencias(total_pendencias: int) -> str:
     return f"{total_pendencias} registros ainda precisam de conferência."
 
 
-def sincronizar_status_competencia(db: Session, competencia: Competencia) -> int:
+def sincronizar_status_competencia(
+    db: Session,
+    competencia: Competencia,
+    *,
+    gerar_calendario: bool = False,
+) -> int:
     """Sincroniza o estado editável a partir das marcações persistidas na sessão."""
 
     if competencia.status == "fechada":
-        return contar_pendencias_operacionais(db, competencia.id)
+        return contar_pendencias_operacionais(
+            db,
+            competencia.id,
+            gerar_calendario=gerar_calendario,
+        )
 
     db.flush()
+    if gerar_calendario:
+        total_pendencias = contar_pendencias_operacionais(
+            db,
+            competencia.id,
+            gerar_calendario=True,
+        )
+        if contar_marcacoes(db, competencia.id) == 0:
+            competencia.status = "aberta"
+            return 0
+        competencia.status = "em_conferencia" if total_pendencias else "conferida"
+        return total_pendencias
     if contar_marcacoes(db, competencia.id) == 0:
         competencia.status = "aberta"
         return 0

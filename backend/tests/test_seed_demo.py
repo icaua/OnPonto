@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from contextlib import closing
+
 import os
 import sqlite3
 import subprocess
@@ -45,10 +47,10 @@ class SeedDemoTest(unittest.TestCase):
             primeira = self.executar_seed(banco, cwd_externo)
             self.assertEqual(primeira.returncode, 0, primeira.stderr)
             self.assertIn("Seed de demonstração concluído.", primeira.stdout)
-            self.assertIn("Resumo: 4 criado(s), 0 reutilizado(s).", primeira.stdout)
+            self.assertIn("Resumo: 5 criado(s), 0 reutilizado(s).", primeira.stdout)
             self.assertIn("O código X999 permanece sem cadastro", primeira.stdout)
 
-            with sqlite3.connect(banco) as conexao:
+            with closing(sqlite3.connect(banco)) as conexao:
                 empresa = conexao.execute(
                     "SELECT id, nome FROM empresas WHERE nome = ?",
                     ("Empresa Demonstração",),
@@ -57,7 +59,7 @@ class SeedDemoTest(unittest.TestCase):
                 empresa_id = empresa[0]
 
                 funcionarios = conexao.execute(
-                    "SELECT id, codigo, nome FROM funcionarios "
+                    "SELECT id, codigo, nome, escala_id FROM funcionarios "
                     "WHERE empresa_id = ? ORDER BY codigo",
                     (empresa_id,),
                 ).fetchall()
@@ -65,6 +67,7 @@ class SeedDemoTest(unittest.TestCase):
                     [(item[1], item[2]) for item in funcionarios],
                     [("F001", "Alice Teste"), ("F002", "Bruno Teste")],
                 )
+                self.assertTrue(all(item[3] is not None for item in funcionarios))
                 self.assertNotIn(
                     "X999",
                     {
@@ -93,10 +96,10 @@ class SeedDemoTest(unittest.TestCase):
 
             segunda = self.executar_seed(banco, cwd_externo)
             self.assertEqual(segunda.returncode, 0, segunda.stderr)
-            self.assertIn("Resumo: 0 criado(s), 4 reutilizado(s).", segunda.stdout)
+            self.assertIn("Resumo: 0 criado(s), 5 reutilizado(s).", segunda.stdout)
             self.assertIn("situação preservada: fechada", segunda.stdout)
 
-            with sqlite3.connect(banco) as conexao:
+            with closing(sqlite3.connect(banco)) as conexao:
                 self.assertEqual(
                     conexao.execute(
                         "SELECT COUNT(*) FROM empresas WHERE nome = ?",
@@ -130,16 +133,15 @@ class SeedDemoTest(unittest.TestCase):
             preparacao = self.executar_seed(banco, cwd_externo)
             self.assertEqual(preparacao.returncode, 0, preparacao.stderr)
 
-            with sqlite3.connect(banco) as conexao:
+            with closing(sqlite3.connect(banco)) as conexao:
                 conexao.execute("DELETE FROM competencias")
                 conexao.execute("DELETE FROM funcionarios")
+                conexao.execute("DELETE FROM escalas")
                 conexao.execute("DELETE FROM empresas")
                 conexao.execute(
                     "INSERT INTO empresas ("
-                    "nome, cnpj, jornada_seg_sex_horas, jornada_sabado_horas, "
-                    "tolerancia_atraso_minutos, tolerancia_extra_minutos, ativa, "
-                    "observacoes, created_at, updated_at"
-                    ") VALUES (?, NULL, 8, 4, 5, 10, 1, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+                    "nome, cnpj, cidade, uf, ativa, observacoes, created_at, updated_at"
+                    ") VALUES (?, NULL, NULL, NULL, 1, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
                     ("Empresa Sentinela", "Cadastro preexistente que deve permanecer intacto."),
                 )
                 sentinela_id = conexao.execute(
@@ -159,7 +161,7 @@ class SeedDemoTest(unittest.TestCase):
             self.assertIn("conflito de integridade", conflito.stderr)
             self.assertIn("nada foi criado", conflito.stderr)
 
-            with sqlite3.connect(banco) as conexao:
+            with closing(sqlite3.connect(banco)) as conexao:
                 self.assertEqual(
                     conexao.execute(
                         "SELECT id, nome, observacoes FROM empresas ORDER BY id"

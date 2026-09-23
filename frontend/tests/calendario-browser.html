@@ -1,0 +1,8 @@
+<!doctype html><meta charset="utf-8"><title>Validação local do calendário</title>
+<p>Ambiente de teste com dados fictícios.</p>
+<script>
+  if (location.origin === "http://127.0.0.1:8128") {
+    localStorage.setItem("onponto.apiBase", "http://127.0.0.1:8127");
+    location.replace("/index.html#/calendario");
+  }
+</script>
