@@ -1,3 +1,7 @@
+from types import SimpleNamespace
+from app.banco_horas.regras import distribuir_dia, resumir_distribuicao
+from app.funcionarios.historico_escalas import escala_no_dia
+from app.apuracao.operacional import classificar_dia, indicadores
 from calendar import monthrange
 import json
 from datetime import date, datetime, time
@@ -6,7 +10,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 from app.ocorrencias.service import consultar as consultar_ocorrencias
 from app.ocorrencias.interpretacao import aplicar_ocorrencias
-from app.banco_horas.service import complementar_apuracao
+from app.banco_horas.service import complementar_apuracao, bloqueios_saldo_projetado
 from app.calendario.service import dentro_vinculo, feriados_da_competencia, motivo_fora_vinculo, vinculo_intersecta_periodo
 
 from app.database.models import (
@@ -350,6 +354,11 @@ def detalhe_marcacao(
             conferido = True
     elif status_dia in STATUS_SEM_CALCULO:
         trabalhadas = 0
+        if any((marcacao.entrada, marcacao.saida_almoco, marcacao.retorno_almoco, marcacao.saida)) or marcacao.batidas_originais not in (None, "", "[]"):
+            pendente_calculo = True
+            pendencia_tipo = "batidas_em_dia_sem_calculo"
+            motivo_pendencia = "Há batidas em dia sem apuração. Resolva a situação antes de conferir."
+
     else:
         trabalhadas, motivo_batidas = calcular_trabalhado(marcacao)
         if motivo_batidas is not None and motivo_pendencia is None:
@@ -362,7 +371,7 @@ def detalhe_marcacao(
             if deficit_carga <= escala.tolerancia_atraso_minutos:
                 deficit_carga = 0
 
-            if escala.modo_apuracao == "horario_fixo":
+            if escala.modo_apuracao == "horario_fixo" and (prevista or not escala.politica_horas):
                 atraso_horario = calcular_atraso_horario_fixo(funcionario, marcacao)
                 if atraso_horario is None:
                     pendente_calculo = True
@@ -451,7 +460,7 @@ def apurar_competencia(
     db: Session,
     competencia_id: int,
     *,
-    gerar_calendario: bool = True,
+    gerar_calendario: bool = False,
     incluir_banco: bool = True,
 ) -> dict[str, Any] | None:
     competencia = db.get(Competencia, competencia_id)
@@ -461,6 +470,8 @@ def apurar_competencia(
     if competencia.status == "fechada":
         if competencia.apuracao_fechada:
             resultado = json.loads(competencia.apuracao_fechada)
+            if resultado.get("snapshot_versao", 0) >= 2:
+                return resultado
             return complementar_apuracao(db, competencia, resultado) if incluir_banco else resultado
         gerar_calendario = False
 
@@ -493,6 +504,9 @@ def apurar_competencia(
             "faltas": 0,
             "atestados": 0,
             "pendencias": 0,
+            "problemas": 0,
+            "aguardando_conferencia": 0,
+            "conferidos": 0,
             "situacao": "indisponivel",
             "observacoes": "",
             "_duracoes_disponiveis": True,
@@ -516,6 +530,7 @@ def apurar_competencia(
             fim=date(competencia.ano, competencia.mes, monthrange(competencia.ano, competencia.mes)[1])):
         ocorrencias_por_funcionario.setdefault(ocorrencia.funcionario_id, []).append(ocorrencia)
 
+    acumuladores_politica = {}
     for marcacao in marcacoes:
         funcionario = funcionarios_por_id.get(marcacao.funcionario_id)
         if not funcionario:
@@ -523,9 +538,18 @@ def apurar_competencia(
 
         if not dentro_vinculo(funcionario, marcacao.data) and placeholder_calendario_intocado(marcacao):
             continue
-        detalhe = detalhe_marcacao(funcionario, marcacao, feriados)
+        escala_dia = escala_no_dia(db, funcionario, marcacao.data)
+        # Regras legadas continuam com a jornada vigente, como antes da política.
+        # Políticas explícitas usam a mesma escala histórica na jornada e no banco.
+        escala_apuracao = escala_dia if (escala_dia and escala_dia.politica_horas
+            or funcionario.escala and funcionario.escala.politica_horas) else funcionario.escala
+        contexto = SimpleNamespace(**{c.name: getattr(funcionario, c.name) for c in Funcionario.__table__.columns},
+                                   escala=escala_apuracao, empresa=funcionario.empresa)
+        detalhe = detalhe_marcacao(contexto, marcacao, feriados)
         if not detalhe["fora_vinculo"]:
-            aplicar_ocorrencias(detalhe, funcionario, marcacao, ocorrencias_por_funcionario.get(funcionario.id, []))
+            aplicar_ocorrencias(detalhe, contexto, marcacao, ocorrencias_por_funcionario.get(funcionario.id, []))
+        distribuir_dia(detalhe, escala_dia, marcacao, empresa, acumuladores_politica)
+        classificar_dia(detalhe)
         detalhes.append(detalhe)
 
         item_resumo = resumo[funcionario.id]
@@ -536,6 +560,9 @@ def apurar_competencia(
         item_resumo["_horas_feriado_pendentes"] |= detalhe["horas_feriado_pendente"]
         item_resumo["faltas"] += detalhe["falta"]
         item_resumo["atestados"] += detalhe["atestado"]
+        item_resumo["problemas"] += int(detalhe["problema"])
+        item_resumo["aguardando_conferencia"] += int(detalhe["aguardando_conferencia"])
+        item_resumo["conferidos"] += int(detalhe["conferido"])
         if detalhe["pendente_calculo"]:
             item_resumo["_duracoes_disponiveis"] = False
         if detalhe["pendente"]:
@@ -582,6 +609,7 @@ def apurar_competencia(
         del item["_duracoes_disponiveis"]
 
     resumo_funcionarios = list(resumo.values())
+    resumir_distribuicao(resumo_funcionarios, detalhes)
     resumo_geral = {
         "funcionarios": len(resumo_funcionarios),
         "conferidos": sum(1 for item in resumo_funcionarios if item["situacao"] == "conferido"),
@@ -593,12 +621,6 @@ def apurar_competencia(
             .count()
         ),
     }
-
-    if gerar_calendario and competencia.status != "fechada":
-        if not marcacoes:
-            competencia.status = "aberta"
-        else:
-            competencia.status = "em_conferencia" if pendencias else "conferida"
 
     resultado = {
         "empresa": {
@@ -619,4 +641,13 @@ def apurar_competencia(
         "marcacoes": detalhes,
         "pendencias": pendencias,
     }
+    indicadores(resultado, funcionarios, db.query(ArquivoRecebido).filter_by(competencia_id=competencia.id).all(), competencia)
+    bloqueios = bloqueios_saldo_projetado(db, resultado)
+    resultado["bloqueios_politica"] = bloqueios
+    if bloqueios:
+        decisao = resultado["fechamento"]
+        decisao["motivos"].extend(bloqueios)
+        decisao.update(pode_fechar=False, motivo_bloqueio=" ".join(decisao["motivos"]))
+        if not resultado["operacional"]["problemas"] and not resultado["pendencias_importacao"]:
+            decisao["proxima_acao"] = "revisar_banco"
     return complementar_apuracao(db, competencia, resultado) if incluir_banco else resultado

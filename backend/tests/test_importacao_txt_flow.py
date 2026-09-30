@@ -184,6 +184,7 @@ class ImportacaoTxtFlowTest(unittest.TestCase):
         self.assertEqual(analise["total_funcionarios_nao_cadastrados"], 1)
         self.assertEqual(analise["registros_fora_competencia"], 1)
 
+        self.requisicao("POST", f'/competencias/{competencia["id"]}/inicializar-calendario')
         status_http, apuracao = self.requisicao(
             "GET", f'/apuracao?competencia_id={competencia["id"]}'
         )
@@ -311,6 +312,7 @@ class ImportacaoTxtFlowTest(unittest.TestCase):
             "GET", f'/apuracao?competencia_id={competencia["id"]}'
         )
         self.assertEqual(status_http, 200)
+        self.requisicao("POST", f'/competencias/{competencia["id"]}/inicializar-calendario')
         status_http, calendario = self.requisicao(
             "GET", f'/marcacoes?competencia_id={competencia["id"]}'
         )
@@ -432,7 +434,7 @@ class ImportacaoTxtFlowTest(unittest.TestCase):
             "GET", f'/marcacoes?competencia_id={competencia["id"]}'
         )
         self.assertEqual(status_http, 200)
-        self.assertEqual(len(marcacoes), 1)
+        self.assertEqual(len([m for m in marcacoes if m["origem"] != "calendario"]), 1)
 
     def test_confirmacao_rejeita_data_fora_da_competencia_mesmo_se_id_for_enviado(self) -> None:
         status_http, empresa = self.json_request(

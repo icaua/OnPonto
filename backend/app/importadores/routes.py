@@ -221,9 +221,18 @@ def analisar_arquivo_salvo(db: Session, competencia: Competencia, registro: Arqu
     )
     if confirmacoes_anteriores:
         registro.observacoes += " Confirmação:" + confirmacoes_anteriores
+    controle = json.loads(registro.controle_importacao_json) if registro.controle_importacao_json else {}
+    resolvidos = set(controle.get("importados", [])) | {p["registro_id"] for p in controle.get("descartados", [])}
+    controle.update(estado="analisada", pendencias=[{"registro_id": p["id"], "tipo": "aguardando_importacao",
+        "mensagem": "; ".join(p["pendencias"]) or "Registro ainda não importado.", "data": p["data"]}
+        for p in preview if p["id"] not in resolvidos])
+    registro.controle_importacao_json = json.dumps(controle, ensure_ascii=False)
     db.commit()
     for item in preview:
         item["origem"]["arquivo_id"] = registro.id
+        if item["id"] in resolvidos:
+            item["selecionado"] = False
+            item["ja_resolvido"] = True
 
     funcionarios_encontrados = {
         item["funcionario"]["id"] for item in preview if item["funcionario"]["encontrado"]
@@ -260,6 +269,42 @@ def analisar_arquivo_salvo(db: Session, competencia: Competencia, registro: Arqu
 
 def hora_interpretada(valor: str | None) -> time | None:
     return time.fromisoformat(valor) if valor else None
+
+
+@router.post("/{arquivo_id}/reanalisar")
+def reanalisar(arquivo_id: int, db: Session = Depends(get_db)):
+    arquivo = db.get(ArquivoRecebido, arquivo_id)
+    if not arquivo:
+        raise HTTPException(404, "Arquivo não encontrado.")
+    competencia = db.get(Competencia, arquivo.competencia_id)
+    exigir_competencia_editavel(competencia)
+    return analisar_arquivo_salvo(db, competencia, arquivo)
+
+
+from app.importadores.schemas import DescartePendencias
+
+
+@router.post("/{arquivo_id}/descartar-pendencias")
+def descartar_pendencias(arquivo_id: int, payload: DescartePendencias, db: Session = Depends(get_db)):
+    """Exclusão justificada de registros da apuração; preserva arquivo e trilha."""
+    arquivo = db.get(ArquivoRecebido, arquivo_id)
+    if not arquivo:
+        raise HTTPException(404, "Arquivo não encontrado.")
+    exigir_competencia_editavel(db.get(Competencia, arquivo.competencia_id))
+    controle = json.loads(arquivo.controle_importacao_json or "{}")
+    pendencias = controle.get("pendencias", [])
+    ids = set(payload.registros_ids)
+    if not ids.issubset({p["registro_id"] for p in pendencias}):
+        raise HTTPException(422, "Seleção não corresponde às pendências do arquivo.")
+    if len(payload.justificativa.strip()) < 10:
+        raise HTTPException(422, "Informe uma justificativa com ao menos dez caracteres.")
+    controle.setdefault("descartados", []).extend({**p, "justificativa": payload.justificativa.strip(),
+        "em": datetime.now(timezone.utc).isoformat()} for p in pendencias if p["registro_id"] in ids)
+    controle["pendencias"] = [p for p in pendencias if p["registro_id"] not in ids]
+    controle["estado"] = "confirmada"
+    arquivo.controle_importacao_json = json.dumps(controle, ensure_ascii=False)
+    db.commit()
+    return {"descartados": len(ids), "restantes": len(controle["pendencias"])}
 
 
 def placeholder_calendario_vazio(marcacao: MarcacaoPonto) -> bool:
@@ -418,8 +463,17 @@ def confirmar_importacao(
         f" Confirmação: {datetime.now(timezone.utc).isoformat()}; {len(ids_selecionados)} dias solicitados; "
         f"{len(marcacoes)} importados; {len(conflitos)} conflitos."
     )
+    controle = json.loads(arquivo.controle_importacao_json)
+    importados = set(controle.get("importados", [])) | (set(ids_selecionados) - {c["registro_id"] for c in conflitos})
+    controle["importados"] = sorted(importados)
+    conflitos_por_id = {c["registro_id"]: c for c in conflitos}
+    controle["pendencias"] = [conflitos_por_id.get(p["registro_id"], p) for p in controle["pendencias"] if p["registro_id"] not in importados]
+    controle["estado"] = "confirmada"
+    arquivo.controle_importacao_json = json.dumps(controle, ensure_ascii=False)
     if marcacoes or conflitos:
         if marcacoes:
+            from app.apuracao.service import gerar_dias_faltantes
+            gerar_dias_faltantes(db, competencia)
             competencia.status = "em_conferencia"
         try:
             db.commit()

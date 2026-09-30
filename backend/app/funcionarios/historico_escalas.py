@@ -34,4 +34,12 @@ def escala_no_dia(db, funcionario, dia):
                 or_(HistoricoVinculoEscala.vigente_ate.is_(None), HistoricoVinculoEscala.vigente_ate >= dia))
         # No dia da troca os limites são inclusivos; o novo vínculo prevalece.
         .order_by(HistoricoVinculoEscala.vigente_desde.desc(), HistoricoVinculoEscala.id.desc()).first())
-    return db.get(Escala, vinculo.escala_id) if vinculo else None
+    if vinculo:
+        return db.get(Escala, vinculo.escala_id)
+    primeiro = (db.query(HistoricoVinculoEscala).filter_by(funcionario_id=funcionario.id)
+        .order_by(HistoricoVinculoEscala.vigente_desde, HistoricoVinculoEscala.id).first())
+    # Cadastros sem admissão começam no dia do cadastro; arquivos anteriores
+    # continuam usando a escala inicial. Uma lacuna posterior não recebe fallback.
+    if primeiro and dia < primeiro.vigente_desde:
+        return db.get(Escala, primeiro.escala_id)
+    return funcionario.escala if not primeiro else None

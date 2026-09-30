@@ -44,7 +44,7 @@ class EspelhoPontoTest(unittest.TestCase):
         return response
 
     def calendario_conferido(self):
-        apurar_competencia(self.db, self.competencia.id)
+        apurar_competencia(self.db, self.competencia.id, gerar_calendario=True)
         for m in self.db.query(MarcacaoPonto).all():
             m.status_dia = 'feriado'; m.conferido = True; m.origem = 'manual'
         self.db.commit()
@@ -57,6 +57,8 @@ class EspelhoPontoTest(unittest.TestCase):
         return m
 
     def fechar(self):
+        from test_support import preparar_fechamento_valido
+        preparar_fechamento_valido(self.db, self.competencia)
         fechar_competencia(self.competencia.id, FechamentoCompetenciaRequest(confirmar_pendencias=True), self.db)
 
     def test_dias_variados_totais_filtrados_e_assinaturas(self):
@@ -81,7 +83,7 @@ class EspelhoPontoTest(unittest.TestCase):
         self.assertEqual(html.count('Data: ____/____/________'), 2)
         self.assertNotIn('Outro trabalhador', html)
         self.assertNotIn('documento sujeito a revisão', html)
-        resumo = apurar_competencia(self.db, self.competencia.id)['resumo'][0]
+        resumo = apurar_competencia(self.db, self.competencia.id, gerar_calendario=True)['resumo'][0]
         self.assertEqual((resumo['atrasos_minutos'], resumo['extras_minutos']), (30, 60))
 
     def test_aviso_aberta_e_ausente_quando_fechada(self):
@@ -137,7 +139,7 @@ class EspelhoPontoTest(unittest.TestCase):
         self.assertEqual(self.db.query(MarcacaoPonto).count(), 0)
 
     def test_todos_pendentes_nao_publica_totais_zerados_como_validos(self):
-        self.html()
+        apurar_competencia(self.db, self.competencia.id, gerar_calendario=True)
         for m in self.db.query(MarcacaoPonto).all():
             m.status_dia = 'normal'; m.conferido = False; m.origem = 'manual'
         self.db.commit()
@@ -146,11 +148,9 @@ class EspelhoPontoTest(unittest.TestCase):
         self.assertIn('Atrasos: <strong>Indisponível', html)
         self.assertIn('Extras: <strong>Indisponível', html)
         self.assertIn('documento sujeito a revisão', html)
-        self.fechar()
-        fechado = self.html().text
-        self.assertNotIn('documento sujeito a revisão', fechado)
-        self.assertIn('Entrada ou saída não informada.', fechado)
-        self.assertIn('Atrasos: <strong>Indisponível', fechado)
+        with self.assertRaises(HTTPException):
+            fechar_competencia(self.competencia.id, FechamentoCompetenciaRequest(confirmar_pendencias=True), self.db)
+        self.assertNotEqual(self.competencia.status, 'fechada')
 
     def test_transferencia_com_marcacoes_bloqueada_preserva_espelho(self):
         from app.funcionarios.routes import atualizar_funcionario
@@ -195,7 +195,7 @@ class EspelhoPontoTest(unittest.TestCase):
         self.dia(1, status_dia='normal', entrada=time(8), saida_almoco=time(12), retorno_almoco=time(13,5), saida=time(17,5))
         criar(OcorrenciaCreate(funcionario_id=self.funcionario.id, tipo='DECLARACAO', data_inicio=date(2026,9,1),
                               data_fim=date(2026,9,1), hora_inicio=time(13), hora_fim=time(13,1)), self.db)
-        detalhe = apurar_competencia(self.db, self.competencia.id)['marcacoes'][0]
+        detalhe = apurar_competencia(self.db, self.competencia.id, gerar_calendario=True)['marcacoes'][0]
         self.assertEqual(detalhe['minutos_abonados'], 1)
         self.assertEqual(detalhe['atraso_minutos'], 0)
 

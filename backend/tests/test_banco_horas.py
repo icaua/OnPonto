@@ -465,7 +465,7 @@ class ConsultaBancoTest(BancoFixture, unittest.TestCase):
         self.assertIn("na data do desligamento",html)
         self.assertIn("+03:00",html)
 
-    def test_ledger_atualizado_na_consulta_sem_modificar_snapshot(self):
+    def test_snapshot_congelado_e_extrato_atualizado_apos_ajuste(self):
         from app.apuracao.service import apurar_competencia
         from app.banco_horas.service import estornar_ajuste
         credito=self.lancar(minutos=120,dia=date(2026,8,1)); self.db.commit()
@@ -473,7 +473,9 @@ class ConsultaBancoTest(BancoFixture, unittest.TestCase):
         snapshot=self.competencia.apuracao_fechada
         estornar_ajuste(self.db,credito.id,"Revisão documentada");self.db.commit()
         resultado=apurar_competencia(self.db,self.competencia.id)
-        self.assertEqual(resultado["resumo"][0]["banco_horas"]["saldo_final_minutos"],60)
+        self.assertEqual(resultado["resumo"][0]["banco_horas"]["saldo_final_minutos"],180)
+        from app.banco_horas.service import extrato
+        self.assertEqual(extrato(self.db, self.funcionario.id)["saldo_minutos"],60)
         self.assertEqual(self.competencia.apuracao_fechada,snapshot)
         self.assertEqual(resultado["marcacoes"],json.loads(snapshot)["marcacoes"])
 
@@ -488,5 +490,5 @@ class ConsultaBancoTest(BancoFixture, unittest.TestCase):
         self.dias()
         m=self.batida();m.saida=None;self.db.commit()
         with self.assertRaises(HTTPException) as exc:self.fechar()
-        self.assertIn("pendência de cálculo",exc.exception.detail)
+        self.assertEqual(exc.exception.detail["codigo"], "fechamento_bloqueado")
         self.assertEqual(self.db.query(LancamentoBancoHoras).count(),0)

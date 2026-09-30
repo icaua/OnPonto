@@ -41,7 +41,7 @@ def atualizar_empresa(empresa_id: int, payload: EmpresaUpdate, db: Session = Dep
 
     dados = payload.model_dump(exclude_unset=True)
     if "prazo_compensacao_banco_horas_dias" in dados and dados["prazo_compensacao_banco_horas_dias"] is None:
-        if db.query(Escala.id).filter_by(empresa_id=empresa.id, usa_banco_horas=True).first():
+        if db.query(Escala.id).filter_by(empresa_id=empresa.id, usa_banco_horas=True, politica_horas_json=None).first():
             raise HTTPException(409, "Não é possível remover o prazo enquanto houver escala com banco de horas habilitado.")
     for campo, valor in dados.items():
         setattr(empresa, campo, valor)

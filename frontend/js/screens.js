@@ -250,6 +250,7 @@
   }
 
   function progressIndicator(components, current, total, label, percentage) {
+    if (current === null || current === undefined || !Number.isFinite(Number(current))) return '<span class="muted-text">—</span>';
     var safeTotal = Math.max(Number(total) || 0, 0);
     var safeCurrent = Math.max(Number(current) || 0, 0);
     var computed = percentage == null ? (safeTotal ? Math.round((safeCurrent / safeTotal) * 100) : 0) : Number(percentage);
@@ -377,16 +378,21 @@
   function competencyAreaNavigation(activeRoute) {
     var items = [
       { route: "competency-summary", label: "Resumo" },
-      { route: "imports", label: "Importações" },
-      { route: "review", label: "Conferência" },
+      { route: "imports", label: "Importar" },
+      { route: "review", label: "Conferir" },
+      { route: "competency-exports", label: "Exportar" },
+    ];
+    var resources = [
       { route: "competency-files", label: "Arquivos" },
       { route: "competency-history", label: "Histórico" },
-      { route: "competency-exports", label: "Exportações" },
     ];
-    return '<nav class="tabs competency-tabs" aria-label="Áreas da competência">' + items.map(function (item) {
+    function link(item, className) {
       var active = item.route === activeRoute;
-      return '<button type="button" class="tab' + (active ? " is-active" : "") + '" data-action="navigate" data-route="' + escapeHtml(item.route) + '"' + (active ? ' aria-current="page"' : "") + '>' + escapeHtml(item.label) + "</button>";
-    }).join("") + "</nav>";
+      return '<button type="button" class="' + className + (active ? " is-active" : "") + '" data-action="navigate" data-route="' + escapeHtml(item.route) + '"' + (active ? ' aria-current="page"' : "") + '>' + escapeHtml(item.label) + "</button>";
+    }
+    return '<div class="competency-navigation"><nav class="tabs competency-tabs" aria-label="Etapas da competência">' +
+      items.map(function (item) { return link(item, "tab"); }).join("") + '</nav><nav class="competency-resources" aria-label="Recursos da competência">' +
+      resources.map(function (item) { return link(item, "competency-resource"); }).join('<span aria-hidden="true">·</span>') + '</nav></div>';
   }
 
   function missingContextScreen(context, title, description, needsCompetence) {
@@ -417,7 +423,7 @@
       var employeeCount = entities.employees.filter(function (employee) {
         return idsEqual(valueOf(employee, ["companyId", "empresaId", "empresa_id"], null), idOf(company)) && valueOf(employee, ["active", "ativo"], true) !== false;
       }).length;
-      return '<tr data-company-id="' + escapeHtml(idOf(company)) + '"><td><strong>' + escapeHtml(companyName(company)) + "</strong><small>" + escapeHtml(valueOf(company, ["legalName", "razaoSocial"], "")) + "</small></td><td>" + escapeHtml(current ? formatCompetence(current) : "Sem competência") + "</td><td>" + (current ? statusChip(context.components, current.status, current.statusLabel) : statusChip(context.components, "sem_expediente", "Sem competência")) + "</td><td>" + escapeHtml(employeeCount) + "</td><td>" + escapeHtml(current ? valueOf(current, ["pendingCount", "quantidadePendencias"], 0) : 0) + "</td><td>" + escapeHtml(current ? formatDateTime(valueOf(current, ["updatedAt", "updated_at"], null)) : "—") + '</td><td><button class="table-link" type="button" data-action="open-company" data-company-id="' + escapeHtml(idOf(company)) + '">Abrir empresa</button></td></tr>';
+      return '<tr data-company-id="' + escapeHtml(idOf(company)) + '"><td><strong>' + escapeHtml(companyName(company)) + "</strong><small>" + escapeHtml(valueOf(company, ["legalName", "razaoSocial"], "")) + "</small></td><td>" + escapeHtml(current ? formatCompetence(current) : "Sem competência") + "</td><td>" + (current ? statusChip(context.components, current.status, current.statusLabel) : statusChip(context.components, "sem_expediente", "Sem competência")) + "</td><td>" + escapeHtml(employeeCount) + "</td><td>" + escapeHtml(current ? valueOf(current, ["pendingCount", "quantidadePendencias"], "—") : "—") + "</td><td>" + escapeHtml(current ? formatDateTime(valueOf(current, ["updatedAt", "updated_at"], null)) : "—") + '</td><td><button class="table-link" type="button" data-action="open-company" data-company-id="' + escapeHtml(idOf(company)) + '">Abrir empresa</button></td></tr>';
     }).join("");
     var table = rows ? '<div class="table-frame"><table class="data-table"><thead><tr><th>Empresa</th><th>Competência atual</th><th>Status</th><th>Funcionários</th><th>Pendências</th><th>Última atualização</th><th><span class="sr-only">Ação</span></th></tr></thead><tbody>' + rows + "</tbody></table></div>" : emptyState(context.components, search ? "Nenhuma empresa encontrada" : "Nenhuma empresa cadastrada", search ? "Tente outro termo de busca." : "Cadastre a primeira empresa para iniciar o trabalho.", search ? null : { label: "Cadastrar empresa", action: "new-company" });
     return [
@@ -437,10 +443,10 @@
     var current = currentCompetenceForCompany(entities, company);
     var companyEmployees = entities.companyEmployees.filter(function (employee) { return valueOf(employee, ["active", "ativo"], true) !== false; });
     var activeEmployeeCount = companyEmployees.length;
-    var pending = current ? Number(valueOf(current, ["pendingCount", "quantidadePendencias"], 0)) : 0;
+    var pending = current ? valueOf(current, ["pendingCount", "quantidadePendencias"], "—") : "—";
     var currentActions = current ? '<button class="button button--primary" type="button" data-action="open-competence" data-competence-id="' + escapeHtml(idOf(current)) + '">Abrir competência atual</button><button class="button button--secondary" type="button" data-action="open-competence-area" data-competence-id="' + escapeHtml(idOf(current)) + '" data-route="imports">Adicionar documentos</button>' : "";
     var recentRows = companyCompetencies.slice(0, 5).map(function (competence) {
-      return '<tr><td><strong>' + escapeHtml(formatCompetence(competence)) + "</strong></td><td>" + statusChip(context.components, competence.status, competence.statusLabel) + "</td><td>" + escapeHtml(valueOf(competence, ["employeeCount", "quantidadeFuncionarios"], companyEmployees.length)) + "</td><td>" + escapeHtml(valueOf(competence, ["pendingCount", "quantidadePendencias"], 0)) + "</td><td>" + escapeHtml(formatDateTime(valueOf(competence, ["updatedAt", "updated_at"], null))) + '</td><td><button class="table-link" type="button" data-action="open-competence" data-competence-id="' + escapeHtml(idOf(competence)) + '">Abrir</button></td></tr>';
+      return '<tr><td><strong>' + escapeHtml(formatCompetence(competence)) + "</strong></td><td>" + statusChip(context.components, competence.status, competence.statusLabel) + "</td><td>" + escapeHtml(valueOf(competence, ["employeeCount", "quantidadeFuncionarios"], companyEmployees.length)) + "</td><td>" + escapeHtml(valueOf(competence, ["pendingCount", "quantidadePendencias"], "—")) + "</td><td>" + escapeHtml(formatDateTime(valueOf(competence, ["updatedAt", "updated_at"], null))) + '</td><td><button class="table-link" type="button" data-action="open-competence" data-competence-id="' + escapeHtml(idOf(competence)) + '">Abrir</button></td></tr>';
     }).join("");
     return [
       '<section class="screen screen--company-overview" data-screen="company-overview">', demoBanner(),
@@ -541,8 +547,8 @@
     var rows = competenciesForCompany(entities, company).filter(function (competence) {
       return statusFilter === "all" || normalizeStatus(competence.status) === statusFilter;
     }).map(function (competence) {
-      var progress = Number(valueOf(competence, ["progress", "progresso"], 0));
-      return '<tr><td><strong>' + escapeHtml(formatCompetence(competence)) + "</strong></td><td>" + statusChip(context.components, competence.status, competence.statusLabel) + "</td><td>" + escapeHtml(valueOf(competence, ["employeeCount", "quantidadeFuncionarios"], 0)) + '</td><td class="progress-cell">' + progressIndicator(context.components, progress, 100, "", progress) + "</td><td>" + escapeHtml(valueOf(competence, ["pendingCount", "quantidadePendencias"], 0)) + "</td><td>" + escapeHtml(valueOf(competence, ["fileCount", "quantidadeArquivos"], 0)) + "</td><td>" + escapeHtml(formatDateTime(valueOf(competence, ["updatedAt", "updated_at"], null))) + '</td><td><button class="table-link" type="button" data-action="open-competence" data-competence-id="' + escapeHtml(idOf(competence)) + '">Abrir</button></td></tr>';
+      var progress = Number(valueOf(competence, ["progress", "progresso"], "—"));
+      return '<tr><td><strong>' + escapeHtml(formatCompetence(competence)) + "</strong></td><td>" + statusChip(context.components, competence.status, competence.statusLabel) + "</td><td>" + escapeHtml(valueOf(competence, ["employeeCount", "quantidadeFuncionarios"], 0)) + '</td><td class="progress-cell">' + progressIndicator(context.components, progress, 100, "", progress) + "</td><td>" + escapeHtml(valueOf(competence, ["pendingCount", "quantidadePendencias"], "—")) + "</td><td>" + escapeHtml(valueOf(competence, ["fileCount", "quantidadeArquivos"], "—")) + "</td><td>" + escapeHtml(formatDateTime(valueOf(competence, ["updatedAt", "updated_at"], null))) + '</td><td><button class="table-link" type="button" data-action="open-competence" data-competence-id="' + escapeHtml(idOf(competence)) + '">Abrir</button></td></tr>';
     }).join("");
     return [
       '<section class="screen screen--company-competencies" data-screen="company-competencies">', demoBanner(),
@@ -561,7 +567,7 @@
     var open = valueOf(indicators, ["open", "abertas"], competencies.filter(function (item) { return normalizeStatus(item.status) === "aberta"; }).length);
     var inReview = valueOf(indicators, ["inReview", "emConferencia"], competencies.filter(function (item) { return normalizeStatus(item.status) === "em_conferencia"; }).length);
     var ready = valueOf(indicators, ["ready", "conferidas"], competencies.filter(function (item) { return normalizeStatus(item.status) === "conferida"; }).length);
-    var withPending = valueOf(indicators, ["withPendingIssues", "comPendencias"], competencies.filter(function (item) { return Number(valueOf(item, ["pendingCount", "pendencias"], 0)) > 0; }).length);
+    var withPending = valueOf(indicators, ["withPendingIssues", "comPendencias"], competencies.filter(function (item) { return Number(valueOf(item, ["pendingCount", "pendencias"], "—")) > 0; }).length);
     var closed = valueOf(indicators, ["closedThisMonth", "fechadasNoMes"], competencies.filter(function (item) { return normalizeStatus(item.status) === "fechada"; }).length);
     var entities = selectedEntities(context);
 
@@ -570,8 +576,8 @@
       "<thead><tr><th>Empresa</th><th>Competência</th><th>Situação</th><th>Progresso</th><th>Pendências</th><th>Última atualização</th><th><span class=\"sr-only\">Abrir</span></th></tr></thead><tbody>",
       competencies.map(function (competence) {
         var company = findById(entities.companies, valueOf(competence, ["companyId", "empresa_id"], null));
-        var progress = Number(valueOf(competence, ["progress", "progresso"], 0));
-        var pending = Number(valueOf(competence, ["pendingCount", "pendencias"], 0));
+        var progress = Number(valueOf(competence, ["progress", "progresso"], "—"));
+        var pending = Number(valueOf(competence, ["pendingCount", "pendencias"], "—"));
         return [
           '<tr data-competence-id="' + escapeHtml(idOf(competence)) + '">',
           "<td><strong>" + escapeHtml(companyName(company)) + "</strong></td>",
@@ -679,7 +685,7 @@
       pageHeader(context.components, { title: "Importações", subtitle: companyName(entities.company) + " · " + formatCompetence(entities.competence), breadcrumbs: competenceBreadcrumbs(entities, "Importações") }),
       competencyAreaNavigation("imports"),
       closedCompetenceNotice(entities.competence),
-      '<section class="work-card competency-hero"><div>' + statusChip(context.components, entities.competence.status, entities.competence.statusLabel) + '</div><dl class="summary-grid summary-grid--four">' + summaryItem("Empresa", companyName(entities.company)) + summaryItem("Competência", formatCompetence(entities.competence)) + summaryItem("Arquivos recebidos", valueOf(entities.competence, ["fileCount", "quantidadeArquivos"], 0)) + summaryItem("Pendências", valueOf(entities.competence, ["pendingCount", "quantidadePendencias"], 0)) + "</dl></section>",
+      '<section class="work-card competency-hero"><div>' + statusChip(context.components, entities.competence.status, entities.competence.statusLabel) + '</div><dl class="summary-grid summary-grid--four">' + summaryItem("Empresa", companyName(entities.company)) + summaryItem("Competência", formatCompetence(entities.competence)) + summaryItem("Arquivos recebidos", valueOf(entities.competence, ["fileCount", "quantidadeArquivos"], "—")) + summaryItem("Pendências", valueOf(entities.competence, ["pendingCount", "quantidadePendencias"], "—")) + "</dl></section>",
       '<div class="content-grid content-grid--form">',
       '<form class="work-card import-form" data-form="import" data-action="analyze-import"' + (closed ? ' aria-disabled="true"' : "") + ">",
       dropzone,
@@ -689,8 +695,21 @@
       "</div>",
       importError ? '<div class="inline-feedback inline-feedback--error" role="alert"><strong>Erro na importação</strong><span>' + escapeHtml(importError) + "</span></div>" : "",
       importAnalysisCard(context, analysis),
+      importPendingControls(context, entities),
       "</section>",
     ].join("");
+  }
+
+  function importPendingControls(context, entities) {
+    if (competenceIsClosed(entities.competence)) return "";
+    var files = filesForCompetence(context, entities.competence);
+    var cards = files.map(function(file){
+      var c = file.controle_importacao;
+      if (c && c.estado === "confirmada" && !asArray(c.pendencias).length) return "";
+      return '<article class="work-card"><h2>' + escapeHtml(file.name || file.nome_original) + '</h2><button class="button button--secondary" data-action="resume-import" data-file-id="' + escapeHtml(file.id) + '">Retomar análise</button>' +
+        asArray(c && c.pendencias).map(function(p){return '<p>' + escapeHtml(p.data || "") + ' · ' + escapeHtml(p.mensagem) + ' <button class="text-button" data-action="discard-import-record" data-file-id="' + escapeHtml(file.id) + '" data-record-id="' + escapeHtml(p.registro_id) + '">Excluir da apuração com justificativa</button></p>';}).join("") + '</article>';
+    }).join("");
+    return cards ? '<section aria-label="Importações a resolver">' + cards + '</section>' : "";
   }
 
   function rowSuggestion(row) {
@@ -832,8 +851,8 @@
       '<div class="table-frame"><table class="data-table competencies-table"><thead><tr><th>Empresa</th><th>Competência</th><th>Situação</th><th>Funcionários</th><th>Progresso</th><th>Pendências</th><th>Arquivos</th><th>Atualização</th><th><span class="sr-only">Ação</span></th></tr></thead><tbody>',
       rows.map(function (competence) {
         var company = findById(entities.companies, valueOf(competence, ["companyId", "empresa_id"], null));
-        var progress = Number(valueOf(competence, ["progress", "progresso"], 0));
-        return '<tr><td><strong>' + escapeHtml(companyName(company)) + "</strong></td><td>" + escapeHtml(formatCompetence(competence)) + "</td><td>" + statusChip(context.components, competence.status, competence.statusLabel) + "</td><td>" + escapeHtml(valueOf(competence, ["employeeCount", "quantidadeFuncionarios"], 0)) + '</td><td class="progress-cell">' + progressIndicator(context.components, progress, 100, "", progress) + "</td><td>" + escapeHtml(valueOf(competence, ["pendingCount", "quantidadePendencias"], 0)) + "</td><td>" + escapeHtml(valueOf(competence, ["fileCount", "quantidadeArquivos"], 0)) + "</td><td>" + escapeHtml(formatDateTime(valueOf(competence, ["updatedAt", "updated_at"], null))) + '</td><td><button class="table-link" type="button" data-action="open-competence" data-route="competency-detail" data-competence-id="' + escapeHtml(idOf(competence)) + '">Abrir</button></td></tr>';
+        var progress = Number(valueOf(competence, ["progress", "progresso"], "—"));
+        return '<tr><td><strong>' + escapeHtml(companyName(company)) + "</strong></td><td>" + escapeHtml(formatCompetence(competence)) + "</td><td>" + statusChip(context.components, competence.status, competence.statusLabel) + "</td><td>" + escapeHtml(valueOf(competence, ["employeeCount", "quantidadeFuncionarios"], 0)) + '</td><td class="progress-cell">' + progressIndicator(context.components, progress, 100, "", progress) + "</td><td>" + escapeHtml(valueOf(competence, ["pendingCount", "quantidadePendencias"], "—")) + "</td><td>" + escapeHtml(valueOf(competence, ["fileCount", "quantidadeArquivos"], "—")) + "</td><td>" + escapeHtml(formatDateTime(valueOf(competence, ["updatedAt", "updated_at"], null))) + '</td><td><button class="table-link" type="button" data-action="open-competence" data-route="competency-detail" data-competence-id="' + escapeHtml(idOf(competence)) + '">Abrir</button></td></tr>';
       }).join(""),
       "</tbody></table></div>",
     ].join("") : emptyState(context.components, "Nenhuma competência encontrada", "Ajuste os filtros ou crie uma nova competência.");
@@ -938,7 +957,7 @@
       label: label,
       variant: closed ? "button--secondary" : "button--danger-ghost",
       action: closed ? "request-reopen-competence" : "request-close-competence",
-      disabled: loading,
+      disabled: loading || (!closed && valueOf(context.state, ["apiMode"], "") === "online" && !(competenceSummaryFor(context, competence) && competenceSummaryFor(context, competence).closing && competenceSummaryFor(context, competence).closing.pode_fechar)),
     };
   }
 
@@ -954,6 +973,21 @@
     return message ? '<div class="inline-feedback inline-feedback--error" role="alert"><strong>Não foi possível concluir a ação</strong><span>' + escapeHtml(message) + "</span></div>" : "";
   }
 
+  function nextOperationalAction(context, competence) {
+    var summary = competenceSummaryFor(context, competence);
+    var key = competenceIsClosed(competence) ? "exportar" : summary && summary.closing && summary.closing.proxima_acao;
+    var actions = {
+      importar: {label:"Importar arquivo", route:"imports", action:"navigate"},
+      confirmar_importacao: {label:"Confirmar importação", action:"resume-import"},
+      resolver_problemas: {label:"Resolver problemas", route: summary && asArray(summary.importIssues).length ? "imports" : "review", action:"navigate"},
+      revisar_banco: {label:"Revisar saldo do banco", route:"company-banco-horas", action:"navigate"},
+      continuar_conferencia: {label:"Continuar conferência", route:"review", action:"navigate"},
+      revisar_fechar: {label:"Revisar e fechar", action:"request-close-competence"},
+      exportar: {label:"Exportar", route:"competency-exports", action:"navigate"}
+    };
+    return Object.assign({variant:"button--primary"}, actions[key] || {label:"Aguardando apuração", disabled:true});
+  }
+
   function onlineSummaryHeader(context, entities) {
     var closed = competenceIsClosed(entities.competence);
     return pageHeader(context.components, {
@@ -963,11 +997,22 @@
       breadcrumbs: competenceBreadcrumbs(entities, "Resumo"),
       actions: [
         { label: "Adicionar arquivos", variant: "button--secondary", route: "imports", action: "navigate", disabled: closed },
-        { label: closed ? "Ver conferência" : "Continuar conferência", variant: "button--primary", route: "review", action: "navigate" },
-        { label: "Exportar", route: "competency-exports", action: "navigate" },
+        { label: "Inicializar calendário", variant: "button--secondary", action: "initialize-calendar", disabled: closed },
+        nextOperationalAction(context, entities.competence),
+        ...(!closed ? [{ label: "Exportar", route: "competency-exports", action: "navigate" }] : []),
         competenceLifecycleAction(context, entities.competence),
       ],
     });
+  }
+
+  function distributionTable(rows) {
+    var selected=rows.filter(function(row){return row.distribution && row.distribution.policies.length;});
+    if (!selected.length) return "";
+    return '<section class="work-card"><div class="section-heading"><div><h2>Distribuição das horas extras</h2><p>Horas brutas distribuídas antes dos débitos. O crédito pode incluir o fator configurado. Valores monetários são calculados pela folha.</p></div></div><div class="table-frame"><table class="data-table"><thead><tr><th>Funcionário</th><th>HE apurada</th><th>Para folha</th><th>Adicional da folha</th><th>Base do banco</th><th>Crédito com fator</th><th>Débitos do banco</th></tr></thead><tbody>' + selected.map(function(row){
+      var d=row.distribution;
+      var premiums=d.premiums.map(function(p){return summaryDurationMarkup(null,p.minutos)+" a "+(p.percentual == null ? "definir" : escapeHtml(p.percentual)+"%");}).join("<br>") || "—";
+      return '<tr><th scope="row">'+escapeHtml(row.employeeName)+'</th><td>'+summaryDurationMarkup(null,d.gross)+'</td><td>'+summaryDurationMarkup(null,d.payroll)+'</td><td>'+premiums+'</td><td>'+summaryDurationMarkup(null,d.bankBase)+'</td><td>'+summaryDurationMarkup(null,d.bank)+'</td><td>'+summaryDurationMarkup(null,d.debit)+'</td></tr>';
+    }).join("")+'</tbody></table></div></section>';
   }
 
   function renderOnlineCompetencySummary(context, entities) {
@@ -992,7 +1037,7 @@
     var rows = asArray(summary.rows);
     var table = rows.length ? [
       '<div class="table-frame"><table class="data-table"><caption class="sr-only">Resumo da apuração por funcionário</caption><thead><tr>',
-      '<th scope="col">Funcionário</th><th scope="col">Dias processados</th><th scope="col">Atrasos</th><th scope="col">Extras</th><th scope="col">Horas 100% (feriado)</th><th scope="col">Faltas</th><th scope="col">Atestados</th><th scope="col">Pendências</th><th scope="col">Situação</th>',
+      '<th scope="col">Funcionário</th><th scope="col">Dias processados</th><th scope="col">Atrasos</th><th scope="col">Extras</th><th scope="col">Horas 100% (feriado)</th><th scope="col">Faltas</th><th scope="col">Atestados</th><th scope="col">Problemas</th><th scope="col">Aguardando conferência</th><th scope="col">Situação</th>',
       "</tr></thead><tbody>",
       rows.map(function (row) {
         var name = availableSummaryValue(row.employeeName);
@@ -1001,11 +1046,12 @@
           "<td>" + escapeHtml(availableSummaryValue(row.processedDays)) + "</td>" +
           "<td>" + summaryDurationMarkup(row.delays, row.delayMinutes) + "</td>" +
           "<td>" + summaryDurationMarkup(row.extras, row.extraMinutes) + "</td>" +
-          "<td>" + summaryDurationMarkup(null, row.holidayMinutes === undefined ? 0 : row.holidayMinutes) + "</td>" +
+          "<td>" + summaryDurationMarkup(null, row.holidayMinutes) + "</td>" +
           "<td>" + escapeHtml(availableSummaryValue(row.absences)) + "</td>" +
           "<td>" + escapeHtml(availableSummaryValue(row.certificates)) + "</td>" +
           "<td>" + escapeHtml(availableSummaryValue(row.pending)) + "</td>" +
-          "<td>" + summarySituationChip(context.components, row.situation) + "</td></tr>";
+          "<td>" + escapeHtml(availableSummaryValue(row.awaiting)) + "</td>" +
+          "<td>" + (row.pending === 0 && row.awaiting > 0 ? statusChip(context.components, "conferir", "Aguardando conferência") : summarySituationChip(context.components, row.situation)) + "</td></tr>";
       }).join(""),
       "</tbody></table></div>",
     ].join("") : emptyState(
@@ -1016,18 +1062,18 @@
     );
 
     var bankRows = rows.filter(function(row){return row.bank;});
-    var bankTable = bankRows.length ? '<section class="work-card"><div class="section-heading"><div><h2>Banco de horas</h2><p>Saldos dos lançamentos consolidados. A competência aberta entra no banco ao fechar.</p></div><button type="button" class="button button--secondary" data-action="navigate" data-route="company-banco-horas">Ver extrato</button></div><div class="table-frame"><table class="data-table"><thead><tr><th>Funcionário</th><th>Saldo anterior</th><th>Créditos da competência</th><th>Débitos da competência</th><th>Saldo final</th><th>Desligamento</th></tr></thead><tbody>' + bankRows.map(function(row){
+    var bankTable = bankRows.length ? '<section class="work-card"><div class="section-heading"><div><h2>Banco de horas</h2><p>Saldos dos lançamentos consolidados. A competência aberta entra no banco ao fechar.</p></div><button type="button" class="button button--secondary" data-action="navigate" data-route="company-banco-horas">Ver extrato</button></div><div class="table-frame"><table class="data-table"><thead><tr><th>Funcionário</th><th>Saldo anterior</th><th>Créditos da competência</th><th>Débitos da competência</th><th>Saldo final</th><th>Compensados 1:1</th><th>Desligamento</th></tr></thead><tbody>' + bankRows.map(function(row){
       var b=row.bank, format=root.OnPontoBancoHoras.duration;
-      return '<tr><th scope="row">'+escapeHtml(row.employeeName)+'</th><td>'+format(b.saldo_anterior_minutos,true)+'</td><td>'+format(b.creditos_competencia_minutos,true)+'</td><td>'+format(-b.debitos_competencia_minutos,true)+'</td><td><strong>'+format(b.saldo_final_minutos,true)+'</strong></td><td>'+(b.data_demissao ? escapeHtml(formatDate(b.data_demissao))+': <strong>'+format(b.saldo_demissao_minutos,true)+'</strong>' : '—')+'</td></tr>';
+      return '<tr><th scope="row">'+escapeHtml(row.employeeName)+'</th><td>'+format(b.saldo_anterior_minutos,true)+'</td><td>'+format(b.creditos_competencia_minutos,true)+'</td><td>'+format(-b.debitos_competencia_minutos,true)+'</td><td><strong>'+format(b.saldo_final_minutos,true)+'</strong></td><td>'+summaryDurationMarkup(null,b.compensados_minutos)+'</td><td>'+(b.data_demissao ? escapeHtml(formatDate(b.data_demissao))+': <strong>'+format(b.saldo_demissao_minutos,true)+'</strong>' : '—')+'</td></tr>';
     }).join('')+'</tbody></table></div></section>' : '';
-    return prefix +
+    return prefix + (summary.closing && summary.closing.motivo_bloqueio && !competenceIsClosed(competence) ? '<p class="inline-feedback" role="note">' + escapeHtml(summary.closing.motivo_bloqueio) + '</p>' : "") +
       '<section class="work-card competency-hero"><dl class="summary-grid">' +
         summaryItem("Funcionários", availableSummaryValue(general.employees)) +
-        summaryItem("Conferidos", availableSummaryValue(general.confirmed)) +
-        summaryItem("Pendentes", availableSummaryValue(general.pending)) +
-        summaryItem("Dias com pendência", availableSummaryValue(general.pendingDays)) +
+        summaryItem("Dias conferidos", availableSummaryValue(summary.operational && summary.operational.conferidos)) +
+        summaryItem("Problemas", availableSummaryValue(summary.operational && summary.operational.problemas)) +
+        summaryItem("Aguardando conferência", availableSummaryValue(summary.operational && summary.operational.aguardando_conferencia)) +
         summaryItem("Arquivos recebidos", availableSummaryValue(general.totalFiles)) +
-      '</dl></section><section class="work-card"><div class="section-heading"><div><h2>Resumo por funcionário</h2><p>Totais calculados pela apuração desta competência.</p></div></div>' + table + "</section>" + bankTable + "</section>";
+      '</dl></section><section class="work-card"><div class="section-heading"><div><h2>Resumo por funcionário</h2><p>Totais calculados pela apuração desta competência.</p></div></div>' + table + "</section>" + distributionTable(rows) + bankTable + "</section>";
   }
 
   function renderCompetencySummary(state, data, components) {
@@ -1040,7 +1086,7 @@
     var activities = activitiesForCompetence(context, competence);
     var employeeCount = valueOf(competence, ["employeeCount", "quantidadeFuncionarios"], entities.companyEmployees.length);
     var confirmedCount = valueOf(competence, ["confirmedEmployees", "funcionariosConferidos"], 0);
-    var progress = Number(valueOf(competence, ["progress", "progresso"], 0));
+    var progress = Number(valueOf(competence, ["progress", "progresso"], "—"));
     var closed = competenceIsClosed(competence);
     return [
       '<section class="screen screen--competency-summary" data-screen="competency-summary" data-competence-id="' + escapeHtml(idOf(competence)) + '">', demoBanner(),
@@ -1051,6 +1097,7 @@
         breadcrumbs: competenceBreadcrumbs(entities, "Resumo"),
         actions: [
           { label: "Adicionar arquivos", variant: "button--secondary", route: "imports", action: "navigate", disabled: closed },
+        { label: "Inicializar calendário", variant: "button--secondary", action: "initialize-calendar", disabled: closed },
           { label: closed ? "Ver conferência" : "Continuar conferência", variant: "button--primary", route: "review", action: "navigate" },
           { label: "Exportar", route: "competency-exports", action: "navigate" },
           competenceLifecycleAction(context, competence),
@@ -1061,7 +1108,7 @@
       '<section class="work-card competency-hero"><dl class="summary-grid">' +
         summaryItem("Funcionários", employeeCount) +
         summaryItem("Funcionários conferidos", confirmedCount) +
-        summaryItem("Pendências", valueOf(competence, ["pendingCount", "quantidadePendencias"], 0)) +
+        summaryItem("Pendências", valueOf(competence, ["pendingCount", "quantidadePendencias"], "—")) +
         summaryItem("Arquivos recebidos", valueOf(competence, ["fileCount", "quantidadeArquivos"], files.length)) +
         summaryItem("Última atualização", formatDateTime(valueOf(competence, ["updatedAt", "updated_at"], null))) +
       "</dl></section>",
@@ -1342,7 +1389,7 @@
     var days = allDays.filter(function (day) {
       var normalized = normalizeStatus(dayStatus(day));
       var issues = asArray(valueOf(day, ["issues", "pendencias"], []));
-      if (filter === "pending") return ["conferir", "inconsistente"].indexOf(normalized) !== -1 || issues.some(function (issue) { return !(issue && issue.resolved); });
+      if (filter === "pending") return day.problema !== undefined ? day.problema : day.pendingCalculation === true || issues.some(function(issue){return !issue.resolved && issue.type !== "review" && issue.type !== "manual_change";});
       if (filter === "unconfirmed") return !dayConfirmed(day);
       if (filter === "absences") return ["falta", "atestado", "folga", "afastamento"].indexOf(normalized) !== -1;
       return true;
@@ -1392,7 +1439,7 @@
       '<div class="employee-navigation"><button class="icon-button" type="button" data-action="previous-employee" aria-label="Funcionário anterior" title="Funcionário anterior (Alt + ↑)">←</button><label><span class="sr-only">Funcionário</span><select data-action="select-review-employee">' + selectOptions(entities.companyEmployees, entities.employee ? idOf(entities.employee) : "", employeeName) + '</select></label><button class="icon-button" type="button" data-action="next-employee" aria-label="Próximo funcionário" title="Próximo funcionário (Alt + ↓)">→</button><span class="position-label">' + escapeHtml(position) + " de " + escapeHtml(totalEmployees) + " funcionários</span></div>",
       '<button class="button button--secondary" type="button" data-action="open-employee-timesheet" data-employee-id="' + escapeHtml(entities.employee ? idOf(entities.employee) : "") + '"' + (!entities.employee || context.state.apiMode !== "online" ? " disabled" : "") + '>Emitir espelho</button>',
       '<div class="review-progress">' + progressIndicator(context.components, confirmedDays, eligibleDays, "Progresso") + (closed ? '<span class="autosave-indicator" role="status">Somente leitura</span>' : autosaveIndicator(context)) + "</div>",
-      '<div class="filter-group review-filters" role="group" aria-label="Filtrar dias">' + filterButton("Todos os dias", "all", filter, "review") + filterButton("Pendências", "pending", filter, "review") + filterButton("Não conferidos", "unconfirmed", filter, "review") + filterButton("Ausências", "absences", filter, "review") + "</div>",
+      '<div class="filter-group review-filters" role="group" aria-label="Filtrar dias">' + filterButton("Todos os dias", "all", filter, "review") + filterButton("Problemas", "pending", filter, "review") + filterButton("Não conferidos", "unconfirmed", filter, "review") + filterButton("Ausências", "absences", filter, "review") + "</div>",
       "</section>",
       '<section class="bulk-actions' + (selection.length ? " is-active" : "") + '" aria-label="Ações em massa" aria-live="polite"><strong>' + (closed ? "Ações indisponíveis enquanto a competência estiver fechada" : selection.length + " registro" + (selection.length === 1 ? "" : "s") + " selecionado" + (selection.length === 1 ? "" : "s")) + '</strong><div><button class="button button--secondary" type="button" data-action="bulk-confirm" data-bulk-action="confirm"' + (closed || !selection.length ? " disabled" : "") + '>Marcar como conferidos</button><button class="button button--secondary" type="button" data-action="bulk-set-status" data-bulk-action="set_status"' + (closed || !selection.length ? " disabled" : "") + '>Definir situação</button><button class="button button--secondary" type="button" data-action="bulk-add-observation" data-bulk-action="add_observation"' + (closed || !selection.length ? " disabled" : "") + ">Adicionar observação</button></div><small>As batidas originais nunca serão alteradas.</small></section>",
       '<div class="review-layout"><section class="review-grid" aria-label="Tabela de conferência">' + table + '</section><div class="review-context">' + panel + "</div></div>",
@@ -1449,13 +1496,13 @@
     var exporting = valueOf(context.state, ["exportExcelLoading"], false) === true;
     var summary = online ? competenceSummaryFor(context, competence) : null;
     var general = summary && summary.general || {};
-    var pendingValue = online ? availableSummaryValue(general.pending) : Number(valueOf(competence, ["pendingCount", "quantidadePendencias"], 0));
+    var pendingValue = online ? availableSummaryValue(general.pending) : Number(valueOf(competence, ["pendingCount", "quantidadePendencias"], "—"));
     var employeeTotal = online && general.employees !== null && general.employees !== undefined && general.employees !== "" ? Number(general.employees) : null;
     var confirmedTotal = online && general.confirmed !== null && general.confirmed !== undefined && general.confirmed !== "" ? Number(general.confirmed) : null;
     var pendingTotal = online && general.pending !== null && general.pending !== undefined && general.pending !== "" ? Number(general.pending) : Number(pendingValue);
     var progress = online
       ? (Number.isFinite(employeeTotal) && employeeTotal > 0 && Number.isFinite(confirmedTotal) ? Math.round((confirmedTotal / employeeTotal) * 100) + "%" : "Indisponível")
-      : valueOf(competence, ["progress", "progresso"], 0) + "%";
+      : valueOf(competence, ["progress", "progresso"], "—") + "%";
     var hasUnavailableRows = online && summary && asArray(summary.rows).some(function (row) {
       var situation = statusKey(row.situation);
       return !situation || situation === "indisponivel" || situation === "unavailable";
@@ -1492,15 +1539,15 @@
     var entities = selectedEntities(context);
     if (!entities.company) return missingContextScreen(context, "Relatórios", "Abra uma empresa para visualizar seus relatórios.", false);
     var competencies = competenciesForCompany(entities, entities.company);
-    var totalPending = competencies.reduce(function (total, competence) { return total + Number(valueOf(competence, ["pendingCount", "quantidadePendencias"], 0)); }, 0);
+    var totalPending = competencies.reduce(function (total, competence) { return total + Number(valueOf(competence, ["pendingCount", "quantidadePendencias"], "—")); }, 0);
     var rows = competencies.map(function (competence) {
-      return '<tr><td><strong>' + escapeHtml(formatCompetence(competence)) + "</strong></td><td>" + statusChip(context.components, competence.status, competence.statusLabel) + "</td><td>" + escapeHtml(valueOf(competence, ["progress", "progresso"], 0)) + "%</td><td>" + escapeHtml(valueOf(competence, ["pendingCount", "quantidadePendencias"], 0)) + "</td><td>" + escapeHtml(formatDateTime(valueOf(competence, ["updatedAt", "updated_at"], null))) + '</td><td><button class="table-link" type="button" data-action="open-competence-area" data-competence-id="' + escapeHtml(idOf(competence)) + '" data-route="competency-exports">Abrir exportações</button></td></tr>';
+      return '<tr><td><strong>' + escapeHtml(formatCompetence(competence)) + "</strong></td><td>" + statusChip(context.components, competence.status, competence.statusLabel) + "</td><td>" + escapeHtml(valueOf(competence, ["progress", "progresso"], "—")) + "%</td><td>" + escapeHtml(valueOf(competence, ["pendingCount", "quantidadePendencias"], "—")) + "</td><td>" + escapeHtml(formatDateTime(valueOf(competence, ["updatedAt", "updated_at"], null))) + '</td><td><button class="table-link" type="button" data-action="open-competence-area" data-competence-id="' + escapeHtml(idOf(competence)) + '" data-route="competency-exports">Abrir exportações</button></td></tr>';
     }).join("");
     return '<section class="screen screen--company-reports" data-screen="company-reports">' + demoBanner() + pageHeader(context.components, {
       title: "Relatórios",
       subtitle: companyName(entities.company),
       breadcrumbs: companyBreadcrumbs(entities.company, "Relatórios"),
-    }) + '<section class="work-card competency-hero"><dl class="summary-grid">' + summaryItem("Competências", competencies.length) + summaryItem("Em conferência", competencies.filter(function (item) { return normalizeStatus(item.status) === "em_conferencia"; }).length) + summaryItem("Conferidas", competencies.filter(function (item) { return normalizeStatus(item.status) === "conferida"; }).length) + summaryItem("Fechadas", competencies.filter(function (item) { return normalizeStatus(item.status) === "fechada"; }).length) + summaryItem("Pendências", totalPending) + '</dl></section><section class="work-card"><div class="section-heading"><div><h2>Relatórios por competência</h2><p>Escolha uma competência para gerar suas saídas.</p></div></div>' + (rows ? '<div class="table-frame"><table class="data-table"><thead><tr><th>Competência</th><th>Status</th><th>Progresso</th><th>Pendências</th><th>Atualização</th><th><span class="sr-only">Ação</span></th></tr></thead><tbody>' + rows + "</tbody></table></div>" : emptyState(context.components, "Nenhuma competência", "Crie uma competência antes de gerar relatórios.", { label: "Criar competência", action: "new-competence" })) + "</section></section>";
+    }) + '<section class="work-card competency-hero"><dl class="summary-grid">' + summaryItem("Competências", competencies.length) + summaryItem("Em conferência", competencies.filter(function (item) { return normalizeStatus(item.status) === "em_conferencia"; }).length) + summaryItem("Conferidas", competencies.filter(function (item) { return normalizeStatus(item.status) === "conferida"; }).length) + summaryItem("Fechadas", competencies.filter(function (item) { return normalizeStatus(item.status) === "fechada"; }).length) + summaryItem("Problemas", Number.isFinite(totalPending) ? totalPending : "—") + '</dl></section><section class="work-card"><div class="section-heading"><div><h2>Relatórios por competência</h2><p>Escolha uma competência para gerar suas saídas.</p></div></div>' + (rows ? '<div class="table-frame"><table class="data-table"><thead><tr><th>Competência</th><th>Status</th><th>Progresso</th><th>Pendências</th><th>Atualização</th><th><span class="sr-only">Ação</span></th></tr></thead><tbody>' + rows + "</tbody></table></div>" : emptyState(context.components, "Nenhuma competência", "Crie uma competência antes de gerar relatórios.", { label: "Criar competência", action: "new-competence" })) + "</section></section>";
   }
 
   function renderReports(state, data, components) {

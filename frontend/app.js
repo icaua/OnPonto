@@ -179,6 +179,7 @@
   var pendingDialog = null;
   var editSession = null;
   var renderFocus = null;
+  var contextSwitchPending = false;
 
   function byId(id) {
     return document.getElementById(id);
@@ -360,11 +361,11 @@
       status: statusFromBackend(source.status || "aberta"),
       statusLabel: source.statusLabel || ({ aberta: "Aberta", em_conferencia: "Em conferência", conferida: "Conferida", fechada: "Fechada" }[source.status] || source.status || "Aberta"),
       employeeCount: source.employeeCount !== undefined ? source.employeeCount : count,
-      pendingCount: source.pendingCount !== undefined ? source.pendingCount : 0,
-      fileCount: source.fileCount !== undefined ? source.fileCount : 0,
-      progress: source.progress !== undefined ? source.progress : 0,
-      confirmedEmployees: source.confirmedEmployees !== undefined ? source.confirmedEmployees : 0,
-      pendingEmployees: source.pendingEmployees !== undefined ? source.pendingEmployees : count,
+      pendingCount: source.pendingCount !== undefined ? source.pendingCount : null,
+      fileCount: source.fileCount !== undefined ? source.fileCount : null,
+      progress: source.progress !== undefined ? source.progress : null,
+      confirmedEmployees: source.confirmedEmployees !== undefined ? source.confirmedEmployees : null,
+      pendingEmployees: source.pendingEmployees !== undefined ? source.pendingEmployees : null,
       updatedAt: source.updatedAt || source.updated_at || null,
       receivedAt: source.receivedAt || source.data_recebimento || null,
       closedAt: source.closedAt || source.data_fechamento || null,
@@ -963,6 +964,9 @@
     return {
       company: valueFromAliases(source, ["empresa", "company"]),
       competence: valueFromAliases(source, ["competencia", "competence"]),
+      operational: source.operacional || null,
+      closing: source.fechamento || null,
+      importIssues: source.pendencias_importacao || [],
       generatedAt: valueFromAliases(source, ["gerado_em", "geradoEm", "generated_at", "generatedAt"]),
       pendingRecords: pendingRecords,
       processedRecords: processedRecords,
@@ -980,15 +984,21 @@
           employeeName: valueFromAliases(item, ["funcionario", "funcionario_nome", "nome", "employee", "employee_name"]),
           employeeCode: valueFromAliases(item, ["codigo", "funcionario_codigo", "code", "employee_code"]),
           bank: item.banco_horas || null,
+          distribution: Object.prototype.hasOwnProperty.call(item, "extra_apurada_minutos") ? {
+            gross:item.extra_apurada_minutos, payroll:item.extra_folha_minutos, bankBase:item.extra_banco_base_minutos,
+            bank:item.extra_banco_minutos, debit:item.debito_banco_minutos, premiums:item.adicionais_folha || [],
+            policies:item.politicas_horas_aplicadas || []
+          } : null,
           processedDays: valueFromAliases(item, ["dias_processados", "processed_days", "day_count"]),
           delays: valueFromAliases(item, ["atrasos", "atraso", "total_atrasos", "delays"]),
           delayMinutes: valueFromAliases(item, ["atrasos_minutos", "atraso_minutos", "delay_minutes"]),
           extras: valueFromAliases(item, ["extras", "horas_extras", "total_extras", "overtime"]),
           extraMinutes: valueFromAliases(item, ["extras_minutos", "extra_minutos", "overtime_minutes"]),
-          holidayMinutes: Object.prototype.hasOwnProperty.call(item, "horas_feriado_minutos") ? item.horas_feriado_minutos : 0,
+          holidayMinutes: Object.prototype.hasOwnProperty.call(item, "horas_feriado_minutos") ? item.horas_feriado_minutos : null,
           absences: valueFromAliases(item, ["faltas", "absences"]),
           certificates: valueFromAliases(item, ["atestados", "certificates", "medical_certificates"]),
-          pending: valueFromAliases(item, ["pendencias", "pending", "issues"]),
+          pending: valueFromAliases(item, ["problemas", "pending", "issues"]),
+          awaiting: valueFromAliases(item, ["aguardando_conferencia"]),
           situation: valueFromAliases(item, ["situacao", "situation", "status"]),
         };
       }),
@@ -1042,6 +1052,7 @@
       day.saldoMinutos = balance;
       day.confirmed = confirmed;
       day.conferido = confirmed;
+      day.problema = detail.problema === true;
       day.pendingCalculation = pendingCalculation;
       day.pendente_calculo = pendingCalculation;
       day.pendingOperational = pendingOperational;
@@ -1060,8 +1071,9 @@
         day.review.confirmed = confirmed;
         day.review.state = confirmed ? "confirmed" : "suggested";
       }
-      if (pendingReason) {
-        var issueList = day.issues || day.pendencias || [];
+      day.issues = day.pendencias = [];
+      if (pendingReason && (pendingCalculation || detail.problema)) {
+        var issueList = [];
         if (!issueList.some(function (issue) { return issue && (issue.message || issue.mensagem) === pendingReason; })) {
           issueList.push({ id: "issue-apuration-" + day.id, type: pendingType || "review", severity: "warning", message: pendingReason, resolved: false });
         }
@@ -1069,6 +1081,7 @@
         day.pendencias = issueList;
       }
     });
+
   }
 
   function loadAttendanceForCompetence(competenceId, options) {
@@ -1145,6 +1158,14 @@
       var summary = normalizeCompetenceSummary(payload);
       if (summary.competence) updateCompetenceFromPayload(competenceId, summary.competence);
       data.competenceSummaries[key] = summary;
+      var competence = competencies().find(function(c){return idsEqual(c.id, competenceId);});
+      if (competence && summary.operational) {
+        competence.pendingCount = summary.operational.problemas;
+        competence.fileCount = summary.operational.total_arquivos;
+        competence.progress = summary.operational.total > 0 ? Math.round(100 * summary.operational.conferidos / summary.operational.total) : null;
+        competence.confirmedEmployees = summary.general.confirmed;
+        competence.pendingEmployees = summary.general.pending;
+      }
       loadedCompetenceSummaries[key] = true;
       if (idsEqual(state.selectedCompetenceId, competenceId)) state.competenceSummaryError = "";
       return summary;
@@ -1171,14 +1192,17 @@
         if (idsEqual(state.selectedCompetenceId, competenceId) && state.route === "competency-summary") render();
       });
     }
-    // A apuração materializa o calendário. Aguarde seu commit antes de buscar
-    // /marcacoes para que a Conferência receba também os dias recém-gerados.
+    // Apuração e marcações são consultas; o calendário nasce da importação ou de ação explícita.
     return summaryPromise.then(function (summary) {
       return Promise.all([
         loadAttendanceForCompetence(competenceId, settings),
         loadFilesForCompetence(competenceId, settings),
       ]).then(function (results) {
         if (summary) applyApurationDetails(competenceId, summary.markings);
+    if (idsEqual(state.selectedCompetenceId, competenceId) && !state.reviewFilterInitialized) {
+      state.reviewFilter = summary && summary.markings.some(function (d) { return d.problema; }) ? "pending" : "all";
+      state.reviewFilterInitialized = true;
+    }
         return { markings: results[0], files: results[1], summary: summary };
       });
     });
@@ -1314,6 +1338,7 @@
     state.selectedDayId = null;
     state.selectedDayIds = [];
     state.reviewFilter = "all";
+    state.reviewFilterInitialized = false;
     state.competencyTab = "summary";
     state.importType = "auto";
     state.selectedImportFile = null;
@@ -1458,6 +1483,10 @@
           : Promise.resolve(null);
         return attendanceRequest.then(function (markings) {
           if (summary) applyApurationDetails(competenceId, summary.markings);
+    if (idsEqual(state.selectedCompetenceId, competenceId) && !state.reviewFilterInitialized) {
+      state.reviewFilter = summary && summary.markings.some(function (d) { return d.problema; }) ? "pending" : "all";
+      state.reviewFilterInitialized = true;
+    }
           return { competence: competence, summary: summary, markings: markings };
         });
       });
@@ -1493,6 +1522,11 @@
     return day.confirmed === true || day.conferido === true || day.reviewState === "confirmed" || (day.review && day.review.state === "confirmed");
   }
 
+  function dayHasProblem(day) {
+    if (day.problema !== undefined) return day.problema === true;
+    return day.pendingCalculation === true || day.pendente_calculo === true || (day.issues || []).some(function (i) { return !i.resolved && i.type !== "review" && i.type !== "manual_change"; });
+  }
+
   function dayIsOperationallyPending(day) {
     if (!day) return false;
     if (day.pendingOperational !== undefined || day.pendente_operacional !== undefined) {
@@ -1517,7 +1551,7 @@
   function visibleReviewDays() {
     return employeeDays(state.selectedEmployeeId).filter(function (day) {
       var status = day.status || day.status_dia || (day.current && (day.current.situation || day.current.status)) || "normal";
-      if (state.reviewFilter === "pending") return dayIsOperationallyPending(day);
+      if (state.reviewFilter === "pending") return dayHasProblem(day);
       if (state.reviewFilter === "unconfirmed") return !dayIsConfirmed(day);
       if (state.reviewFilter === "absences") return ["falta", "atestado", "folga", "afastamento"].indexOf(status) !== -1;
       return true;
@@ -1542,33 +1576,26 @@
 
   function sidebarNavigation() {
     var company = currentCompany();
-    var competence = currentCompetency();
-    var primary = [{ id: "companies", label: "Todas as empresas", icon: "briefcase" }, { id: "calendar", label: "Calendário", icon: "calendar" }];
-    if (!company) return { primary: primary, secondary: [], secondaryLabel: "" };
-
-    primary = primary.concat([
-      { id: "company-overview", label: "Visão geral", icon: "dashboard" },
-      { id: "company-employees", label: "Funcionários", icon: "users" },
-      { id: "company-scales", label: "Escalas", icon: "clock" },
-      { id: "company-ocorrencias", label: "Ocorrências / Afastamentos", icon: "calendar" },
-      { id: "company-banco-horas", label: "Banco de horas", icon: "clock" },
-      { id: "company-competencies", label: "Competências", icon: "folder" },
-      { id: "company-reports", label: "Relatórios", icon: "report" },
-      { id: "company-settings", label: "Configurações", icon: "settings" },
-    ]);
-    if (!competence) return { primary: primary, secondary: [], secondaryLabel: company.name || company.nome };
-
+    var inCompetence = COMPETENCY_VIEWS.indexOf(state.route) !== -1;
     return {
-      primary: primary,
-      secondary: [
-        { id: "competency-summary", label: "Resumo", icon: "dashboard" },
-        { id: "imports", label: "Importações", icon: "upload" },
-        { id: "review", label: "Conferência", icon: "check_square", badge: unresolvedCount() },
-        { id: "competency-files", label: "Arquivos", icon: "file" },
-        { id: "competency-history", label: "Histórico", icon: "clock" },
-        { id: "competency-exports", label: "Exportações", icon: "report" },
+      active: inCompetence ? "company-competencies" : state.route,
+      primary: [
+        { id: "companies", label: "Empresas", icon: "briefcase" },
+        { id: "calendar", label: "Calendário", icon: "calendar" },
       ],
-      secondaryLabel: competence.label || Utils.formatCompetence(competence),
+      secondary: company ? [
+        { id: "company-overview", label: "Visão geral", icon: "dashboard" },
+        { id: "company-competencies", label: "Competências", icon: "folder", current: inCompetence ? "location" : "page" },
+        { label: "Cadastros", children: [
+          { id: "company-employees", label: "Funcionários", icon: "users" },
+          { id: "company-scales", label: "Escalas", icon: "clock" },
+          { id: "company-ocorrencias", label: "Ocorrências / Afastamentos", icon: "calendar" },
+          { id: "company-banco-horas", label: "Banco de horas", icon: "clock" },
+        ] },
+        { id: "company-reports", label: "Relatórios", icon: "report" },
+        { id: "company-settings", label: "Configurações", icon: "settings" },
+      ] : [],
+      companyName: company ? company.name || company.nome : "",
     };
   }
 
@@ -1576,6 +1603,105 @@
     return employeeDays(state.selectedEmployeeId).filter(function (day) {
       return dayIsOperationallyPending(day);
     }).length;
+  }
+
+  function contextCompetencies(companyId) {
+    return competencies().filter(function (item) {
+      return idsEqual(item.companyId || item.empresa_id, companyId);
+    }).sort(function (a, b) {
+      return Number(b.year || b.ano) - Number(a.year || a.ano) || Number(b.month || b.mes) - Number(a.month || a.mes) || String(b.id).localeCompare(String(a.id), undefined, { numeric: true });
+    });
+  }
+
+  function quickContextTarget(kind, value) {
+    var id = asId(value);
+    if (id === null) return null;
+    var area = COMPETENCY_VIEWS.indexOf(state.route) !== -1 ? state.route : "competency-summary";
+    // Prévias e leituras pertencem ao arquivo e à competência de origem.
+    if (area === "import-preview" || area === "ocr") area = "imports";
+    if (kind === "competence") {
+      var selected = contextCompetencies(state.selectedCompanyId).find(function (item) { return idsEqual(item.id, id); });
+      if (!selected || idsEqual(id, state.selectedCompetenceId)) return null;
+      return { view: area, companyId: state.selectedCompanyId, competenceId: selected.id };
+    }
+    if (kind !== "company" || idsEqual(id, state.selectedCompanyId) || !companies().some(function (item) { return idsEqual(item.id, id); })) return null;
+    if (COMPETENCY_VIEWS.indexOf(state.route) === -1) {
+      return { view: COMPANY_VIEWS.indexOf(state.route) !== -1 ? state.route : "company-overview", companyId: id, competenceId: null };
+    }
+    var current = currentCompetency();
+    var available = contextCompetencies(id);
+    var next = available.find(function (item) {
+      return current && Number(item.month || item.mes) === Number(current.month || current.mes) && Number(item.year || item.ano) === Number(current.year || current.ano);
+    }) || available.find(function (item) { return !competencyIsClosed(item); }) || available[0];
+    return { view: next ? area : "company-competencies", companyId: id, competenceId: next ? next.id : null };
+  }
+
+  function contextSwitchBlocked() {
+    return contextSwitchPending || state.apiMode === "loading" || state.importConfirming || state.competenceLifecycleLoading;
+  }
+
+  function renderContextSelectors() {
+    var companySelect = byId("contextCompany");
+    var competenceSelect = byId("contextCompetence");
+    var company = currentCompany();
+    var competence = currentCompetency();
+    var companyItems = companies().slice().sort(function (a, b) { return (a.name || a.nome).localeCompare(b.name || b.nome, "pt-BR"); });
+    var competenceItems = contextCompetencies(state.selectedCompanyId);
+    function update(select, items, placeholder, value, label) {
+      var html = '<option value="" disabled>' + Utils.escapeHtml(placeholder) + '</option>' + items.map(function (item) {
+        return '<option value="' + Utils.escapeHtml(item.id) + '">' + Utils.escapeHtml(label(item)) + '</option>';
+      }).join("");
+      // Preserva os nós e o foco dos seletores durante renders do autosave.
+      if (select.dataset.optionsMarkup !== html) {
+        select.innerHTML = html;
+        select.dataset.optionsMarkup = html;
+      }
+      select.value = value == null ? "" : String(value);
+      select.disabled = Boolean(contextSwitchBlocked() || !items.length);
+      select.title = select.selectedOptions[0] ? select.selectedOptions[0].textContent : placeholder;
+    }
+    update(companySelect, companyItems, state.apiMode === "loading" ? "Carregando empresas…" : companyItems.length ? "Selecionar empresa" : "Nenhuma empresa", state.selectedCompanyId, function (item) { return item.name || item.nome; });
+    update(competenceSelect, competenceItems, !company ? "Selecione uma empresa" : competenceItems.length ? "Selecionar competência" : "Sem competências", state.selectedCompetenceId, function (item) {
+      var status = Components.statusMeta[Components.statusAliases[item.status] || item.status];
+      return (item.label || Utils.formatCompetence(item)) + " · " + (status ? status.label : item.statusLabel || "Não informado");
+    });
+    byId("topbarContext").setAttribute("aria-busy", String(Boolean(contextSwitchPending)));
+    byId("contextSwitchStatus").textContent = contextSwitchPending ? "Salvando alterações antes de trocar o contexto…" : company ? (company.name || company.nome) + (competence ? " · " + (competence.label || Utils.formatCompetence(competence)) : "") : "Nenhuma empresa selecionada";
+  }
+
+  function switchQuickContext(kind, value) {
+    var next = quickContextTarget(kind, value);
+    renderContextSelectors();
+    if (!next || contextSwitchBlocked()) return Promise.resolve(false);
+    if (editSession && !finishEditing({ move: null })) return Promise.resolve(false);
+    var hasPending = Boolean(autosaveFlushPromise || Object.keys(pendingDaySaves).length);
+    if (state.apiMode === "online" && hasPending && !state.settings.autosave) {
+      showToast("Salve as alterações antes de trocar de empresa ou competência.", "warning", "O autosave está desativado. Use Salvar agora e tente novamente.");
+      return Promise.resolve(false);
+    }
+    if (state.apiMode !== "online" || !hasPending) {
+      navigate(next);
+      return Promise.resolve(true);
+    }
+    var origin = routeHash({ view: state.route, companyId: state.selectedCompanyId, competenceId: state.selectedCompetenceId });
+    contextSwitchPending = true;
+    renderContextSelectors();
+    return flushPendingDaySaves().then(function (results) {
+      // Uma navegação realizada durante o salvamento tem prioridade sobre esta troca.
+      if (root.location.hash !== origin) return false;
+      if (editSession || autosaveFlushPromise || Object.keys(pendingDaySaves).length || state.autosaveStatus === "error" || results.some(function (result) { return !result.ok; })) {
+        showToast("A troca foi interrompida para preservar suas alterações.", "warning", "Revise o salvamento e tente novamente.");
+        return false;
+      }
+      navigate(next);
+      return true;
+    }).catch(function (error) {
+      showToast("Não foi possível concluir o salvamento antes da troca.", "error", error && error.message);
+      return false;
+    }).finally(function () {
+      contextSwitchPending = false;
+      renderContextSelectors();
+    });
   }
 
   function render(options) {
@@ -1591,26 +1717,22 @@
 
     var navigation = sidebarNavigation();
     byId("appSidebar").innerHTML = Components.Sidebar({
-      active: state.route === "import-preview" || state.route === "ocr" ? "imports" : state.route,
+      active: navigation.active,
       collapsed: state.sidebarCollapsed,
       primaryItems: navigation.primary,
       secondaryItems: navigation.secondary,
-      secondaryLabel: navigation.secondaryLabel,
+      companyName: navigation.companyName,
     });
 
     var expandButton = byId("sidebarExpandButton");
     expandButton.hidden = !state.sidebarCollapsed;
     expandButton.innerHTML = Components.Icon("panel_left");
 
-    var company = currentCompany();
-    var competency = currentCompetency();
     var environmentLabel = document.querySelector(".topbar__context .eyebrow");
     if (environmentLabel) {
       environmentLabel.textContent = state.apiMode === "online" ? "Ambiente integrado" : state.apiMode === "loading" ? "Conectando à API" : "Ambiente de demonstração";
     }
-    byId("topbarContext").textContent = !company
-      ? (state.route === "calendar" ? "Calendário geral" : "Todas as empresas")
-      : (company.name || company.nome) + (competency ? " · " + (competency.label || Utils.formatCompetence(competency)) : "");
+    renderContextSelectors();
 
     main.dataset.route = state.route;
     main.dataset.reviewKey = reviewKey;
@@ -2185,6 +2307,7 @@
     var firstDay = employee ? employeeDays(employee.id)[0] : null;
     state.selectedDayId = firstDay ? firstDay.id : null;
     state.reviewFilter = "all";
+    state.reviewFilterInitialized = false;
     state.selectedDayIds = [];
     navigate("review");
     showToast("Importação salva como prévia de demonstração.", "success", "A conferência continua pendente.");
@@ -2294,6 +2417,7 @@
             var firstDay = employeeDays(state.selectedEmployeeId)[0] || markings[0] || null;
             state.selectedDayId = firstDay ? firstDay.id : null;
             state.reviewFilter = "all";
+    state.reviewFilterInitialized = false;
             state.selectedDayIds = [];
             navigate("review");
             showToast("Importação confirmada.", conflicts.length ? "warning" : "success", conflicts.length ? importedCount + " importados. " + conflicts.join(" ") : importedCount + " registros importados e disponíveis na Conferência.");
@@ -2532,6 +2656,8 @@
   function confirmDay(day, options) {
     if (!day || dayIsConfirmed(day)) return;
     if (!ensureCompetencyWritable("A confirmação do dia")) return;
+    if (state.apiMode === "online") return confirmDaysOnServer([day]);
+    if (dayHasProblem(day)) { showToast("Resolva os problemas antes de conferir.", "warning"); return false; }
     day.confirmed = true;
     day.conferido = true;
     day.reviewState = "confirmed";
@@ -3023,6 +3149,33 @@
     });
   }
 
+  function confirmDaysOnServer(targets) {
+    var competenceId = state.selectedCompetenceId;
+    return ensureAutosaveFlushedForLifecycle().then(function () {
+      return apiRequest("/marcacoes/conferir-lote", {method: "POST", body: {competencia_id: competenceId, marcacoes_ids: targets.map(function(d){return d.id;})}});
+    }).then(function (result) {
+      return refreshAffectedCompetence(competenceId, {reloadAttendance: true}).then(function () {
+        state.selectedDayIds = [];
+        render();
+        showToast(result.total_conferidos + " dias marcados como conferidos. " + result.total_problemas + " permaneceram com problemas.", result.total_problemas ? "warning" : "success");
+        return result;
+      });
+    }).catch(function(error){ showToast("Não foi possível conferir.", "error", error.message); return false; });
+  }
+
+  function resumeImport(fileId) {
+    var id = state.selectedCompetenceId;
+    return loadFilesForCompetence(id, {force:true}).then(function(list){
+      var file = (fileId && list.find(function(f){return idsEqual(f.id,fileId);})) || list.find(function(f){return !f.controle_importacao || f.controle_importacao.estado !== "confirmada";}) || list[0];
+      if (!file) return navigate("imports");
+      return apiRequest("/importadores/" + file.id + "/reanalisar", {method:"POST"}).then(function(payload){
+        state.importAnalysis = normalizeImportAnalysis(payload);
+        state.selectedImportRowIds = state.importAnalysis.rows.filter(function(r){return r.selected;}).map(function(r){return r.id;});
+        navigate("import-preview");
+      });
+    }).catch(function(e){showToast("Não foi possível retomar a análise.", "error", e.message);});
+  }
+
   function confirmSelectedDays() {
     if (!ensureCompetencyWritable("A confirmação dos dias")) return;
     var targets = state.selectedDayIds.map(findDay).filter(Boolean);
@@ -3033,10 +3186,12 @@
       confirmLabel: "Marcar como conferidos",
       icon: "check_circle",
       onConfirm: function () {
-        targets.forEach(function (day) { confirmDay(day, { silent: true }); });
+        if (state.apiMode === "online") return confirmDaysOnServer(targets);
+        var valid = targets.filter(function(day){ return !dayHasProblem(day); });
+        valid.forEach(function (day) { confirmDay(day, { silent: true }); });
         state.selectedDayIds = [];
         render();
-        showToast(targets.length + " registros marcados como conferidos.", "success");
+        showToast(valid.length + " registros conferidos; " + (targets.length - valid.length) + " com problemas.", "info");
       },
     });
   }
@@ -3348,17 +3503,6 @@
     }).catch(function (error) {
       var detail = error && error.payload && error.payload.detail;
       var conflictCode = detail && typeof detail === "object" ? detail.codigo : "";
-      if (action === "fechar" && exceptional !== true && error && error.status === 409 && [
-        "competencia_com_pendencias", "competencia_sem_registros", "competencia_nao_conferida",
-      ].indexOf(conflictCode) !== -1) {
-        var conflictPending = Number(detail.total_pendencias);
-        if (!Number.isFinite(conflictPending)) conflictPending = 0;
-        if (lifecycleContextIsActive(competenceId)) {
-          state.competenceLifecycleError = "";
-          showCloseCompetencyDialog(competenceId, conflictPending, conflictCode === "competencia_sem_registros" ? 0 : 1, true);
-        }
-        return false;
-      }
       if (lifecycleContextIsActive(competenceId)) state.competenceLifecycleError = error && error.message || "Não foi possível atualizar a competência.";
       throw error;
     }).finally(function () {
@@ -3366,35 +3510,10 @@
     });
   }
 
-  function showCloseCompetencyDialog(competenceId, pendingCount, processedCount, forceExceptional) {
-    var exceptional = forceExceptional === true || pendingCount > 0 || processedCount === 0;
-    var pendingMessage = pendingCount > 0
-      ? pendingCount + (pendingCount === 1 ? " registro ainda precisa" : " registros ainda precisam") + " de conferência."
-      : processedCount === 0 ? "A competência não possui registros processados para fechamento." : "A competência ainda não está conferida.";
-    showDialog({
-      title: exceptional ? "Fechar competência excepcionalmente?" : "Fechar esta competência?",
-      description: exceptional
-        ? pendingMessage + " O fechamento excepcional preserva marcações e arquivos e bloqueia novas alterações até uma reabertura."
-        : "Todos os registros processados estão conferidos. A competência continuará visível e disponível para exportação.",
-      confirmLabel: pendingCount > 0
-        ? "Fechar mesmo com " + pendingCount + " pendência" + (pendingCount === 1 ? "" : "s")
-        : exceptional ? (processedCount === 0 ? "Fechar sem registros" : "Fechar excepcionalmente") : "Fechar competência",
-      busyLabel: "Fechando...",
-      destructive: true,
-      fields: exceptional ? [{
-        name: "confirmarExcecao",
-        type: "checkbox",
-        label: pendingCount > 0
-          ? "Confirmo o fechamento excepcional mesmo com registros ainda não conferidos."
-          : processedCount === 0 ? "Confirmo o fechamento excepcional sem registros processados." : "Confirmo o fechamento excepcional desta competência ainda não conferida.",
-        value: "true",
-        required: true,
-        requiredMessage: "Confirme explicitamente o fechamento excepcional para continuar.",
-      }] : [],
-      onConfirm: function () {
-        return persistCompetenceLifecycle(competenceId, "fechar", exceptional);
-      },
-    });
+  function showCloseCompetencyDialog(competenceId) {
+    showDialog({title: "Fechar esta competência?", description: "A apuração será preservada e novas alterações exigirão reabertura.",
+      confirmLabel: "Fechar competência", busyLabel: "Fechando...", destructive: true,
+      onConfirm: function(){return persistCompetenceLifecycle(competenceId, "fechar", false);}});
   }
 
   function closeCompetency() {
@@ -3408,7 +3527,8 @@
     var competenceId = competency.id;
     if (state.apiMode !== "online") {
       var demoDays = days().filter(function (day) { return idsEqual(day.competenceId || day.competencia_id, competenceId); });
-      var demoPending = demoDays.filter(function (day) { return !dayIsConfirmed(day); }).length;
+      var demoPending = demoDays.filter(function (day) { return !dayIsConfirmed(day) || dayHasProblem(day); }).length;
+      if (demoPending || !demoDays.length) { showToast("Conclua a conferência e resolva os problemas antes de fechar.", "warning"); return; }
       showDialog({
         title: demoPending ? "Fechar competência de demonstração excepcionalmente?" : "Fechar competência de demonstração?",
         description: demoPending ? demoPending + (demoPending === 1 ? " registro ainda precisa" : " registros ainda precisam") + " de conferência. Esta alteração existirá somente nesta sessão." : "Esta alteração existirá somente nesta sessão de demonstração.",
@@ -3434,13 +3554,11 @@
       return loadCompetenceSummary(competenceId, { force: true });
     }).then(function (summary) {
       if (!summary) throw new Error(state.competenceSummaryError || "Não foi possível revalidar a apuração antes do fechamento.");
-      var pendingCount = summary.pendingRecords === null || summary.pendingRecords === undefined ? NaN : Number(summary.pendingRecords);
-      var processedCount = summary.processedRecords === null || summary.processedRecords === undefined ? NaN : Number(summary.processedRecords);
-      if (!Number.isFinite(pendingCount) || !Number.isFinite(processedCount)) {
-        throw new Error("A API não informou a contagem de registros necessária para validar o fechamento.");
+      if (!summary.closing || summary.closing.pode_fechar !== true) {
+        throw new Error(summary.closing && summary.closing.motivo_bloqueio || "A API não confirmou que a competência pode ser fechada.");
       }
       setLifecycleState(competenceId, false, "", "");
-      showCloseCompetencyDialog(competenceId, pendingCount, processedCount);
+      showCloseCompetencyDialog(competenceId);
     }).catch(function (error) {
       if (!lifecycleContextIsActive(competenceId)) return;
       setLifecycleState(competenceId, false, "", error && error.message || "Não foi possível validar o fechamento.");
@@ -3551,6 +3669,51 @@
     return value === "" || value === null || value === undefined ? null : Number(value);
   }
 
+  function hourPolicyFields(entity) {
+    var p = entity && entity.politica_horas || {};
+    var explicit = function(v){ return v.politica_modo !== "legado"; };
+    var bank = function(v){ return explicit(v) && v.politica_modo !== "folha"; };
+    var choices = function(items){ return items.map(function(i){return {value:i[0],label:i[1]};}); };
+    var field = function(name,label,type,value,extra){return Object.assign({name:"politica_"+name,label:label,type:type,value:value == null ? "" : value,visibleWhen:explicit},extra || {});};
+    var fields = [
+      field("modo","Destino das horas extras","select",p.modo || "legado",{fullWidth:true,visibleWhen:null,options:choices([["legado","Manter configuração anterior"],["folha","100% folha"],["banco","100% banco"],["misto","Dividir entre folha e banco"]]),help:"Políticas explícitas se aplicam às competências abertas. Fechamentos preservam a regra usada."}),
+      field("referencia","Referência da regra (opcional)","text",p.referencia,{fullWidth:true,maxlength:240}),
+      field("percentual_folha","Parcela destinada à folha (%)","number",p.percentual_folha == null ? 50 : p.percentual_folha,{required:true,min:0.0001,max:99.9999,step:0.0001,visibleWhen:function(v){return v.politica_modo === "misto";},help:"O restante, até 100%, será destinado ao banco. Atrasos são tratados separadamente."}),
+      field("adicional_folha_percentual","Adicional da folha (%)","number",p.adicional_folha_percentual,{min:0,max:1000,step:0.01,help:"Informe o adicional aplicável. Sem definição, dias com HE para folha exigirão revisão."}),
+      field("ciclo_dias","Duração do ciclo (dias)","number",p.ciclo_dias,{visibleWhen:bank,required:true,min:1,max:3660,step:1}),
+      field("inicio_ciclo","Início de um ciclo de referência","date",p.inicio_ciclo,{visibleWhen:bank,required:true,help:"Define períodos consecutivos com a duração informada, inclusive antes desta data."}),
+      field("debitar_atrasos","Atrasos geram débito no banco?","select",String(p.debitar_atrasos !== false),{visibleWhen:bank,options:choices([["true","Sim"],["false","Não"]])}),
+      field("permite_saldo_negativo","Permitir saldo negativo no ciclo?","select",String(p.permite_saldo_negativo !== false),{visibleWhen:bank,options:choices([["true","Sim"],["false","Não"]])})
+    ];
+    [["normal","Dia normal"],["sabado","Sábado"],["domingo","Domingo"],["feriado","Feriado"]].forEach(function(entry){
+      var key=entry[0],label=entry[1],rule=p[key] || {};
+      fields.push(field(key+"_fator",label+": fator de crédito","number",rule.fator_banco == null ? 1 : rule.fator_banco,{visibleWhen:bank,required:true,min:0.0001,max:10,step:0.0001}),
+        field(key+"_base",label+": base do fator","select",rule.base_fator || "decidir",{visibleWhen:bank,options:choices([["decidir","Definir antes de apurar fator diferente de 1"],["parcela_banco","Aplicar sobre a parcela destinada ao banco"],["extra_integral","Aplicar sobre toda a HE apurada"]])}),
+        field(key+"_adicional",label+": adicional específico (%)","number",rule.adicional_folha_percentual,{min:0,max:1000,step:0.01,help:"Em branco, segue o adicional da folha acima."}));
+    });
+    [["fim_ciclo_credor","Crédito restante no fim do ciclo",[["decidir","Decisão humana pendente"],["pagar","Encaminhar horas para pagamento"]]],
+      ["fim_ciclo_devedor","Débito restante no fim do ciclo",[["decidir","Decisão humana pendente"],["transportar","Sinalizar transporte para outro ciclo"]]],
+      ["desligamento_credor","Crédito no desligamento",[["decidir","Decisão humana pendente"],["pagar","Encaminhar horas para pagamento"]]],
+      ["desligamento_devedor","Débito no desligamento",[["decidir","Decisão humana pendente"],["descontar","Encaminhar para desconto"],["dispensar","Sinalizar dispensa do débito"]]]].forEach(function(entry){
+        fields.push(field(entry[0],entry[1],"select",p[entry[0]] || "decidir",{visibleWhen:bank,options:choices(entry[2]),help:"Gera indicação para conferência; qualquer baixa ou transporte exige ajuste justificado."}));
+      });
+    fields.push(field("adicional_saldo_percentual","Adicional do saldo credor a pagar (%)","number",p.adicional_saldo_percentual,{visibleWhen:bank,min:0,max:1000,step:0.01}));
+    return fields;
+  }
+
+  function hourPolicyPayload(v) {
+    if (v.politica_modo === "legado") return null;
+    var folha = v.politica_modo === "folha" ? 100 : v.politica_modo === "banco" ? 0 : Number(v.politica_percentual_folha);
+    var p={versao:1,modo:v.politica_modo,referencia:v.politica_referencia || null,percentual_folha:folha,
+      percentual_banco:Number((100-folha).toFixed(4)),adicional_folha_percentual:nullableDialogNumber(v.politica_adicional_folha_percentual),
+      debitar_atrasos:v.politica_debitar_atrasos === "true",permite_saldo_negativo:v.politica_permite_saldo_negativo === "true",
+      ciclo_dias:folha === 100 ? null : Number(v.politica_ciclo_dias),inicio_ciclo:folha === 100 ? null : v.politica_inicio_ciclo,
+      adicional_saldo_percentual:nullableDialogNumber(v.politica_adicional_saldo_percentual)};
+    ["normal","sabado","domingo","feriado"].forEach(function(key){p[key]={fator_banco:folha === 100 ? 1 : Number(v["politica_"+key+"_fator"]),base_fator:v["politica_"+key+"_base"] || "decidir",adicional_folha_percentual:nullableDialogNumber(v["politica_"+key+"_adicional"])};});
+    ["fim_ciclo_credor","fim_ciclo_devedor","desligamento_credor","desligamento_devedor"].forEach(function(key){p[key]=v["politica_"+key] || "decidir";});
+    return p;
+  }
+
   function openScaleDialog(id, options) {
     var company = currentCompany();
     if (!company) {
@@ -3596,7 +3759,8 @@
         { name: "tolerancia_atraso_minutos", type: "number", label: "Tolerância de atraso (min)", value: entity ? entity.tolerancia_atraso_minutos : 0, required: true, min: 0, max: 1440, step: 1 },
         { name: "tolerancia_extra_minutos", type: "number", label: "Tolerância de extra (min)", value: entity ? entity.tolerancia_extra_minutos : 0, required: true, min: 0, max: 1440, step: 1 },
         { name: "tolerancia_intervalo_minutos", type: "number", label: "Tolerância de intervalo (min)", value: entity && entity.tolerancia_intervalo_minutos != null ? entity.tolerancia_intervalo_minutos : "", help: "Deixe em branco para usar a mesma tolerância de atraso da escala.", min: 0, max: 1440, step: 1 },
-        { name: "usa_banco_horas", type: "select", label: "Banco de horas", value: entity && entity.usa_banco_horas ? "true" : "false", options: [{value:"false",label:"Desabilitado"},{value:"true",label:"Habilitado"}], help: "Configure primeiro o prazo de compensação no cadastro da empresa." },
+        { name: "usa_banco_horas", type: "select", label: "Banco de horas", value: entity && entity.usa_banco_horas ? "true" : "false", options: [{value:"false",label:"Desabilitado"},{value:"true",label:"Habilitado"}], help: "Configuração anterior: usa o prazo de compensação cadastrado na empresa.", visibleWhen:function(v){return v.politica_modo === "legado";} },
+        ...hourPolicyFields(entity),
         { name: "ativa", type: "select", label: "Situação", value: entity && (entity.active === false || entity.ativa === false) ? "false" : "true", required: true, options: [{ value: "true", label: "Ativa" }, { value: "false", label: "Inativa" }] },
       ],
       validate: function (values) {
@@ -3638,7 +3802,8 @@
           tolerancia_atraso_minutos: Number(values.tolerancia_atraso_minutos),
           tolerancia_extra_minutos: Number(values.tolerancia_extra_minutos),
           tolerancia_intervalo_minutos: nullableDialogNumber(values.tolerancia_intervalo_minutos),
-          usa_banco_horas: values.usa_banco_horas === "true",
+          politica_horas: hourPolicyPayload(values),
+          usa_banco_horas: values.politica_modo === "legado" ? values.usa_banco_horas === "true" : values.politica_modo !== "folha",
           ativa: values.ativa === "true",
         };
         if (online) {
@@ -3975,6 +4140,16 @@
     if (action === "set-day-no-schedule") return setDayStatus(findDay(element.dataset.dayId || state.selectedDayId), "sem_expediente");
     if (action === "focus-first-time") return focusFirstTime(element.dataset.dayId);
     if (action === "keep-interpretation") return keepInterpretation(findDay(element.dataset.dayId || state.selectedDayId));
+    if (action === "initialize-calendar") {
+      var calendarCompetenceId = state.selectedCompetenceId;
+      return showDialog({title:"Inicializar calendário?", description:"Criar os dias ausentes dos vínculos ativos para conferência manual. Marcações existentes serão preservadas.", confirmLabel:"Inicializar", onConfirm:function(){return apiRequest("/competencias/"+calendarCompetenceId+"/inicializar-calendario",{method:"POST"}).then(function(){return loadCompetenceData(calendarCompetenceId,{force:true,summaryForce:true});}).then(function(){render();});}});
+    }
+    if (action === "resume-import") return resumeImport(element.dataset.fileId);
+    if (action === "discard-import-record") {
+      var fileId = element.dataset.fileId, recordId = element.dataset.recordId, competenceId = state.selectedCompetenceId;
+      return showDialog({title:"Excluir registro da apuração?", description:"O arquivo original será preservado. Justifique por que este registro não deve compor a competência.", confirmLabel:"Registrar exclusão", fields:[{name:"justificativa", label:"Justificativa", type:"textarea", required:true}],
+        onConfirm:function(values){return apiRequest("/importadores/" + fileId + "/descartar-pendencias", {method:"POST",body:{registros_ids:[recordId],justificativa:values.justificativa}}).then(function(){return loadCompetenceData(competenceId,{force:true,summaryForce:true});}).then(function(){render();});}});
+    }
     if (action === "bulk-confirm") return confirmSelectedDays();
     if (action === "bulk-set-status") return openStatusDialog(null, true);
     if (action === "bulk-add-observation") return openObservationDialog(null, true);
@@ -4006,6 +4181,8 @@
     var element = event.target.closest("[data-action]");
     if (!element) return;
     var action = element.dataset.action;
+    if (action === "select-context-company") return switchQuickContext("company", element.value);
+    if (action === "select-context-competence") return switchQuickContext("competence", element.value);
     if (root.OnPontoOcorrencias.change(action, element)) return;
     if (root.OnPontoBancoHoras && root.OnPontoBancoHoras.change(action, element)) return;
     if (root.OnPontoCalendario.change(action, element)) return;
@@ -4138,6 +4315,8 @@
       undoLastChange();
       return;
     }
+    // Alt + seta deve abrir/operar o seletor nativo, sem trocar funcionário.
+    if (event.altKey && (target.id === "contextCompany" || target.id === "contextCompetence")) return;
     if (state.route === "review" && event.altKey && event.key === "ArrowUp") { event.preventDefault(); moveEmployee(-1); return; }
     if (state.route === "review" && event.altKey && event.key === "ArrowDown") { event.preventDefault(); moveEmployee(1); return; }
     if (state.route !== "review" || !state.settings.singleKeyShortcuts || isTextEditingTarget(target) || event.ctrlKey || event.altKey || event.metaKey) return;

@@ -1,9 +1,11 @@
 """Serviços transacionais do ledger. O chamador é responsável pelo commit."""
+import json
 from datetime import date, datetime, timedelta, timezone
 
 from fastapi import HTTPException
 
 from app.banco_horas.politica import hoje_local, validar_prazo, vencimento_credito
+from app.banco_horas.regras import politica_da_escala, ciclo
 from app.database.models import Funcionario, LancamentoBancoHoras, CompensacaoBancoHoras
 from app.funcionarios.historico_escalas import registrar_vinculo_inicial, escala_no_dia
 
@@ -24,11 +26,18 @@ def gerar_lancamentos(db, competencia, resultado):
             continue
         if dia.get("pendente_calculo"):
             raise HTTPException(409, f"Banco de horas: resolva a pendência de cálculo de {funcionario.nome} em {referencia:%d/%m/%Y} antes de fechar.")
-        prazo = validar_prazo(competencia.empresa)
+        politica = politica_da_escala(escala)
+        prazo = politica.ciclo_dias if politica else validar_prazo(competencia.empresa)
+        inicio, fim = ciclo(politica, referencia) if politica else (None, None)
         credito = dia.get("extra_minutos") or 0
         if competencia.empresa.feriado_entra_banco:
             credito += dia.get("horas_feriado_minutos") or 0
         debito = dia.get("atraso_minutos") or 0
+        if politica:
+            if dia.get("extra_banco_minutos") is None or dia.get("debito_banco_minutos") is None:
+                raise HTTPException(409, "A distribuição da política não foi calculada. Revise a apuração.")
+            credito = dia["extra_banco_minutos"]
+            debito = dia["debito_banco_minutos"] - dia.get("minutos_folga_compensatoria", 0)
         dia["banco_horas_regra"] = {"escala_origem_id": escala.id, "prazo_compensacao_aplicado_dias": prazo,
                                    "feriado_entra_banco": competencia.empresa.feriado_entra_banco}
         for natureza, minutos, origem in (("credito", credito, "apuracao"), ("debito", debito, "apuracao"),
@@ -39,7 +48,9 @@ def gerar_lancamentos(db, competencia, resultado):
                 competencia_origem_id=competencia.id, escala_origem_id=escala.id,
                 natureza=natureza, origem=origem, minutos=minutos, data_referencia=referencia,
                 data_lancamento=competencia.data_fechamento,
-                data_vencimento=vencimento_credito(referencia, prazo) if natureza == "credito" else None,
+                data_vencimento=(fim or vencimento_credito(referencia, prazo)) if natureza == "credito" else None,
+                ciclo_inicio=inicio, ciclo_fim=fim,
+                politica_aplicada_json=json.dumps(dia.get("politica_horas_aplicada"), ensure_ascii=False) if politica else None,
                 prazo_compensacao_aplicado_dias=prazo, feriado_entra_banco_aplicado=competencia.empresa.feriado_entra_banco,
                 versao_fechamento=competencia.versao_fechamento)
             db.add(item)
@@ -52,7 +63,8 @@ def validar_cobertura_folgas(db, gerados):
     ids = {i.id for i in gerados if i.origem == "folga_compensatoria"}
     for funcionario_id in {i.funcionario_id for i in gerados if i.id in ids}:
         for item, _, restante in situacao_lancamentos(db, funcionario_id):
-            if item.id in ids and restante:
+            regra = json.loads(item.politica_aplicada_json)["politica"] if item.politica_aplicada_json else None
+            if item.id in ids and restante and not (regra and regra["permite_saldo_negativo"]):
                 raise HTTPException(409, f"Saldo insuficiente para folga compensatória em {item.data_referencia:%d/%m/%Y}: faltam {restante} min. O fechamento foi cancelado; revise a ocorrência ou o saldo do banco.")
 
 
@@ -71,6 +83,10 @@ def reconciliar(db, funcionario_id, motivo="Reconciliação dos lançamentos ati
             candidatos = sorted(creditos, key=lambda i: (i.data_vencimento or date.max, i.data_referencia, i.id))
             debitos.append(item)
         for outro in candidatos:
+            # Ciclos explícitos não consomem saldo legado nem saldo de outro ciclo.
+            # Transportes e quitações exigem ajustes documentados, sem baixa automática.
+            if (item.ciclo_inicio, item.ciclo_fim) != (outro.ciclo_inicio, outro.ciclo_fim):
+                continue
             minutos = min(restantes[item.id], restantes[outro.id])
             if minutos:
                 credito, debito = (item, outro) if item.natureza == "credito" else (outro, item)
@@ -129,14 +145,33 @@ def ajustar(db, payload):
     funcionario = obter_funcionario(db, payload.funcionario_id)
     if payload.data_referencia > hoje_local():
         raise HTTPException(422, "Ajustes manuais não podem ter data de referência futura.")
-    prazo = validar_prazo(funcionario.empresa) if payload.natureza == "credito" else None
+    escala = escala_no_dia(db, funcionario, payload.data_referencia) or funcionario.escala
+    politica = politica_da_escala(escala)
+    inicio, fim = ciclo(politica, payload.data_referencia) if politica else (None, None)
+    regra_json = json.dumps({"escala_id": escala.id, "politica": politica.model_dump(mode="json")}) if politica else None
+    escala_id = escala.id if escala else None
+    prazo = politica.ciclo_dias if politica and politica.percentual_banco else None
+    if payload.lancamento_referencia_id is not None:
+        referencia = db.get(LancamentoBancoHoras, payload.lancamento_referencia_id)
+        if not referencia or referencia.funcionario_id != funcionario.id or referencia.status != "ativo":
+            raise HTTPException(422, "Selecione um lançamento ativo deste funcionário como referência do ajuste.")
+        inicio, fim = referencia.ciclo_inicio, referencia.ciclo_fim
+        regra_json, escala_id = referencia.politica_aplicada_json, referencia.escala_origem_id
+        prazo = referencia.prazo_compensacao_aplicado_dias
+        if inicio and not inicio <= payload.data_referencia <= fim:
+            raise HTTPException(422, "A data de referência deve pertencer ao ciclo selecionado. A data do lançamento registra quando o ajuste foi feito.")
+    if payload.natureza == "credito" and not prazo:
+        prazo = validar_prazo(funcionario.empresa)
     item = LancamentoBancoHoras(**payload.model_dump(), empresa_id=funcionario.empresa_id,
-        origem="ajuste_manual", escala_origem_id=funcionario.escala_id,
+        origem="ajuste_manual", escala_origem_id=escala_id,
+        ciclo_inicio=inicio, ciclo_fim=fim,
+        politica_aplicada_json=regra_json,
         data_lancamento=hoje_local(), prazo_compensacao_aplicado_dias=prazo,
-        data_vencimento=vencimento_credito(payload.data_referencia, prazo) if prazo else None,
+        data_vencimento=(fim or vencimento_credito(payload.data_referencia, prazo)) if payload.natureza == "credito" else None,
         feriado_entra_banco_aplicado=funcionario.empresa.feriado_entra_banco)
     db.add(item); db.flush()
     reconciliar(db, funcionario.id, "Novo ajuste manual")
+    validar_saldos_permitidos(db, [item])
     return item
 
 
@@ -176,6 +211,8 @@ def extrato(db, funcionario_id, data_limite=None):
         if item.status == "ativo":
             acumulado += item.minutos if item.natureza == "credito" else -item.minutos
         linha = {c.name: getattr(item, c.name) for c in LancamentoBancoHoras.__table__.columns}
+        regra_json = linha.pop("politica_aplicada_json")
+        linha["politica_aplicada"] = json.loads(regra_json) if regra_json else None
         linha.update(minutos_compensados=consumidos, minutos_restantes=restantes, saldo_acumulado_minutos=acumulado)
         linhas.append(linha)
     ids = [i["id"] for i in linhas]
@@ -184,6 +221,7 @@ def extrato(db, funcionario_id, data_limite=None):
     return {"funcionario_id": funcionario.id, "funcionario": funcionario.nome,
             "saldo_minutos": calcular_saldo_banco_horas(db, funcionario_id, data_limite), "lancamentos": linhas,
             "compensacoes": [{c.name: getattr(i, c.name) for c in CompensacaoBancoHoras.__table__.columns} for i in compensacoes],
+            "tratamentos_pendentes": tratamentos_pendentes(db, funcionario, data_limite or hoje_local()),
             "data_demissao": funcionario.data_demissao,
             "saldo_demissao_minutos": calcular_saldo_banco_horas(db, funcionario_id, funcionario.data_demissao) if funcionario.data_demissao else None}
 
@@ -242,8 +280,74 @@ def complementar_apuracao(db, competencia, resultado):
             "creditos_competencia_minutos": sum(i.minutos for i in itens if i.natureza == "credito"),
             "debitos_competencia_minutos": sum(i.minutos for i in itens if i.natureza == "debito"),
             "saldo_final_minutos": calcular_saldo_banco_horas(db, funcionario.id, fim),
+            "compensados_minutos": sum(consumidos for i, consumidos, _ in situacao_lancamentos(db, funcionario.id, fim)
+                                       if i.natureza == "debito" and i.data_referencia >= inicio),
+            "tratamentos_pendentes": tratamentos_pendentes(db, funcionario, fim),
         }
         if funcionario.data_demissao and funcionario.data_demissao <= fim:
             resumo["banco_horas"].update(data_demissao=funcionario.data_demissao.isoformat(),
                 saldo_demissao_minutos=calcular_saldo_banco_horas(db, funcionario.id, funcionario.data_demissao))
+    return resultado
+
+
+def validar_saldos_permitidos(db, gerados):
+    for funcionario_id in {i.funcionario_id for i in gerados}:
+        situacao = situacao_lancamentos(db, funcionario_id)
+        for item in (i for i in gerados if i.funcionario_id == funcionario_id and i.politica_aplicada_json):
+            regra = json.loads(item.politica_aplicada_json)["politica"]
+            if regra["permite_saldo_negativo"]:
+                continue
+            saldo = sum(restante if i.natureza == "credito" else -restante for i, _, restante in situacao
+                        if (i.ciclo_inicio, i.ciclo_fim) == (item.ciclo_inicio, item.ciclo_fim))
+            if saldo < 0:
+                raise HTTPException(409, "Esta política não permite saldo negativo no ciclo. Revise os débitos antes de confirmar.")
+
+
+def bloqueios_saldo_projetado(db, resultado):
+    """Mesma restrição do fechamento, projetada sem inserir lançamentos."""
+    grupos = {}
+    for dia in resultado["marcacoes"]:
+        aplicada = dia.get("politica_horas_aplicada")
+        if not aplicada or dia.get("extra_banco_minutos") is None or not dia.get("ciclo_inicio"):
+            continue
+        chave = (dia["funcionario_id"], dia["ciclo_inicio"], dia["ciclo_fim"])
+        grupo = grupos.setdefault(chave, {"delta": 0, "restrito": False})
+        grupo["delta"] += dia["extra_banco_minutos"] - dia["debito_banco_minutos"]
+        grupo["restrito"] |= not aplicada["politica"]["permite_saldo_negativo"]
+    motivos = []
+    for (funcionario_id, inicio, fim), grupo in grupos.items():
+        if not grupo["restrito"]:
+            continue
+        saldo = sum(restante if i.natureza == "credito" else -restante
+                    for i, _, restante in situacao_lancamentos(db, funcionario_id)
+                    if i.ciclo_inicio == date.fromisoformat(inicio) and i.ciclo_fim == date.fromisoformat(fim))
+        if saldo + grupo["delta"] < 0:
+            motivos.append(f"Funcionário #{funcionario_id}: saldo projetado negativo no ciclo {inicio} a {fim}; a política não permite esse saldo.")
+    return motivos
+
+
+def tratamentos_pendentes(db, funcionario, corte):
+    """Indicações para decisão/folha; nunca quita, transporta ou calcula reais."""
+    grupos = {}
+    desligado = bool(funcionario.data_demissao and funcionario.data_demissao <= corte)
+    for item, _, restante in situacao_lancamentos(db, funcionario.id, min(corte, funcionario.data_demissao) if desligado else corte):
+        if not restante or not item.politica_aplicada_json or not item.ciclo_fim:
+            continue
+        if not desligado and item.ciclo_fim >= corte:
+            continue
+        politica = json.loads(item.politica_aplicada_json)["politica"]
+        chave = (item.ciclo_inicio, item.ciclo_fim, json.dumps(politica, sort_keys=True), item.natureza)
+        grupo = grupos.setdefault(chave, {"evento": "desligamento" if desligado else "fim_ciclo",
+            "ciclo_inicio": item.ciclo_inicio.isoformat(), "ciclo_fim": item.ciclo_fim.isoformat(),
+            "natureza": item.natureza, "minutos": 0, "lancamentos_ids": [], "politica": politica})
+        grupo["minutos"] += restante
+        grupo["lancamentos_ids"].append(item.id)
+    resultado = []
+    for grupo in grupos.values():
+        politica = grupo.pop("politica")
+        sufixo = "credor" if grupo["natureza"] == "credito" else "devedor"
+        grupo["tratamento"] = politica[grupo["evento"] + "_" + sufixo]
+        grupo["adicional_percentual"] = politica["adicional_saldo_percentual"] if sufixo == "credor" else None
+        grupo["requer_confirmacao"] = True
+        resultado.append(grupo)
     return resultado

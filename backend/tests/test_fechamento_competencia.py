@@ -230,6 +230,7 @@ class FechamentoCompetenciaApiTest(unittest.TestCase):
         return marcacao
 
     def resolver_calendario(self, competencia_id: int) -> None:
+        self.json_request("POST", f"/competencias/{competencia_id}/inicializar-calendario")
         status_http, apuracao = self.json_request(
             "GET", f"/apuracao?competencia_id={competencia_id}"
         )
@@ -353,82 +354,25 @@ class FechamentoCompetenciaApiTest(unittest.TestCase):
         self.assertFalse(fechamento_reaberta["fechamento_excepcional"])
         self.assertEqual(fechamento_reaberta["total_pendencias"], 0)
 
-    def test_fechamento_com_pendencias_exige_confirmacao_explicita(self) -> None:
-        _, funcionarios, competencia = self.criar_contexto(
-            "Excepcional", codigos=("E001", "E002")
-        )
-        ids_marcacoes = [
-            self.criar_marcacao(
-                competencia["id"], funcionario["id"], f"2026-07-0{indice}", conferido=False
-            )["id"]
-            for indice, funcionario in enumerate(funcionarios, start=1)
-        ]
+    def test_fechamento_com_pendencias_nao_admite_excecao(self):
+        _, (funcionario,), competencia = self.criar_contexto("Bloqueio")
+        self.criar_marcacao(competencia["id"],funcionario["id"],"2026-07-01",conferido=False)
+        for confirmar in (False, True):
+            status, erro = self.json_request("POST",f'/competencias/{competencia["id"]}/fechar', {"confirmar_pendencias":confirmar})
+            self.assertEqual(status,409)
+            self.assertEqual(erro["detail"]["codigo"],"fechamento_bloqueado")
+            self.assertFalse(erro["detail"]["pode_fechar"])
+        self.assertEqual(self.obter_competencia(competencia["id"])["status"],"em_conferencia")
+        _,marcacoes=self.json_request("GET",f'/marcacoes?competencia_id={competencia["id"]}')
+        self.assertEqual(len(marcacoes),1)
 
-        status_http, bloqueio = self.json_request(
-            "POST", f'/competencias/{competencia["id"]}/fechar', {}
-        )
-        self.assertEqual(status_http, 409)
-        self.assertEqual(bloqueio["detail"]["codigo"], "competencia_com_pendencias")
-        self.assertEqual(bloqueio["detail"]["total_pendencias"], 54)
-        self.assertEqual(
-            bloqueio["detail"]["mensagem"],
-            "54 registros ainda precisam de conferência.",
-        )
-        ainda_aberta = self.obter_competencia(competencia["id"])
-        self.assertEqual(ainda_aberta["status"], "em_conferencia")
-        self.assertIsNone(ainda_aberta["data_fechamento"])
-
-        status_http, fechamento = self.json_request(
-            "POST",
-            f'/competencias/{competencia["id"]}/fechar',
-            {"confirmar_pendencias": True},
-        )
-        self.assertEqual(status_http, 200)
-        self.assertEqual(fechamento["status"], "fechada")
-        self.assertEqual(fechamento["total_pendencias"], 54)
-        self.assertTrue(fechamento["fechamento_excepcional"])
-        self.assertEqual(
-            fechamento["data_fechamento"],
-            datetime.now(FUSO_HORARIO_LOCAL).date().isoformat(),
-        )
-
-        status_http, reaberta = self.json_request(
-            "POST", f'/competencias/{competencia["id"]}/reabrir'
-        )
-        self.assertEqual(status_http, 200)
-        self.assertEqual(reaberta["status"], "em_conferencia")
-        status_http, marcacoes = self.json_request(
-            "GET", f'/marcacoes?competencia_id={competencia["id"]}'
-        )
-        self.assertEqual(status_http, 200)
-        self.assertEqual(len(marcacoes), 62)
-        self.assertTrue(set(ids_marcacoes).issubset({item["id"] for item in marcacoes}))
-
-    def test_competencia_vazia_tambem_exige_fechamento_excepcional(self) -> None:
+    def test_competencia_vazia_nao_fecha_mesmo_com_excecao(self):
         _, _, competencia = self.criar_contexto("Vazia", codigos=())
-
-        status_http, bloqueio = self.json_request(
-            "POST", f'/competencias/{competencia["id"]}/fechar', {}
-        )
-        self.assertEqual(status_http, 409)
-        self.assertEqual(bloqueio["detail"]["codigo"], "competencia_sem_registros")
-        self.assertEqual(bloqueio["detail"]["total_pendencias"], 0)
-
-        status_http, fechamento = self.json_request(
-            "POST",
-            f'/competencias/{competencia["id"]}/fechar',
-            {"confirmar_pendencias": True},
-        )
-        self.assertEqual(status_http, 200)
-        self.assertTrue(fechamento["fechamento_excepcional"])
-        self.assertEqual(fechamento["total_pendencias"], 0)
-
-        status_http, reaberta = self.json_request(
-            "POST", f'/competencias/{competencia["id"]}/reabrir'
-        )
-        self.assertEqual(status_http, 200)
-        self.assertEqual(reaberta["status"], "aberta")
-        self.assertIsNone(reaberta["data_fechamento"])
+        for confirmar in (False, True):
+            status, erro = self.json_request("POST",f'/competencias/{competencia["id"]}/fechar', {"confirmar_pendencias":confirmar})
+            self.assertEqual(status,409)
+            self.assertIn("Não há registros",erro["detail"]["mensagem"])
+        self.assertEqual(self.obter_competencia(competencia["id"])["status"],"aberta")
 
     def test_fechada_bloqueia_mutadores_e_reabertura_preserva_txt(self) -> None:
         empresa, (funcionario,), competencia = self.criar_contexto("Guards", codigos=("F001",))
@@ -458,7 +402,14 @@ class FechamentoCompetenciaApiTest(unittest.TestCase):
             "PATCH", f"/marcacoes/{marcacao_id}", {"conferido": True}
         )
         self.assertEqual(status_http, 200)
-        self.assertEqual(self.obter_competencia(competencia["id"])["status"], "conferida")
+        self.resolver_calendario(competencia["id"])
+        _, arquivos = self.json_request("GET", f'/arquivos?competencia_id={competencia["id"]}')
+        for arquivo in arquivos:
+            pendencias = arquivo.get("controle_importacao", {}).get("pendencias", [])
+            if pendencias:
+                status, _ = self.json_request("POST", f'/importadores/{arquivo["id"]}/descartar-pendencias', {"registros_ids":[p["registro_id"] for p in pendencias], "justificativa":"Registros fictícios fora do escopo deste fechamento de teste."})
+                self.assertEqual(status,200)
+
         status_http, _ = self.json_request(
             "POST",
             f'/competencias/{competencia["id"]}/fechar',

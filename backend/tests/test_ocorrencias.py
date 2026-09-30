@@ -52,7 +52,7 @@ class OcorrenciasTest(unittest.TestCase):
         return criar(self.dados(**kwargs), self.db)
 
     def dia(self, data="2026-09-10"):
-        result = apurar_competencia(self.db, self.competencia.id)
+        result = apurar_competencia(self.db, self.competencia.id, gerar_calendario=True)
         return next(d for d in result["marcacoes"] if d["data"] == data)
 
     def batidas(self, **kwargs):
@@ -64,6 +64,8 @@ class OcorrenciasTest(unittest.TestCase):
         return registro
 
     def fechar(self):
+        from test_support import preparar_fechamento_valido
+        preparar_fechamento_valido(self.db, self.competencia)
         fechar_competencia(self.competencia.id, FechamentoCompetenciaRequest(confirmar_pendencias=True), self.db)
 
     def test_crud_quatro_tipos_e_filtros(self):

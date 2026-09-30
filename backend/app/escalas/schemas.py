@@ -4,6 +4,9 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
+from app.banco_horas.regras import PoliticaHoras
+
+
 ModoApuracao = Literal["carga_horaria", "horario_fixo"]
 RegimeSabado = Literal["trabalha", "compensado", "nao_trabalha"]
 RegimeDomingo = Literal["trabalha", "nao_trabalha"]
@@ -45,10 +48,13 @@ class EscalaBase(BaseModel):
     tolerancia_intervalo_minutos: int | None = Field(default=None, ge=0)
     ativa: bool = True
     usa_banco_horas: bool = False
+    politica_horas: PoliticaHoras | None = None
 
     @model_validator(mode="after")
     def validar_configuracao(self) -> "EscalaBase":
         _validar_horarios(self)
+        if self.politica_horas is not None:
+            self.usa_banco_horas = self.politica_horas.percentual_banco > 0
         if self.modo_apuracao == "carga_horaria" and self.jornada_seg_sex_horas is None:
             raise ValueError("Informe a jornada de segunda a sexta para carga horária.")
         if (
@@ -85,6 +91,7 @@ class EscalaUpdate(BaseModel):
     tolerancia_intervalo_minutos: int | None = Field(default=None, ge=0)
     ativa: bool | None = None
     usa_banco_horas: bool | None = None
+    politica_horas: PoliticaHoras | None = None
 
 
 class EscalaRead(EscalaBase):

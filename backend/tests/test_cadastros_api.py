@@ -398,6 +398,7 @@ class CadastrosApiTest(unittest.TestCase):
         )
         self.assertEqual(status_http, 201)
 
+        self.requisicao("POST", f'/competencias/{competencia_julho["id"]}/inicializar-calendario')
         status_http, apuracao = self.requisicao(
             "GET", f'/apuracao?competencia_id={competencia_julho["id"]}'
         )

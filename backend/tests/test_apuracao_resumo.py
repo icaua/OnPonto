@@ -94,7 +94,7 @@ class ApuracaoResumoTest(unittest.TestCase):
             [("F001", "Pessoa Calendário")]
         )
 
-        primeiro = apurar_competencia(self.db, competencia.id)
+        primeiro = apurar_competencia(self.db, competencia.id, gerar_calendario=True)
 
         self.assertEqual(primeiro["resumo"][0]["dias_processados"], 28)
         self.assertEqual(len(primeiro["marcacoes"]), 28)
@@ -112,7 +112,7 @@ class ApuracaoResumoTest(unittest.TestCase):
         self.assertEqual(primeiro["resumo"][0]["pendencias"], 20)
 
         ids_primeira_apuracao = {item["id"] for item in primeiro["marcacoes"]}
-        segundo = apurar_competencia(self.db, competencia.id)
+        segundo = apurar_competencia(self.db, competencia.id, gerar_calendario=True)
         ids_segunda_apuracao = {item["id"] for item in segundo["marcacoes"]}
         self.assertEqual(ids_segunda_apuracao, ids_primeira_apuracao)
         self.assertEqual(
@@ -147,7 +147,7 @@ class ApuracaoResumoTest(unittest.TestCase):
         self.db.commit()
         id_importada = importada.id
 
-        resultado = apurar_competencia(self.db, competencia.id)
+        resultado = apurar_competencia(self.db, competencia.id, gerar_calendario=True)
         preservada = self.db.get(MarcacaoPonto, id_importada)
 
         self.assertEqual(len(resultado["marcacoes"]), 28)
@@ -188,7 +188,7 @@ class ApuracaoResumoTest(unittest.TestCase):
             self.db.add(marcacao)
         self.db.commit()
 
-        resultado = apurar_competencia(self.db, competencia.id)
+        resultado = apurar_competencia(self.db, competencia.id, gerar_calendario=True)
         resumo = resultado["resumo"][0]
         pendencia = resultado["pendencias"][0]
 
@@ -207,7 +207,7 @@ class ApuracaoResumoTest(unittest.TestCase):
             com_escala=False,
         )
 
-        resultado = apurar_competencia(self.db, competencia.id)
+        resultado = apurar_competencia(self.db, competencia.id, gerar_calendario=True)
 
         self.assertEqual(len(resultado["marcacoes"]), 28)
         self.assertTrue(all(item["status_dia"] == "normal" for item in resultado["marcacoes"]))
@@ -236,7 +236,7 @@ class ApuracaoResumoTest(unittest.TestCase):
         funcionario.escala_id = escala.id
         self.db.commit()
 
-        reprocessado = apurar_competencia(self.db, competencia.id)
+        reprocessado = apurar_competencia(self.db, competencia.id, gerar_calendario=True)
         domingos = [
             item for item in reprocessado["marcacoes"] if item["status_dia"] == "domingo"
         ]
@@ -255,7 +255,7 @@ class ApuracaoResumoTest(unittest.TestCase):
         competencia, escala, _ = self.criar_contexto(
             [("F004-B", "Pessoa com Decisão Manual")]
         )
-        primeiro = apurar_competencia(self.db, competencia.id)
+        primeiro = apurar_competencia(self.db, competencia.id, gerar_calendario=True)
         domingo = next(
             item for item in primeiro["marcacoes"] if item["data"] == "2026-02-01"
         )
@@ -266,7 +266,7 @@ class ApuracaoResumoTest(unittest.TestCase):
         escala.regime_domingo = "trabalha"
         self.db.commit()
 
-        reprocessado = apurar_competencia(self.db, competencia.id)
+        reprocessado = apurar_competencia(self.db, competencia.id, gerar_calendario=True)
         preservado = next(
             item for item in reprocessado["marcacoes"] if item["id"] == marcacao.id
         )
@@ -314,7 +314,7 @@ class ApuracaoResumoTest(unittest.TestCase):
             funcionarios_ativos=False,
         )
 
-        resultado = apurar_competencia(self.db, competencia.id)
+        resultado = apurar_competencia(self.db, competencia.id, gerar_calendario=True)
 
         self.assertEqual(resultado["marcacoes"], [])
         self.assertEqual(resultado["resumo"][0]["dias_processados"], 0)

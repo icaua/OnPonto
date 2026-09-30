@@ -9,6 +9,7 @@ class AjusteCreate(BaseModel):
     natureza: Literal["credito", "debito"]
     minutos: int = Field(gt=0, strict=True)
     data_referencia: date
+    lancamento_referencia_id: int | None = Field(default=None, gt=0)
     observacao: str = Field(min_length=1, max_length=5000)
 
     @field_validator("observacao")

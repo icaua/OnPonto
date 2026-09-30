@@ -270,12 +270,15 @@ small {
   display: block;
 }
 
-.op-sidebar .sidebar-nav {
-  display: block;
+.sidebar-scroll {
   min-height: 0;
   flex: 1;
-  padding: 14px 10px 4px;
   overflow-y: auto;
+}
+
+.op-sidebar .sidebar-nav {
+  display: block;
+  padding: 14px 10px 12px;
 }
 
 .op-sidebar ul {
@@ -345,8 +348,30 @@ small {
 }
 
 .sidebar-secondary {
-  padding: 8px 10px 10px;
+  padding: 16px 10px 14px;
   border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.sidebar-company-name {
+  display: block;
+  margin: 0 10px 12px;
+  overflow-wrap: anywhere;
+  color: var(--white);
+  font-size: 14px;
+}
+
+.sidebar-group-label {
+  display: block;
+  margin: 14px 11px 7px;
+  color: var(--brand-light);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.op-sidebar .sidebar-group-items {
+  margin: 0 0 8px 11px;
+  padding-left: 8px;
+  border-left: 1px solid rgba(255, 255, 255, 0.2);
 }
 
 .sidebar-section-label {
@@ -386,6 +411,21 @@ small {
 .sidebar-collapsed .sidebar-section-label,
 .sidebar-collapsed .sidebar-badge {
   display: none;
+}
+
+.is-sidebar-collapsed .sidebar-company-name,
+.is-sidebar-collapsed .sidebar-group-label,
+.sidebar-collapsed .sidebar-company-name,
+.sidebar-collapsed .sidebar-group-label {
+  display: none;
+}
+
+.is-sidebar-collapsed .sidebar-group-items,
+.sidebar-collapsed .sidebar-group-items {
+  margin: 4px 0;
+  padding: 4px 0;
+  border-left: 0;
+  border-block: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .is-sidebar-collapsed .sidebar-link,
@@ -633,6 +673,7 @@ small {
 
 .topbar__context {
   min-width: 0;
+  flex: 1;
   gap: 10px;
 }
 
@@ -647,6 +688,39 @@ small {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+.topbar__context-content {
+  width: 100%;
+  max-width: 620px;
+  gap: 3px;
+}
+
+.context-switchers {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  gap: 8px;
+  min-width: 0;
+}
+
+.context-selector {
+  min-width: 0;
+}
+
+.context-selector select {
+  width: 100%;
+  min-width: 0;
+  height: 32px;
+  padding: 4px 8px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: var(--surface-white);
+  color: var(--text-primary);
+  font: inherit;
+  font-weight: 600;
+  text-overflow: ellipsis;
+}
+
+.topbar__menu-button[hidden] { display: none; }
 
 .topbar__actions {
   gap: 8px;
@@ -1619,6 +1693,53 @@ textarea {
 .tab[aria-selected="true"] {
   border-bottom-color: var(--brand-primary);
   color: var(--brand-dark);
+}
+
+.competency-navigation {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+  margin-bottom: 14px;
+}
+
+.competency-navigation .competency-tabs {
+  min-width: 0;
+  margin: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.competency-navigation .tab {
+  flex: 0 0 auto;
+}
+
+.competency-resources {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.competency-resource {
+  min-height: 32px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+.competency-resource:hover,
+.competency-resource.is-active {
+  color: var(--brand-dark);
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+
+.competency-resource.is-active {
+  font-weight: 700;
 }
 
 .competency-hero {
@@ -3102,6 +3223,16 @@ input[type="checkbox"], input[type="radio"], input[type="range"] { accent-color:
   .employee-navigation { flex-wrap:wrap; }
   .employee-navigation label { min-width:100px; }
   .employee-navigation .position-label { flex-basis:100%; }
+  .workspace { --topbar-height: 112px; }
+  .topbar { flex-wrap: wrap; align-content: center; gap: 6px; padding-block: 6px; }
+  .topbar__context { flex-basis: 100%; }
+  .topbar__context-content { max-width: none; }
+  .topbar__actions { margin-left: auto; }
+}
+
+@media (max-width: 520px) {
+  .workspace { --topbar-height: 148px; }
+  .context-switchers { grid-template-columns: minmax(0, 1fr); gap: 4px; }
 }
 
 .page-title-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }

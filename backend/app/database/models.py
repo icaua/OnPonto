@@ -60,6 +60,18 @@ class Escala(Base, TimestampMixin):
     ativa: Mapped[bool] = mapped_column(Boolean, default=True)
     usa_banco_horas: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
 
+    politica_horas_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    @property
+    def politica_horas(self):
+        import json
+        return json.loads(self.politica_horas_json) if self.politica_horas_json else None
+
+    @politica_horas.setter
+    def politica_horas(self, valor):
+        from app.banco_horas.regras import PoliticaHoras
+        self.politica_horas_json = PoliticaHoras.model_validate(valor).model_dump_json() if valor is not None else None
+
     empresa = relationship("Empresa", back_populates="escalas")
     funcionarios = relationship("Funcionario", back_populates="escala")
 
@@ -129,9 +141,15 @@ class ArquivoRecebido(Base):
     competencia_id: Mapped[int] = mapped_column(ForeignKey("competencias.id"), nullable=False, index=True)
     nome_original: Mapped[str] = mapped_column(String(255), nullable=False)
     caminho_arquivo: Mapped[str] = mapped_column(String(500), nullable=False)
+    controle_importacao_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     tipo_arquivo: Mapped[str] = mapped_column(String(30), nullable=False)
     observacoes: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    @property
+    def controle_importacao(self):
+        import json
+        return json.loads(self.controle_importacao_json) if self.controle_importacao_json else None
 
     competencia = relationship("Competencia", back_populates="arquivos")
     marcacoes = relationship("MarcacaoPonto", back_populates="arquivo_origem")
@@ -237,6 +255,10 @@ class LancamentoBancoHoras(Base, TimestampMixin):
     empresa_id: Mapped[int] = mapped_column(ForeignKey("empresas.id"), nullable=False, index=True)
     competencia_origem_id: Mapped[int | None] = mapped_column(ForeignKey("competencias.id"), nullable=True, index=True)
     escala_origem_id: Mapped[int | None] = mapped_column(ForeignKey("escalas.id"), nullable=True)
+    politica_aplicada_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    lancamento_referencia_id: Mapped[int | None] = mapped_column(ForeignKey("lancamentos_banco_horas.id"), nullable=True)
+    ciclo_inicio: Mapped[date | None] = mapped_column(Date, nullable=True)
+    ciclo_fim: Mapped[date | None] = mapped_column(Date, nullable=True)
     natureza: Mapped[str] = mapped_column(String(10), nullable=False)
     origem: Mapped[str] = mapped_column(String(30), nullable=False)
     minutos: Mapped[int] = mapped_column(Integer, nullable=False)

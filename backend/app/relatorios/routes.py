@@ -230,7 +230,6 @@ def exportar_excel(
     resultado = apurar_competencia(db, competencia_id)
     if not resultado:
         raise HTTPException(status_code=404, detail="Competência não encontrada.")
-    db.commit()
 
     wb = Workbook()
     ws_resumo = wb.active
@@ -336,6 +335,47 @@ def exportar_excel(
                 "Fechada" if b["consolidado"] else "Lançamentos atuais; competência ainda aberta"])
         finalizar_planilha(ws_banco)
 
+    politicas = [item for item in resultado["resumo"] if item.get("politicas_horas_aplicadas")]
+    if politicas:
+        from app.banco_horas.service import formatar_saldo
+        from app.banco_horas.regras import CAMPOS_DISTRIBUICAO
+        ws_he = wb.create_sheet("Distribuição de HE")
+        ws_he.append(["Funcionário", "HE apurada", "Para folha", "Base do banco", "Crédito com fator", "Débitos do banco",
+                      "Adicionais da folha", "Saldo anterior", "Saldo final", "Compensados 1:1"])
+        for item in politicas:
+            banco = item.get("banco_horas", {})
+            ws_he.append([texto_seguro_excel(item["funcionario"])] +
+                [valor_calculado_excel(duracao_excel(item.get(c))) for c in CAMPOS_DISTRIBUICAO] +
+                [texto_seguro_excel(adicionais_horas(item)),
+                 formatar_saldo(banco["saldo_anterior_minutos"]) if banco else "—",
+                 formatar_saldo(banco["saldo_final_minutos"]) if banco else "—",
+                 valor_calculado_excel(duracao_excel(banco.get("compensados_minutos")))])
+            for col in (2, 3, 4, 5, 6, 10):
+                ws_he.cell(ws_he.max_row, col).number_format = FORMATO_DURACAO_EXCEL
+        finalizar_planilha(ws_he)
+        ws_regras = wb.create_sheet("Políticas aplicadas")
+        ws_regras.append(["Funcionário", "Escala", "Referência", "Modo", "% folha", "% banco", "Adicional folha (%)",
+                          "Ciclo (dias)", "Marco do ciclo", "Tipo de dia", "Fator banco", "Base do fator", "Adicional do dia (%)",
+                          "Fim de ciclo credor", "Fim de ciclo devedor", "Desligamento credor", "Desligamento devedor", "Arredondamento"])
+        for item in politicas:
+            for aplicada in item["politicas_horas_aplicadas"]:
+                p = aplicada["politica"]
+                for tipo in ("normal", "sabado", "domingo", "feriado"):
+                    regra = p[tipo]
+                    ws_regras.append([texto_seguro_excel(item["funcionario"]), aplicada["escala_id"], texto_seguro_excel(p["referencia"]),
+                        p["modo"], float(p["percentual_folha"]), float(p["percentual_banco"]), p["adicional_folha_percentual"],
+                        p["ciclo_dias"], p["inicio_ciclo"], tipo, regra["fator_banco"], regra["base_fator"], regra["adicional_folha_percentual"],
+                        p["fim_ciclo_credor"], p["fim_ciclo_devedor"], p["desligamento_credor"], p["desligamento_devedor"], aplicada["arredondamento"]])
+        finalizar_planilha(ws_regras)
+        tratamentos = [(item, t) for item in politicas for t in item.get("banco_horas", {}).get("tratamentos_pendentes", [])]
+        if tratamentos:
+            ws_tr = wb.create_sheet("Tratamentos pendentes")
+            ws_tr.append(["Funcionário", "Evento", "Ciclo início", "Ciclo fim", "Natureza", "Minutos", "Tratamento", "Adicional (%)", "Lançamentos"])
+            for item, t in tratamentos:
+                ws_tr.append([texto_seguro_excel(item["funcionario"]), t["evento"], t["ciclo_inicio"], t["ciclo_fim"], t["natureza"],
+                    t["minutos"], t["tratamento"], t["adicional_percentual"], ", ".join(map(str, t["lancamentos_ids"]))])
+            finalizar_planilha(ws_tr)
+
     arquivo = BytesIO()
     wb.save(arquivo)
     arquivo.seek(0)
@@ -360,7 +400,6 @@ def relatorio_impressao(
     resultado = apurar_competencia(db, competencia_id)
     if not resultado:
         raise HTTPException(status_code=404, detail="Competência não encontrada.")
-    db.commit()
 
     linhas_resumo = "\n".join(
         f"""
@@ -458,7 +497,7 @@ def relatorio_impressao(
         </section>
 
         {secao_ocorrencias}
-        {''.join('<h2>' + escape(item['funcionario']) + '</h2>' + bloco_banco_horas(item) for item in resultado['resumo'] if item.get('banco_horas'))}
+        {''.join('<h2>' + escape(item['funcionario']) + '</h2>' + bloco_distribuicao(item) + bloco_banco_horas(item) for item in resultado['resumo'] if item.get('banco_horas') or item.get('politicas_horas_aplicadas'))}
         <footer>On Ponto - relatório imprimível gerado pelo navegador.</footer>
       </main>
     </body>
@@ -498,12 +537,42 @@ ESTILO_ESPELHO = ESTILO_IMPRESSAO + """
 """
 
 
+def duracao_distribuicao(minutos):
+    return f"{minutos // 60:02d}:{minutos % 60:02d}" if minutos is not None else "—"
+
+
+def adicionais_horas(item):
+    return "; ".join(duracao_distribuicao(a["minutos"]) + " a " + (str(a["percentual"]) + "%" if a["percentual"] is not None else "definir")
+                     for a in (item.get("adicionais_folha") or [])) or "—"
+
+
+def bloco_distribuicao(resumo):
+    if not resumo.get("politicas_horas_aplicadas"):
+        return ""
+    campos = [("HE apurada", "extra_apurada_minutos"), ("HE para folha", "extra_folha_minutos"),
+              ("Base do banco", "extra_banco_base_minutos"), ("Crédito com fator", "extra_banco_minutos"), ("Débitos do banco", "debito_banco_minutos")]
+    html = '<section class="totais"><h2>Distribuição das horas extras</h2>'
+    html += ''.join('<span>' + label + ': <strong>' + duracao_distribuicao(resumo.get(campo)) + '</strong></span>' for label, campo in campos)
+    html += '<span>Adicionais da folha: ' + escape(adicionais_horas(resumo)) + '</span>'
+    for aplicada in resumo["politicas_horas_aplicadas"]:
+        p = aplicada["politica"]
+        html += '<span>Escala ' + str(aplicada["escala_id"]) + ': ' + escape(p["percentual_folha"]) + '% folha / ' + escape(p["percentual_banco"]) + '% banco'
+        if p["ciclo_dias"]:
+            html += ' · Ciclos de ' + str(p["ciclo_dias"]) + ' dias desde ' + escape(p["inicio_ciclo"])
+        html += '</span>'
+    return html + '<span>Quantidades em horas. Valores monetários são calculados pela folha.</span></section>'
+
+
 def bloco_banco_horas(resumo):
     from app.banco_horas.service import formatar_saldo
     banco = resumo.get("banco_horas")
     if not banco:
         return ""
     html = '<section class="totais banco-horas" aria-label="Banco de horas"><span>Saldo do banco de horas ao final da competência: <strong>' + formatar_saldo(banco["saldo_final_minutos"]) + '</strong></span>'
+    for label, campo in [("Saldo inicial", "saldo_anterior_minutos"), ("Compensados 1:1", "compensados_minutos")]:
+        html += '<span>' + label + ': <strong>' + (formatar_saldo(banco[campo]) if banco.get(campo) is not None else "—") + '</strong></span>'
+    for t in banco.get("tratamentos_pendentes", []):
+        html += '<span>Tratamento pendente (' + escape(t["evento"]) + '): ' + duracao_distribuicao(t["minutos"]) + ' · ' + escape(t["tratamento"]) + ' · confirmar antes de registrar baixa.</span>'
     if not banco["consolidado"]:
         html += '<span>Saldo dos lançamentos consolidados. Esta competência entrará no banco ao fechar.</span>'
     if banco.get("data_demissao"):
@@ -543,7 +612,7 @@ def renderizar_bloco_espelho(resultado: dict, resumo: dict, dias: list, cargo: s
             notas.append(f"<li><strong>{rotulo_data}</strong> — "
                          + " · ".join(texto(v) for v in (motivo, observacao) if v) + "</li>")
 
-    pendente = any(item.get("pendente") for item in dias)
+    pendente = not dias or any(item.get("pendente") for item in dias)
     aviso = ('<p class="aviso" role="note">Esta competência ainda possui pendências de conferência '
              '— documento sujeito a revisão.</p>') if pendente and resultado["competencia"]["status"] != "fechada" else ""
     if not dias:
@@ -575,6 +644,7 @@ def renderizar_bloco_espelho(resultado: dict, resumo: dict, dias: list, cargo: s
 <span>Atrasos: <strong>{atrasos}</strong></span><span>Extras: <strong>{extras}</strong></span>
 <span>Faltas: <strong>{faltas}</strong></span><span>Atestados: <strong>{atestados}</strong></span>
 <span>Dias com ocorrência: <strong>{com_ocorrencia}</strong></span>{feriado_html}</section>
+{bloco_distribuicao(resumo)}
 {bloco_banco_horas(resumo)}
 {notas_html}
 <section class="assinaturas" aria-label="Assinaturas">
@@ -610,7 +680,6 @@ def espelho_ponto(
                    if item["funcionario_id"] == funcionario_id), key=lambda item: item["data"])
     funcionario = db.get(Funcionario, funcionario_id)
     cargo = funcionario.cargo if funcionario else None
-    db.commit()
 
     bloco = renderizar_bloco_espelho(resultado, resumo, dias, cargo)
     return documento_espelhos(bloco, f"Espelho de ponto — {resumo['funcionario']}")
@@ -635,6 +704,5 @@ def espelho_ponto_lote(
         sorted(dias_por_funcionario.get(resumo["funcionario_id"], []), key=lambda item: item["data"]),
         cargos.get(resumo["funcionario_id"]),
     ) for resumo in resultado["resumo"]]
-    db.commit()
     conteudo = "\n".join(blocos) if blocos else '<p role="status">Nenhum funcionário disponível nesta competência.</p>'
     return documento_espelhos(conteudo, f"Espelhos de ponto — {resultado['competencia']['label']}")

@@ -22,9 +22,9 @@ from app.competencias.service import (
 )
 from app.database.models import ArquivoRecebido, Competencia, Empresa, MarcacaoPonto
 from app.database.session import get_db
-from app.apuracao.service import apurar_competencia
+from app.apuracao.service import apurar_competencia, gerar_dias_faltantes
 from app.ocorrencias.service import iniciar_escrita
-from app.banco_horas.service import gerar_lancamentos, reconciliar, estornar_competencia, validar_cobertura_folgas
+from app.banco_horas.service import gerar_lancamentos, reconciliar, estornar_competencia, validar_cobertura_folgas, validar_saldos_permitidos, complementar_apuracao
 
 
 router = APIRouter(prefix="/competencias", tags=["Competências"])
@@ -131,36 +131,13 @@ def fechar_competencia(
     if competencia.status == "fechada":
         raise HTTPException(status_code=409, detail="A competência já está fechada.")
 
-    total_pendencias = sincronizar_status_competencia(
-        db,
-        competencia,
-        gerar_calendario=True,
-    )
-    total_marcacoes = contar_marcacoes(db, competencia.id)
-    fechamento_excepcional = competencia.status != "conferida"
-
-    if fechamento_excepcional and not payload.confirmar_pendencias:
-        if total_pendencias:
-            codigo = "competencia_com_pendencias"
-            mensagem = mensagem_pendencias(total_pendencias)
-        elif total_marcacoes == 0:
-            codigo = "competencia_sem_registros"
-            mensagem = "A competência não possui registros processados para fechamento."
-        else:
-            codigo = "competencia_nao_conferida"
-            mensagem = "A competência ainda não está conferida."
-        # O calendário gerado ao tentar fechar é informação válida da
-        # competência e precisa continuar visível mesmo quando o fechamento é
-        # recusado por pendências.
-        db.commit()
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "codigo": codigo,
-                "mensagem": mensagem,
-                "total_pendencias": total_pendencias,
-            },
-        )
+    resultado = apurar_competencia(db, competencia.id, incluir_banco=False)
+    decisao = resultado["fechamento"]
+    total_pendencias = len(resultado["pendencias"])
+    fechamento_excepcional = False
+    if not decisao["pode_fechar"]:
+        raise HTTPException(409, detail={"codigo": "fechamento_bloqueado",
+            "mensagem": decisao["motivo_bloqueio"], **decisao, "operacional": resultado["operacional"]})
 
     try:
         resultado = apurar_competencia(db, competencia.id, gerar_calendario=False, incluir_banco=False)
@@ -170,10 +147,14 @@ def fechar_competencia(
         for funcionario_id in sorted({item.funcionario_id for item in gerados}):
             reconciliar(db, funcionario_id, "Fechamento de competência")
         validar_cobertura_folgas(db, gerados)
+        validar_saldos_permitidos(db, gerados)
+        resultado["fechamento"] = {"pode_fechar": False, "motivo_bloqueio": "A competência já está fechada.", "proxima_acao": "exportar"}
         resultado["competencia"]["status"] = "fechada"
         resultado["competencia"]["versao_fechamento"] = competencia.versao_fechamento
-        competencia.apuracao_fechada = json.dumps(resultado, ensure_ascii=False)
         competencia.status = "fechada"
+        complementar_apuracao(db, competencia, resultado)
+        resultado["snapshot_versao"] = 2
+        competencia.apuracao_fechada = json.dumps(resultado, ensure_ascii=False)
         db.commit()
     except Exception:
         db.rollback()
@@ -221,7 +202,7 @@ def reabrir_competencia(
         competencia.status = "aberta"
         competencia.apuracao_fechada = None
         total_pendencias = contar_pendencias_operacionais(
-            db, competencia.id, gerar_calendario=True,
+            db, competencia.id, gerar_calendario=False,
         )
         total_marcacoes = contar_marcacoes(db, competencia.id)
         competencia.status = "em_conferencia" if total_marcacoes else "aberta"
@@ -240,3 +221,16 @@ def reabrir_competencia(
         "fechamento_excepcional": False,
         "mensagem": "Competência reaberta.",
     }
+
+
+@router.post("/{competencia_id}/inicializar-calendario")
+def inicializar_calendario(competencia_id: int, db: Session = Depends(get_db)):
+    iniciar_escrita(db)
+    competencia = db.get(Competencia, competencia_id)
+    if not competencia:
+        raise HTTPException(404, "Competência não encontrada.")
+    exigir_competencia_editavel(competencia)
+    criados = gerar_dias_faltantes(db, competencia)
+    sincronizar_status_competencia(db, competencia)
+    db.commit()
+    return {"criados": criados}

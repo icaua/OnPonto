@@ -66,7 +66,7 @@ test('cadastro e edicao mantem campo opcional vazio para null e preservam zero l
       upsertEntity(){},scales:()=>[],normalizeScale:x=>x,compareEntityNames(){},
       invalidateCompanyCompetenceData(){},render(){},showToast(){}};
     vm.createContext(context);
-    vm.runInContext(extract(app,'nullableDialogNumber') + extract(app,'openScaleDialog'),context);
+    vm.runInContext(['nullableDialogNumber','hourPolicyFields','hourPolicyPayload','openScaleDialog'].map(name=>extract(app,name)).join('\n'),context);
     context.openScaleDialog(scenario.entity?.id);
     const field = dialog.fields.find(f=>f.name==='tolerancia_intervalo_minutos');
     assert.equal(field.value, scenario.entity?.tolerancia_intervalo_minutos ?? '');

@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.database.models import Empresa, Escala, Funcionario, HistoricoVinculoEscala, LancamentoBancoHoras
 from app.banco_horas.politica import validar_prazo
-from app.banco_horas.service import calcular_saldo_banco_horas
+from app.banco_horas.service import situacao_lancamentos
 from app.ocorrencias.service import iniciar_escrita
 from app.database.session import get_db
 from app.escalas.schemas import EscalaBase, EscalaCreate, EscalaRead, EscalaUpdate
@@ -40,7 +40,7 @@ def listar_escalas(
 def criar_escala(payload: EscalaCreate, db: Session = Depends(get_db)) -> Escala:
     iniciar_escrita(db)
     validar_empresa(db, payload.empresa_id)
-    if payload.usa_banco_horas:
+    if payload.usa_banco_horas and payload.politica_horas is None:
         validar_prazo(db.get(Empresa, payload.empresa_id))
     escala = Escala(**payload.model_dump())
     db.add(escala)
@@ -62,6 +62,9 @@ def atualizar(
     iniciar_escrita(db)
     escala = obter_escala_ou_404(db, escala_id)
     dados = payload.model_dump(exclude_unset=True)
+    if (escala.politica_horas and "politica_horas" not in dados and "usa_banco_horas" in dados
+            and dados["usa_banco_horas"] != escala.usa_banco_horas):
+        raise HTTPException(422, "Esta escala usa uma política explícita. Altere a política para mudar o destino das horas extras.")
     dados_completos = {
         campo: dados.get(campo, getattr(escala, campo))
         for campo in EscalaBase.model_fields
@@ -74,11 +77,11 @@ def atualizar(
             detail=exc.errors(include_context=False),
         ) from exc
     validar_empresa(db, validados.empresa_id)
-    if validados.usa_banco_horas:
+    if validados.usa_banco_horas and validados.politica_horas is None:
         validar_prazo(db.get(Empresa, validados.empresa_id))
     if escala.usa_banco_horas and not validados.usa_banco_horas:
         for funcionario in escala.funcionarios:
-            if calcular_saldo_banco_horas(db, funcionario.id) != 0:
+            if any(restante for _, _, restante in situacao_lancamentos(db, funcionario.id)):
                 raise HTTPException(409, "Não é possível desativar o banco de horas nesta escala: existem funcionários com saldo pendente. Zere o saldo (compensação ou ajuste manual) antes de desativar.")
     tem_historico = db.query(HistoricoVinculoEscala.id).filter_by(escala_id=escala.id).first()
     if validados.empresa_id != escala.empresa_id and tem_historico:

@@ -37,6 +37,7 @@ class AdmissaoCalendarioTest(unittest.TestCase):
 
     def apurar(self, **kwargs):
         self.db.flush()
+        kwargs.setdefault("gerar_calendario", True)
         return apurar_competencia(self.db, self.c.id, **kwargs)
 
     def evento(self, **kwargs):

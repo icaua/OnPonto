@@ -8,6 +8,9 @@ from app.competencias.service import exigir_competencia_editavel, sincronizar_st
 from app.database.models import Competencia, Funcionario, MarcacaoPonto
 from app.database.session import get_db
 from app.marcacoes.schemas import MarcacaoCreate, MarcacaoRead, MarcacaoUpdate, ORIGENS, STATUS_DIA
+from app.apuracao.service import apurar_competencia
+from app.ocorrencias.service import iniciar_escrita
+from pydantic import BaseModel, Field
 from app.marcacoes.auditoria import estado, registrar_alteracao, validar_sequencia
 
 
@@ -89,6 +92,7 @@ def salvar_marcacao(payload: MarcacaoCreate, db: Session = Depends(get_db)) -> M
         db.add(marcacao)
 
     validar_sequencia(marcacao)
+    validar_conferencia(db, marcacao)
     registrar_alteracao(marcacao, antes)
     try:
         sincronizar_status_competencia(db, competencia)
@@ -98,6 +102,50 @@ def salvar_marcacao(payload: MarcacaoCreate, db: Session = Depends(get_db)) -> M
         raise HTTPException(status_code=400, detail="Não foi possível salvar a marcação.") from exc
     db.refresh(marcacao)
     return marcacao
+
+
+
+class ConferenciaLote(BaseModel):
+    competencia_id: int
+    marcacoes_ids: list[int] = Field(min_length=1, max_length=1000)
+
+
+def validar_conferencia(db, marcacao):
+    if not marcacao.conferido:
+        return
+    db.flush()
+    resultado = apurar_competencia(db, marcacao.competencia_id, incluir_banco=False)
+    dia = next((d for d in resultado["marcacoes"] if d["id"] == marcacao.id), None)
+    if dia is None or dia["problema"]:
+        db.rollback()
+        raise HTTPException(409, detail={"codigo": "dia_com_problema", "mensagem": dia["pendencia_motivo"] if dia else "Registro fora do vínculo."})
+
+
+@router.post("/conferir-lote")
+def conferir_lote(payload: ConferenciaLote, db: Session = Depends(get_db)):
+    iniciar_escrita(db)
+    competencia = db.get(Competencia, payload.competencia_id)
+    if not competencia:
+        raise HTTPException(404, "Competência não encontrada.")
+    exigir_competencia_editavel(competencia)
+    resultado = apurar_competencia(db, competencia.id, incluir_banco=False)
+    por_id = {d["id"]: d for d in resultado["marcacoes"]}
+    conferidos, problemas = [], []
+    for id in dict.fromkeys(payload.marcacoes_ids):
+        dia = por_id.get(id)
+        if dia is None:
+            raise HTTPException(422, "Seleção contém registro que não pertence à competência ou ao vínculo.")
+        if dia["problema"]:
+            problemas.append({"id": id, "motivo": dia["pendencia_motivo"]})
+            continue
+        marcacao = db.get(MarcacaoPonto, id)
+        antes = estado(marcacao)
+        marcacao.conferido = True
+        registrar_alteracao(marcacao, antes)
+        conferidos.append(id)
+    sincronizar_status_competencia(db, competencia)
+    db.commit()
+    return {"conferidos": conferidos, "problemas": problemas, "total_conferidos": len(conferidos), "total_problemas": len(problemas)}
 
 
 @router.get("/{marcacao_id}", response_model=MarcacaoRead)
@@ -137,6 +185,7 @@ def atualizar_marcacao(
         marcacao.origem = "manual"
 
     validar_sequencia(marcacao)
+    validar_conferencia(db, marcacao)
     registrar_alteracao(marcacao, antes)
     try:
         sincronizar_status_competencia(db, competencia_original)

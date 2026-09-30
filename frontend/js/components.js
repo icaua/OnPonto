@@ -182,23 +182,19 @@
   }
 
   var DEFAULT_PRIMARY_NAV = [
-    { id: "dashboard", label: "Painel", icon: "dashboard" },
-    { id: "imports", label: "Importações", icon: "upload" },
-    { id: "competencies", label: "Competências", icon: "folder" },
-    { id: "conference", label: "Conferência", icon: "check_square" },
-    { id: "reports", label: "Relatórios", icon: "report" },
-  ];
-
-  var DEFAULT_SECONDARY_NAV = [
-    { id: "registrations", label: "Cadastros", icon: "users" },
-    { id: "settings", label: "Configurações", icon: "settings" },
+    { id: "companies", label: "Empresas", icon: "briefcase" },
+    { id: "calendar", label: "Calendário", icon: "calendar" },
   ];
 
   function navItem(item, active, collapsed) {
+    if (item.children) {
+      return '<li class="sidebar-item sidebar-group"><span class="sidebar-group-label">' + text(item.label) + '</span><ul class="sidebar-group-items" role="group" aria-label="' + text(item.label) + '">' +
+        item.children.map(function (child) { return navItem(child, active, collapsed); }).join("") + '</ul></li>';
+    }
     var id = valueOf(item.id, item.view, item.route);
     var isActive = sameId(id, active);
     return '<li class="sidebar-item"><button type="button" class="sidebar-link' + (isActive ? " is-active" : "") + '" data-action="navigate" data-view="' + text(id) + '" data-route="' + text(id) + '"' +
-      (isActive ? ' aria-current="page"' : "") + attr("title", collapsed ? item.label : null) + boolAttr("disabled", item.disabled) + ">" +
+      (isActive ? attr("aria-current", item.current || "page") : "") + attr("aria-label", item.label) + attr("title", item.label) + boolAttr("disabled", item.disabled) + ">" +
       Icon(item.icon || "folder") + '<span class="sidebar-link-label">' + text(item.label) + "</span>" +
       (item.badge == null ? "" : '<span class="sidebar-badge" aria-label="' + text(item.badge + " pendências") + '">' + text(item.badge) + "</span>") +
       "</button></li>";
@@ -209,12 +205,12 @@
     var collapsed = Boolean(valueOf(settings.collapsed, settings.isCollapsed, false));
     var active = valueOf(settings.active, settings.activeView, settings.activeRoute, settings.route);
     var primary = settings.primaryItems || DEFAULT_PRIMARY_NAV;
-    var secondary = settings.secondaryItems || DEFAULT_SECONDARY_NAV;
-    var secondaryMarkup = secondary.length ? '<div class="sidebar-secondary"><span class="sidebar-section-label">' + text(settings.secondaryLabel || "Administração") + '</span><nav aria-label="Navegação secundária"><ul>' + secondary.map(function (item) { return navItem(item, active, collapsed); }).join("") + "</ul></nav></div>" : "";
+    var secondary = settings.secondaryItems || [];
+    var secondaryMarkup = secondary.length ? '<div class="sidebar-secondary"><span class="sidebar-section-label">Empresa atual</span><strong class="sidebar-company-name" title="' + text(settings.companyName) + '">' + text(settings.companyName) + '</strong><nav aria-label="' + text("Empresa " + (settings.companyName || "atual")) + '"><ul>' + secondary.map(function (item) { return navItem(item, active, collapsed); }).join("") + "</ul></nav></div>" : "";
     return '<div class="op-sidebar' + (collapsed ? " is-collapsed" : "") + '" data-component="sidebar">' +
       '<div class="sidebar-brand"><img class="sidebar-brand-logo" src="brand/on-ponto-logo-white.svg" alt="On Ponto" width="190" height="47"><img class="sidebar-brand-symbol" src="brand/on-ponto-symbol-white.svg" alt="On Ponto" width="36" height="36"></div>' +
-      '<nav class="sidebar-nav" aria-label="Navegação principal"><ul>' + primary.map(function (item) { return navItem(item, active, collapsed); }).join("") + "</ul></nav>" +
-      secondaryMarkup +
+      '<div class="sidebar-scroll"><nav class="sidebar-nav" aria-label="Trabalho"><span class="sidebar-section-label">Trabalho</span><ul>' + primary.map(function (item) { return navItem(item, active, collapsed); }).join("") + "</ul></nav>" +
+      secondaryMarkup + '</div>' +
       '<button type="button" class="sidebar-collapse" data-action="toggle-sidebar" aria-expanded="' + (collapsed ? "false" : "true") + '" aria-label="' + text(collapsed ? "Expandir menu" : "Recolher menu") + '">' +
       Icon(collapsed ? "chevron_right" : "chevron_left") + '<span class="sidebar-link-label">' + text(collapsed ? "Expandir" : "Recolher") + "</span></button></div>";
   }

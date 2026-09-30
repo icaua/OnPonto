@@ -7,7 +7,7 @@ import logging
 from sqlalchemy import Connection, Engine, inspect
 
 
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 11
 logger = logging.getLogger(__name__)
 
 COLUNAS_EMPRESA_LEGADAS = (
@@ -294,7 +294,7 @@ def _normalizar_status_dia(conexao: Connection, tabelas: set[str]) -> None:
 def _tem_unicidade_funcionario_data(conexao: Connection) -> bool:
     for indice in conexao.exec_driver_sql(
         'PRAGMA index_list("marcacoes_ponto")'
-    ).mappings():
+    ).mappings().all():
         if not indice.get("unique"):
             continue
         nome = str(indice["name"]).replace('"', '""')
@@ -524,6 +524,18 @@ def _aplicar_sqlite(conexao: Connection) -> dict[str, int]:
     # A migração legada pode ter criado escalas nesta mesma transação.
     tabelas = set(inspect(conexao).get_table_names())
     _migrar_banco_horas(conexao, tabelas)
+    if "arquivos_recebidos" in tabelas and "controle_importacao_json" not in _nomes_colunas(conexao, "arquivos_recebidos"):
+        conexao.exec_driver_sql("ALTER TABLE arquivos_recebidos ADD COLUMN controle_importacao_json TEXT")
+    for tabela, colunas in {
+        "escalas": {"politica_horas_json": "TEXT"},
+        "lancamentos_banco_horas": {"politica_aplicada_json": "TEXT", "ciclo_inicio": "DATE", "ciclo_fim": "DATE",
+                                    "lancamento_referencia_id": "INTEGER REFERENCES lancamentos_banco_horas(id)"},
+    }.items():
+        if tabela in set(inspect(conexao).get_table_names()):
+            existentes = _nomes_colunas(conexao, tabela)
+            for coluna, tipo in colunas.items():
+                if coluna not in existentes:
+                    conexao.exec_driver_sql(f"ALTER TABLE {tabela} ADD COLUMN {coluna} {tipo}")
     if versao_atual < SCHEMA_VERSION:
         conexao.exec_driver_sql(f"PRAGMA user_version = {SCHEMA_VERSION}")
     return {"escalas_intervalo_convertidas": convertidas}

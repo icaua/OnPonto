@@ -69,6 +69,7 @@ class CalendarioApiTest(unittest.TestCase):
         _,f = self.requisicao('POST','/funcionarios',{'empresa_id':empresa['id'],'nome':'Pessoa','escala_id':escala['id'],'data_admissao':'2026-06-18'})
         _,c = self.requisicao('POST','/competencias',{'empresa_id':empresa['id'],'mes':6,'ano':2026})
         _,e = self.novo_evento(abrangencia='EMPRESA',empresa_id=empresa['id'])
+        self.requisicao('POST', f'/competencias/{c["id"]}/inicializar-calendario')
         url = f'/apuracao?competencia_id={c["id"]}'
         status,r = self.requisicao('GET',url)
         self.assertEqual(status,200,r)

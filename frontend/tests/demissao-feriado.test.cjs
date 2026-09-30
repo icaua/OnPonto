@@ -21,11 +21,11 @@ test('demissao opcional no formulario valida intervalo e envia null ao limpar',a
   assert.equal(request.body.data_demissao,'2026-06-15');
   await dialog.onConfirm({nome:'Pessoa',codigo:'1',ativo:'true',data_demissao:''});assert.equal(request.body.data_demissao,null);
 });
-test('resumo normaliza snapshots antigos para zero e preserva feriado indisponivel',()=>{
+test('resumo mantém ausência em snapshots antigos e preserva feriado indisponivel',()=>{
   const ctx={apiCollection:(obj,keys)=>keys.map(k=>obj[k]).find(Array.isArray)||[],
     valueFromAliases:(obj,keys)=>keys.map(k=>obj?.[k]).find(v=>v!==undefined&&v!==null)??null};
   vm.createContext(ctx);vm.runInContext(extract('normalizeCompetenceSummary'),ctx);
-  for(const [record,expected] of [[{},0],[{horas_feriado_minutos:240},240],[{horas_feriado_minutos:null},null]]) {
+  for(const [record,expected] of [[{},null],[{horas_feriado_minutos:240},240],[{horas_feriado_minutos:null},null]]) {
     assert.equal(ctx.normalizeCompetenceSummary({resumo:[record]}).rows[0].holidayMinutes,expected);
   }
 });

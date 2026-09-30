@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict
 class ArquivoRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
+    controle_importacao: dict | None = None
     id: int
     competencia_id: int
     nome_original: str

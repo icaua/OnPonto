@@ -6,6 +6,8 @@ import unittest
 from pathlib import Path
 
 from sqlalchemy import create_engine, event, inspect
+from sqlalchemy.pool import NullPool
+from test_support import TemporaryDirectory
 
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
@@ -16,7 +18,7 @@ from app.database.migrations import SCHEMA_VERSION, aplicar_migracoes_compativei
 
 
 def criar_engine_com_fk(banco: Path):
-    engine = create_engine(f"sqlite:///{banco}")
+    engine = create_engine(f"sqlite:///{banco}", poolclass=NullPool)
 
     @event.listens_for(engine, "connect")
     def habilitar_fk(dbapi_connection, _connection_record) -> None:
@@ -44,7 +46,7 @@ def indices_unicos(conexao, tabela: str) -> set[tuple[str, ...]]:
 
 class MigracaoCompativelTest(unittest.TestCase):
     def test_migracao_eh_idempotente_e_preserva_dados(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="onponto-migration-") as pasta:
+        with TemporaryDirectory(prefix="onponto-migration-") as pasta:
             banco = Path(pasta) / "legado.db"
             conexao = sqlite3.connect(banco)
             conexao.executescript(
@@ -65,7 +67,7 @@ class MigracaoCompativelTest(unittest.TestCase):
             conexao.commit()
             conexao.close()
 
-            engine = create_engine(f"sqlite:///{banco}")
+            engine = create_engine(f"sqlite:///{banco}", poolclass=NullPool)
             aplicar_migracoes_compativeis(engine)
             aplicar_migracoes_compativeis(engine)
 
@@ -91,7 +93,7 @@ class MigracaoCompativelTest(unittest.TestCase):
             engine.dispose()
 
     def test_migracao_v1_cria_escala_padrao_e_especifica(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="onponto-migration-v1-") as pasta:
+        with TemporaryDirectory(prefix="onponto-migration-v1-") as pasta:
             banco = Path(pasta) / "legado-v1.db"
             conexao = sqlite3.connect(banco)
             conexao.executescript(
@@ -234,7 +236,7 @@ class MigracaoCompativelTest(unittest.TestCase):
             engine.dispose()
 
     def test_migracao_v2_preserva_horario_fixo_e_normaliza_status(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="onponto-migration-v2-") as pasta:
+        with TemporaryDirectory(prefix="onponto-migration-v2-") as pasta:
             banco = Path(pasta) / "legado-v2.db"
             conexao = sqlite3.connect(banco)
             conexao.executescript(
@@ -417,7 +419,7 @@ class MigracaoCompativelTest(unittest.TestCase):
             engine.dispose()
 
     def test_migracao_interrompe_sem_apagar_duplicidade_funcionario_data(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="onponto-migration-duplicate-") as pasta:
+        with TemporaryDirectory(prefix="onponto-migration-duplicate-") as pasta:
             banco = Path(pasta) / "duplicado.db"
             with closing(sqlite3.connect(banco)) as conexao:
                 conexao.executescript(
@@ -436,7 +438,7 @@ class MigracaoCompativelTest(unittest.TestCase):
                     """
                 )
 
-            engine = create_engine(f"sqlite:///{banco}")
+            engine = create_engine(f"sqlite:///{banco}", poolclass=NullPool)
             with self.assertRaisesRegex(RuntimeError, "nenhum registro foi removido"):
                 aplicar_migracoes_compativeis(engine)
             engine.dispose()

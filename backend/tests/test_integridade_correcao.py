@@ -43,6 +43,8 @@ class IntegridadeCorrecaoTest(unittest.TestCase):
         self.db.commit()
 
     def fechar(self):
+        from test_support import preparar_fechamento_valido
+        preparar_fechamento_valido(self.db, self.competencia)
         fechar_competencia(self.competencia.id, FechamentoCompetenciaRequest(confirmar_pendencias=True), self.db)
 
     def test_consulta_legada_fechada_nao_gera_calendario(self):

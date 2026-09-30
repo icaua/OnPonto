@@ -34,7 +34,7 @@ def contar_pendencias_operacionais(
         competencia_id,
         gerar_calendario=gerar_calendario,
     )
-    return len(resultado["pendencias"]) if resultado else 0
+    return len(resultado["pendencias"]) + resultado.get("operacional", {}).get("conflitos_importacao", 0) if resultado else 0
 
 
 def mensagem_pendencias(total_pendencias: int) -> str:
