@@ -109,7 +109,7 @@
   }
 
   function employeeName(employee) {
-    return valueOf(employee, ["name", "nome", "employeeName", "funcionario"], "Funcionário não selecionado");
+    return valueOf(employee, ["nome_exibicao", "name", "nome", "employeeName", "funcionario"], "Funcionário não selecionado");
   }
 
   function scaleName(scale) {
@@ -466,7 +466,7 @@
     if (!company) return missingContextScreen(context, "Funcionários", "Abra uma empresa para visualizar seus funcionários.", false);
     var scalesLoading = valueOf(context.state, ["scalesLoading"], false) === true;
     var scalesError = valueOf(context.state, ["scalesError"], "");
-    var rows = entities.companyEmployees.map(function (employee) {
+    var rows = entities.companyEmployees.filter(function (employee) { return utils.employeeMatches(employee, context.state.employeeSearch); }).map(function (employee) {
       var active = valueOf(employee, ["active", "ativo"], true) !== false;
       var scaleId = valueOf(employee, ["scaleId", "escala_id"], null);
       var scale = findById(entities.companyScales, scaleId);
@@ -475,14 +475,14 @@
         : scaleId == null
           ? '<span class="registration-pending">' + statusChip(context.components, "conferir", "Sem escala") + "<small>Pendência de cadastro</small></span>"
           : '<span class="registration-pending">' + statusChip(context.components, "conferir", scalesLoading ? "Carregando escala" : "Escala indisponível") + "</span>";
-      return '<tr><td><strong>' + escapeHtml(employeeName(employee)) + "</strong></td><td>" + escapeHtml(valueOf(employee, ["code", "codigo"], "—")) + "</td><td>" + escapeHtml(valueOf(employee, ["role", "cargo"], "—")) + "</td><td>" + escapeHtml(employee.data_admissao ? formatDate(employee.data_admissao) : "Não informada") + "</td><td>" + escapeHtml(employee.data_demissao ? formatDate(employee.data_demissao) : "Não informada") + "</td><td>" + scaleCell + "</td><td>" + statusChip(context.components, active ? "normal" : "sem_expediente", active ? "Ativo" : "Inativo") + '</td><td><button class="table-link" type="button" data-action="edit-employee" data-employee-id="' + escapeHtml(idOf(employee)) + '">Editar</button></td></tr>';
+      return '<tr><td><strong>' + escapeHtml(employeeName(employee)) + "</strong></td><td>" + escapeHtml(valueOf(employee, ["codigo_exibicao", "code", "codigo"], "—")) + "</td><td>" + escapeHtml(valueOf(employee, ["role", "cargo"], "—")) + "</td><td>" + escapeHtml(employee.data_admissao ? formatDate(employee.data_admissao) : "Não informada") + "</td><td>" + escapeHtml(employee.data_demissao ? formatDate(employee.data_demissao) : "Não informada") + "</td><td>" + scaleCell + "</td><td>" + statusChip(context.components, active ? "normal" : "sem_expediente", active ? "Ativo" : "Inativo") + '</td><td><button class="table-link" type="button" data-action="edit-employee" data-employee-id="' + escapeHtml(idOf(employee)) + '">Editar</button></td></tr>';
     }).join("");
     return '<section class="screen screen--company-employees" data-screen="company-employees">' + demoBanner() + pageHeader(context.components, {
       title: "Funcionários",
       subtitle: companyName(company),
       breadcrumbs: companyBreadcrumbs(company, "Funcionários"),
       actions: [{ label: "Gerenciar escalas", variant: "button--secondary", action: "navigate", route: "company-scales" }, { label: "Novo funcionário", variant: "button--primary", action: "new-employee" }],
-    }) + (scalesError ? '<div class="inline-feedback inline-feedback--error" role="alert">' + escapeHtml(scalesError) + "</div>" : "") + '<section class="work-card"' + (scalesLoading ? ' aria-busy="true"' : "") + '>' + (rows ? '<div class="table-frame"><table class="data-table"><thead><tr><th>Funcionário</th><th>Código</th><th>Cargo</th><th>Admissão</th><th>Demissão</th><th>Escala</th><th>Status</th><th><span class="sr-only">Ação</span></th></tr></thead><tbody>' + rows + "</tbody></table></div>" : emptyState(context.components, "Nenhum funcionário cadastrado", "Cadastre os funcionários da empresa antes de importar o ponto.", { label: "Cadastrar funcionário", action: "new-employee" })) + "</section></section>";
+    }) + employeeSearchField(context) + (scalesError ? '<div class="inline-feedback inline-feedback--error" role="alert">' + escapeHtml(scalesError) + "</div>" : "") + '<section class="work-card"' + (scalesLoading ? ' aria-busy="true"' : "") + '>' + (rows ? '<div class="table-frame"><table class="data-table"><thead><tr><th>Funcionário</th><th>Código</th><th>Cargo</th><th>Admissão</th><th>Demissão</th><th>Escala</th><th>Status</th><th><span class="sr-only">Ação</span></th></tr></thead><tbody>' + rows + "</tbody></table></div>" : emptyState(context.components, context.state.employeeSearch ? "Nenhum funcionário encontrado" : "Nenhum funcionário cadastrado", context.state.employeeSearch ? "Tente outro nome ou ID de exibição ou original." : "Cadastre os funcionários da empresa antes de importar o ponto.", context.state.employeeSearch ? null : { label: "Cadastrar funcionário", action: "new-employee" })) + "</section></section>";
   }
 
   function scaleTime(value) {
@@ -1209,11 +1209,16 @@
     return '<input class="editable-time-cell" type="text" inputmode="numeric" autocomplete="off" spellcheck="false" value="' + escapeHtml(value || "") + '" placeholder="—" aria-label="' + escapeHtml(label + " de " + formatDate(dayDate(day), true)) + '" data-action="edit-time" data-day-id="' + escapeHtml(idOf(day)) + '" data-field="' + escapeHtml(field) + '"' + (readonly ? " disabled" : "") + ">";
   }
 
+  function dayPresentation(context, day) {
+    if (day.problema === true) return '<span class="day-problem"><span aria-hidden="true">⚠</span>' + escapeHtml(day.problemLabel || day.problema_rotulo || "Problema") + '</span>';
+    return statusChip(context.components, day.effectiveStatus || dayStatus(day), day.effectiveStatus === "fora_vinculo" ? "Fora do vínculo" : day.effectiveStatus === "feriado" ? "Feriado" : valueOf(day, ["statusLabel"], ""));
+  }
+
   function fallbackAttendanceTable(context, days, selectedDay, selectedIds, readonly) {
     if (!days.length) return emptyState(context.components, "Nenhum dia neste filtro", "Escolha outro filtro ou funcionário.");
     return [
       '<div class="attendance-table-wrap" tabindex="0"><table class="attendance-table" data-density="compact" aria-label="Conferência diária">',
-      '<thead><tr>' + (readonly ? "" : '<th scope="col" class="select-column"><input type="checkbox" data-action="toggle-all-days" aria-label="Selecionar todos os dias visíveis"></th>') + '<th scope="col" class="attendance-table__day-heading">Dia</th><th scope="col" class="attendance-table__time-heading">Entrada</th><th scope="col" class="attendance-table__time-heading">Saída intervalo</th><th scope="col" class="attendance-table__time-heading">Retorno</th><th scope="col" class="attendance-table__time-heading">Saída</th><th scope="col" class="attendance-table__number-heading">Jornada</th><th scope="col" class="attendance-table__number-heading">Saldo</th><th scope="col">Situação</th><th scope="col">Observação</th></tr></thead><tbody>',
+      '<thead><tr>' + (readonly ? "" : '<th scope="col" class="select-column"><input type="checkbox" data-action="toggle-all-days" aria-label="Selecionar todos os dias visíveis"></th>') + '<th scope="col" class="attendance-table__day-heading">Dia</th><th scope="col">Atenção</th><th scope="col" class="attendance-table__time-heading">Entrada</th><th scope="col" class="attendance-table__time-heading">Saída intervalo</th><th scope="col" class="attendance-table__time-heading">Retorno</th><th scope="col" class="attendance-table__time-heading">Saída</th><th scope="col" class="attendance-table__number-heading">Jornada</th><th scope="col" class="attendance-table__number-heading">Saldo</th><th scope="col">Situação</th><th scope="col">Observação</th></tr></thead><tbody>',
       days.map(function (day) {
         var slots = currentSlots(day);
         var selected = selectedDay && idsEqual(idOf(day), idOf(selectedDay));
@@ -1224,13 +1229,14 @@
           '<tr class="attendance-row' + (selected ? " is-selected" : "") + (dayConfirmed(day) ? " is-confirmed" : "") + '" data-day-id="' + escapeHtml(idOf(day)) + '">',
           readonly ? "" : '<td class="select-column"><input type="checkbox" data-action="toggle-day-selection" data-day-id="' + escapeHtml(idOf(day)) + '" aria-label="Selecionar ' + escapeHtml(formatDate(dayDate(day), true)) + '"' + (checked ? " checked" : "") + "></td>",
           '<th scope="row"><button class="day-selector" type="button" data-action="select-day" data-day-id="' + escapeHtml(idOf(day)) + '" aria-controls="day-details-panel"' + (selected ? ' aria-current="date"' : "") + '><strong class="day-number">' + escapeHtml(valueOf(day, ["day"], String(dayDate(day)).slice(-2))) + "</strong><span>" + escapeHtml(valueOf(day, ["weekdayShort"], typeof utils.formatWeekday === "function" ? utils.formatWeekday(dayDate(day)) : "")) + "</span></button></th>",
+          '<td class="problem-cell">' + (day.problema === true ? dayPresentation(context, day) : "") + "</td>",
           "<td>" + editableTimeCell(context, day, "entry", slots.entry, "Entrada", readonly) + "</td>",
           "<td>" + editableTimeCell(context, day, "breakStart", slots.breakStart, "Saída do intervalo", readonly) + "</td>",
           "<td>" + editableTimeCell(context, day, "breakEnd", slots.breakEnd, "Retorno do intervalo", readonly) + "</td>",
           "<td>" + editableTimeCell(context, day, "exit", slots.exit, "Saída", readonly) + "</td>",
           '<td class="duration-cell">' + escapeHtml(formatDuration(worked)) + "</td>",
           '<td class="balance-cell balance-cell--' + (Number(balance) > 0 ? "positive" : Number(balance) < 0 ? "negative" : "neutral") + '">' + escapeHtml(formatBalance(balance)) + "</td>",
-          "<td>" + statusChip(context.components, day.effectiveStatus || dayStatus(day), day.effectiveStatus === "fora_vinculo" ? "Fora do vínculo" : day.effectiveStatus === "feriado" ? "Feriado" : valueOf(day, ["statusLabel"], "")) + "</td>",
+          "<td>" + dayPresentation(context, day) + "</td>",
           '<td><input class="observation-cell" type="text" value="' + escapeHtml(valueOf(day, ["observation", "observacao"], "")) + '" aria-label="Observação de ' + escapeHtml(formatDate(dayDate(day), true)) + '" data-action="edit-observation" data-day-id="' + escapeHtml(idOf(day)) + '"' + (readonly ? " disabled" : "") + "></td>",
           "</tr>",
         ].join("");
@@ -1319,7 +1325,7 @@
     var balance = dayMetric(day, ["balanceMinutes", "saldoMinutos"], ["balanceMinutes", "saldoMinutos"]);
     return [
       '<aside id="day-details-panel" class="day-details-panel" aria-label="Detalhes do dia selecionado" data-day-id="' + escapeHtml(idOf(day)) + '">',
-      '<header class="day-details-panel__header"><div><span class="eyebrow">' + escapeHtml(valueOf(day, ["weekday"], "Dia selecionado")) + '</span><h2>' + escapeHtml(formatDate(dayDate(day))) + "</h2></div>" + statusChip(context.components, day.effectiveStatus || dayStatus(day), day.effectiveStatus === "fora_vinculo" ? "Fora do vínculo" : day.effectiveStatus === "feriado" ? "Feriado" : valueOf(day, ["statusLabel"], "")) + "</header>",
+      '<header class="day-details-panel__header"><div><span class="eyebrow">' + escapeHtml(valueOf(day, ["weekday"], "Dia selecionado")) + '</span><h2>' + escapeHtml(formatDate(dayDate(day))) + "</h2></div>" + dayPresentation(context, day) + "</header>",
       (day.calendarNote ? '<p class="context-note">' + escapeHtml(day.calendarNote) + '</p>' : ''),
       '<section><h3>Batidas originais <span class="readonly-label">Somente leitura</span></h3>' + originalPunchesList(context, day) + "</section>",
       '<section><h3>Interpretação atual</h3><dl class="detail-grid">',
@@ -1372,11 +1378,25 @@
     });
   }
 
+  function employeeSearchField(context) {
+    return '<label class="employee-search"><span class="sr-only">Buscar funcionário por nome ou ID, de exibição ou original</span><input type="search" data-action="search-employees" placeholder="Buscar nome ou ID (OnPonto ou ponto)" value="' + escapeHtml(context.state.employeeSearch || "") + '"></label>';
+  }
+
   function renderReview(state, data, components) {
     var context = normalizeArgs(state, data, components);
     var entities = selectedEntities(context);
     if (!entities.company || !entities.competence) return missingContextScreen(context, "Conferência", "Selecione uma empresa e uma competência antes de abrir a conferência.", true);
     var closed = competenceIsClosed(entities.competence);
+    var summary = competenceSummaryFor(context, entities.competence);
+    var problemRows = summary && summary.rows || [];
+    var nextProblem = utils.nextProblemEmployee(entities.companyEmployees, problemRows, entities.employee && idOf(entities.employee));
+    var matchingEmployees = entities.companyEmployees.filter(function (employee) { return utils.employeeMatches(employee, context.state.employeeSearch); });
+    function employeeOption(employee) {
+      var row = problemRows.find(function (row) { return idsEqual(row.employeeId, idOf(employee)); });
+      var count = row && row.pending;
+      return employeeName(employee) + " · " + valueOf(employee, ["codigo_exibicao", "code", "codigo"], "—") + " · " +
+        (count == null ? "problemas: —" : count + (Number(count) === 1 ? " problema" : " problemas"));
+    }
     var allDays = reviewDays(context, entities);
     var filter = statusKey(valueOf(context.state, ["reviewFilter", "attendanceFilter", "filtroConferencia"], "all"));
     filter = {
@@ -1436,8 +1456,12 @@
       competencyAreaNavigation("review"),
       closedCompetenceNotice(entities.competence),
       '<section class="review-toolbar work-card">',
-      '<div class="employee-navigation"><button class="icon-button" type="button" data-action="previous-employee" aria-label="Funcionário anterior" title="Funcionário anterior (Alt + ↑)">←</button><label><span class="sr-only">Funcionário</span><select data-action="select-review-employee">' + selectOptions(entities.companyEmployees, entities.employee ? idOf(entities.employee) : "", employeeName) + '</select></label><button class="icon-button" type="button" data-action="next-employee" aria-label="Próximo funcionário" title="Próximo funcionário (Alt + ↓)">→</button><span class="position-label">' + escapeHtml(position) + " de " + escapeHtml(totalEmployees) + " funcionários</span></div>",
+      employeeSearchField(context),
+      '<button class="button button--secondary next-problem" type="button" data-action="next-problem-employee"' + (!nextProblem ? ' disabled' : '') + '>' + (nextProblem ? 'Próximo com problema →' : 'Sem próximo com problema') + '</button>',
+
+      '<div class="employee-navigation"><button class="icon-button" type="button" data-action="previous-employee" aria-label="Funcionário anterior" title="Funcionário anterior (Alt + ↑)">←</button><label><span class="sr-only">Funcionário</span><select data-action="select-review-employee">' + (context.state.employeeSearch ? '<option value="">Selecione um resultado (' + matchingEmployees.length + ')</option>' : "") + selectOptions(matchingEmployees, entities.employee ? idOf(entities.employee) : "", employeeOption) + '</select></label><button class="icon-button" type="button" data-action="next-employee" aria-label="Próximo funcionário" title="Próximo funcionário (Alt + ↓)">→</button><span class="position-label">' + escapeHtml(position) + " de " + escapeHtml(totalEmployees) + " funcionários</span></div>",
       '<button class="button button--secondary" type="button" data-action="open-employee-timesheet" data-employee-id="' + escapeHtml(entities.employee ? idOf(entities.employee) : "") + '"' + (!entities.employee || context.state.apiMode !== "online" ? " disabled" : "") + '>Emitir espelho</button>',
+      '<details class="employee-origin"><summary>Identificação no ponto</summary><p>Nome original: ' + escapeHtml(entities.employee && entities.employee.nome || "—") + '<br>Código original: ' + escapeHtml(entities.employee && entities.employee.codigo || "—") + '</p></details>',
       '<div class="review-progress">' + progressIndicator(context.components, confirmedDays, eligibleDays, "Progresso") + (closed ? '<span class="autosave-indicator" role="status">Somente leitura</span>' : autosaveIndicator(context)) + "</div>",
       '<div class="filter-group review-filters" role="group" aria-label="Filtrar dias">' + filterButton("Todos os dias", "all", filter, "review") + filterButton("Problemas", "pending", filter, "review") + filterButton("Não conferidos", "unconfirmed", filter, "review") + filterButton("Ausências", "absences", filter, "review") + "</div>",
       "</section>",
@@ -1569,7 +1593,7 @@
     if (activeTab === "employees") {
       rows = entities.employees.map(function (employee) {
         var company = findById(entities.companies, valueOf(employee, ["companyId", "empresa_id"], null));
-        return '<tr><td><strong>' + escapeHtml(employeeName(employee)) + "</strong></td><td>" + escapeHtml(valueOf(employee, ["code", "codigo"], "—")) + "</td><td>" + escapeHtml(companyName(company)) + "</td><td>" + escapeHtml(valueOf(employee, ["role", "cargo"], "—")) + "</td><td>" + statusChip(context.components, valueOf(employee, ["active", "ativo"], true) ? "normal" : "sem_expediente", valueOf(employee, ["active", "ativo"], true) ? "Ativo" : "Inativo") + '</td><td><button class="table-link" type="button" data-action="edit-employee" data-employee-id="' + escapeHtml(idOf(employee)) + '">Editar</button></td></tr>';
+        return '<tr><td><strong>' + escapeHtml(employeeName(employee)) + "</strong></td><td>" + escapeHtml(valueOf(employee, ["codigo_exibicao", "code", "codigo"], "—")) + "</td><td>" + escapeHtml(companyName(company)) + "</td><td>" + escapeHtml(valueOf(employee, ["role", "cargo"], "—")) + "</td><td>" + statusChip(context.components, valueOf(employee, ["active", "ativo"], true) ? "normal" : "sem_expediente", valueOf(employee, ["active", "ativo"], true) ? "Ativo" : "Inativo") + '</td><td><button class="table-link" type="button" data-action="edit-employee" data-employee-id="' + escapeHtml(idOf(employee)) + '">Editar</button></td></tr>';
       }).join("");
     } else {
       rows = entities.companies.map(function (company) {

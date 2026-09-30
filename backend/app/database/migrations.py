@@ -7,7 +7,7 @@ import logging
 from sqlalchemy import Connection, Engine, inspect
 
 
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 12
 logger = logging.getLogger(__name__)
 
 COLUNAS_EMPRESA_LEGADAS = (
@@ -508,6 +508,11 @@ def _aplicar_sqlite(conexao: Connection) -> dict[str, int]:
                 versao_sqlite,
             )
 
+    if "funcionarios" in tabelas:
+        existentes = _nomes_colunas(conexao, "funcionarios")
+        for coluna, tipo in {"nome_exibicao": "VARCHAR(180)", "codigo_exibicao": "VARCHAR(50)"}.items():
+            if coluna not in existentes:
+                conexao.exec_driver_sql(f"ALTER TABLE funcionarios ADD COLUMN {coluna} {tipo}")
     _normalizar_status_dia(conexao, tabelas)
     if "funcionarios" in tabelas and "data_admissao" not in _nomes_colunas(conexao, "funcionarios"):
         conexao.exec_driver_sql("ALTER TABLE funcionarios ADD COLUMN data_admissao DATE")

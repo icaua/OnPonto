@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 from app.banco_horas.regras import distribuir_dia, resumir_distribuicao
 from app.funcionarios.historico_escalas import escala_no_dia
-from app.apuracao.operacional import classificar_dia, indicadores
+from app.apuracao.operacional import classificar_dia, indicadores, contar_batidas_originais
 from calendar import monthrange
 import json
 from datetime import date, datetime, time
@@ -399,7 +399,7 @@ def detalhe_marcacao(
         "id": marcacao.id,
         "data": marcacao.data.isoformat(),
         "funcionario_id": funcionario.id,
-        "funcionario": funcionario.nome,
+        "funcionario": (getattr(funcionario, "nome_exibicao", None) or funcionario.nome),
         "entrada": formatar_hora(marcacao.entrada),
         "saida_almoco": formatar_hora(marcacao.saida_almoco),
         "retorno_almoco": formatar_hora(marcacao.retorno_almoco),
@@ -410,6 +410,7 @@ def detalhe_marcacao(
         "feriado_aplicado": feriado_aplicado,
         "fora_vinculo": False,
         "origem": marcacao.origem,
+        "quantidade_batidas_originais": contar_batidas_originais(marcacao.batidas_originais),
         "conferido": conferido,
         "jornada_prevista_minutos": prevista,
         "jornada_prevista": formatar_minutos(prevista),
@@ -439,7 +440,7 @@ def detalhe_fora_vinculo(funcionario: Funcionario, marcacao: MarcacaoPonto) -> d
     motivo = motivo_fora_vinculo(funcionario, marcacao.data)
     return {
         "id": marcacao.id, "data": marcacao.data.isoformat(),
-        "funcionario_id": funcionario.id, "funcionario": funcionario.nome,
+        "funcionario_id": funcionario.id, "funcionario": (getattr(funcionario, "nome_exibicao", None) or funcionario.nome),
         **{campo: formatar_hora(getattr(marcacao, campo)) for campo in ("entrada", "saida_almoco", "retorno_almoco", "saida")},
         "status_dia": "fora_vinculo", "status_original": marcacao.status_dia,
         "origem": marcacao.origem, "conferido": marcacao.conferido,
@@ -491,8 +492,10 @@ def apurar_competencia(
     resumo = {
         funcionario.id: {
             "funcionario_id": funcionario.id,
-            "funcionario": funcionario.nome,
-            "codigo": funcionario.codigo,
+            "funcionario": (getattr(funcionario, "nome_exibicao", None) or funcionario.nome),
+            "codigo": funcionario.codigo_apresentacao,
+            "nome_original": funcionario.nome,
+            "codigo_original": funcionario.codigo,
             "dias_processados": 0,
             "atrasos_minutos": 0,
             "extras_minutos": 0,

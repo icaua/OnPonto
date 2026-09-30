@@ -25,7 +25,7 @@ def gerar_lancamentos(db, competencia, resultado):
         if not escala or not escala.usa_banco_horas or dia.get("fora_vinculo"):
             continue
         if dia.get("pendente_calculo"):
-            raise HTTPException(409, f"Banco de horas: resolva a pendência de cálculo de {funcionario.nome} em {referencia:%d/%m/%Y} antes de fechar.")
+            raise HTTPException(409, f"Banco de horas: resolva a pendência de cálculo de {funcionario.nome_apresentacao} em {referencia:%d/%m/%Y} antes de fechar.")
         politica = politica_da_escala(escala)
         prazo = politica.ciclo_dias if politica else validar_prazo(competencia.empresa)
         inicio, fim = ciclo(politica, referencia) if politica else (None, None)
@@ -218,7 +218,7 @@ def extrato(db, funcionario_id, data_limite=None):
     ids = [i["id"] for i in linhas]
     compensacoes = db.query(CompensacaoBancoHoras).filter(
         (CompensacaoBancoHoras.credito_id.in_(ids)) | (CompensacaoBancoHoras.debito_id.in_(ids))).order_by(CompensacaoBancoHoras.id).all()
-    return {"funcionario_id": funcionario.id, "funcionario": funcionario.nome,
+    return {"funcionario_id": funcionario.id, "funcionario": funcionario.nome_apresentacao,
             "saldo_minutos": calcular_saldo_banco_horas(db, funcionario_id, data_limite), "lancamentos": linhas,
             "compensacoes": [{c.name: getattr(i, c.name) for c in CompensacaoBancoHoras.__table__.columns} for i in compensacoes],
             "tratamentos_pendentes": tratamentos_pendentes(db, funcionario, data_limite or hoje_local()),
@@ -232,13 +232,13 @@ def alertas(db, empresa_id, dias=30, hoje=None):
     for funcionario in db.query(Funcionario).filter_by(empresa_id=empresa_id).order_by(Funcionario.nome):
         for item, _, restante in situacao_lancamentos(db, funcionario.id):
             if item.origem == "folga_compensatoria" and restante:
-                resultado["folgas_sem_cobertura"].append(dict(id=item.id, funcionario_id=funcionario.id, funcionario=funcionario.nome,
+                resultado["folgas_sem_cobertura"].append(dict(id=item.id, funcionario_id=funcionario.id, funcionario=funcionario.nome_apresentacao,
                     data_referencia=item.data_referencia, data_vencimento=None, minutos_restantes=restante))
             if item.natureza != "credito" or not restante or not item.data_vencimento:
                 continue
             categoria = "vencidos" if item.data_vencimento < hoje else "proximos_do_vencimento"
             if item.data_vencimento <= hoje + timedelta(days=dias):
-                resultado[categoria].append(dict(id=item.id, funcionario_id=funcionario.id, funcionario=funcionario.nome,
+                resultado[categoria].append(dict(id=item.id, funcionario_id=funcionario.id, funcionario=funcionario.nome_apresentacao,
                     data_vencimento=item.data_vencimento, minutos_restantes=restante))
     for itens in resultado.values():
         itens.sort(key=lambda i: (i["data_vencimento"] or i["data_referencia"], i["id"]))

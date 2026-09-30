@@ -321,6 +321,10 @@
     return typeof value === "number" ? (balance ? Utils.formatBalance(value) : Utils.formatDuration(value)) : String(value);
   }
 
+  function problemBadge(day) {
+    return day.problema === true ? '<span class="day-problem" title="' + text(day.pendingReason || day.pendencia_motivo || "Problema bloqueante") + '">' + Icon("alert") + '<span>' + text(day.problemLabel || day.problema_rotulo || "Problema") + '</span></span>' : "";
+  }
+
   function AttendanceTable(props) {
     var settings = props || {};
     var readonly = settings.readonly === true || settings.disabled === true;
@@ -367,20 +371,20 @@
         });
       }).join("");
       var note = valueOf(current.observation, current.observacao, day.observation, day.observacao, "");
-      return '<tr class="attendance-row' + (isSelected ? " is-selected" : "") + (confirmed ? " is-confirmed" : "") + '" data-day-id="' + text(dayId) + '">' +
+      return '<tr class="attendance-row' + (isSelected ? " is-selected" : "") + (confirmed ? " is-confirmed" : "") + (day.problema === true ? " has-problem" : "") + '" data-day-id="' + text(dayId) + '">' +
         (selectable ? '<td class="selection-cell"><input type="checkbox" data-action="toggle-day-selection" data-day-id="' + text(dayId) + '" aria-label="Incluir ' + text(Utils.formatDate(date)) + ' nas ações em massa"' + boolAttr("checked", isBulkSelected) + "></td>" : "") +
         '<th scope="row" class="day-cell"><button type="button" class="day-select-button" data-action="select-day" data-day-id="' + text(dayId) + '" aria-controls="day-details-panel" aria-label="Ver detalhes de ' + text(Utils.formatDate(date)) + (confirmed ? ", dia conferido" : "") + '"' + (isSelected ? ' aria-current="date"' : "") + '><span class="day-number">' + text(Utils.formatDayLabel(date)) + "</span>" + (confirmed ? Icon("check_circle", { label: "Dia conferido" }) : "") + "</button></th>" +
-        editableCells + '<td class="journey-cell">' + text(formatMinutesOrValue(worked, false)) + '</td><td class="balance-cell' + (Number(balance) > 0 ? " is-positive" : Number(balance) < 0 ? " is-negative" : "") + '">' + text(formatMinutesOrValue(balance, true)) + "</td>" +
-        '<td class="situation-cell"><button type="button" class="chip-button" data-action="choose-situation" data-day-id="' + text(dayId) + '" aria-label="Situação de ' + text(Utils.formatDate(date)) + ": " + text(resolveStatus(day.effectiveStatus || dayStatus(day)).meta.label) + (readonly ? '" disabled' : '. Alterar situação"') + ">" + StatusChip(day.effectiveStatus || dayStatus(day), { compact: true }) + "</button>" + (day.occurrenceLabel ? '<small class="occurrence-type">' + text(day.occurrenceLabel) + "</small>" : "") + (day.calendarNote ? '<small class="calendar-day-note">' + text(day.calendarNote) + "</small>" : "") + "</td>" +
+        '<td class="problem-cell">' + problemBadge(day) + "</td>" + editableCells + '<td class="journey-cell">' + text(formatMinutesOrValue(worked, false)) + '</td><td class="balance-cell' + (Number(balance) > 0 ? " is-positive" : Number(balance) < 0 ? " is-negative" : "") + '">' + text(formatMinutesOrValue(balance, true)) + "</td>" +
+        '<td class="situation-cell"><button type="button" class="chip-button" data-action="choose-situation" data-day-id="' + text(dayId) + '" aria-label="Situação de ' + text(Utils.formatDate(date)) + ": " + text(day.problema === true ? day.problemLabel || day.problema_rotulo || "Problema" : resolveStatus(day.effectiveStatus || dayStatus(day)).meta.label) + (readonly ? '" disabled' : '. Alterar situação"') + ">" + (day.problema === true ? problemBadge(day) : StatusChip(day.effectiveStatus || dayStatus(day), { compact: true })) + "</button>" + (day.occurrenceLabel ? '<small class="occurrence-type">' + text(day.occurrenceLabel) + "</small>" : "") + (day.calendarNote ? '<small class="calendar-day-note">' + text(day.calendarNote) + "</small>" : "") + "</td>" +
         '<td class="observation-cell"><button type="button" class="observation-button' + (note ? " has-content" : "") + '" data-action="edit-observation" data-day-id="' + text(dayId) + '" aria-label="' + text((readonly ? "Observação de " : note ? "Editar observação de " : "Adicionar observação em ") + Utils.formatDate(date) + (note ? ": " + note : "")) + '"' + boolAttr("disabled", readonly) + ">" + (note ? Icon("note") + '<span class="observation-text">' + text(note) + "</span>" : '<span class="empty-value">—</span>') + "</button></td></tr>";
     }).join("");
-    var columnCount = selectable ? 10 : 9;
+    var columnCount = selectable ? 11 : 10;
     var selectedCount = days.filter(function (day) { return containsId(selectedIds, valueOf(day.id, day.dayId, day.data)); }).length;
     var allSelected = days.length > 0 && selectedCount === days.length;
     var mixed = selectedCount > 0 && !allSelected;
     var selectionHead = selectable ? '<th scope="col" class="selection-cell"><input type="checkbox" data-action="toggle-all-days" aria-label="Selecionar todos os dias visíveis"' + boolAttr("checked", allSelected) + (mixed ? ' aria-checked="mixed" data-indeterminate="true"' : "") + "></th>" : "";
     return '<div class="attendance-table-wrap" data-component="attendance-table"><table class="attendance-table" data-density="compact" aria-label="' + text(settings.ariaLabel || "Conferência dos dias do funcionário") + '"><caption class="sr-only">' + text(settings.caption || "Horários interpretados, jornada, saldo e situação por dia") + "</caption><thead><tr>" +
-      selectionHead + '<th scope="col" class="attendance-table__day-heading">Dia</th><th scope="col" class="attendance-table__time-heading">Entrada</th><th scope="col" class="attendance-table__time-heading">Saída intervalo</th><th scope="col" class="attendance-table__time-heading">Retorno</th><th scope="col" class="attendance-table__time-heading">Saída</th><th scope="col" class="attendance-table__number-heading">Jornada</th><th scope="col" class="attendance-table__number-heading">Saldo</th><th scope="col">Situação</th><th scope="col">Observação</th></tr></thead><tbody>' +
+      selectionHead + '<th scope="col" class="attendance-table__day-heading">Dia</th><th scope="col" class="problem-heading">Atenção</th><th scope="col" class="attendance-table__time-heading">Entrada</th><th scope="col" class="attendance-table__time-heading">Saída intervalo</th><th scope="col" class="attendance-table__time-heading">Retorno</th><th scope="col" class="attendance-table__time-heading">Saída</th><th scope="col" class="attendance-table__number-heading">Jornada</th><th scope="col" class="attendance-table__number-heading">Saldo</th><th scope="col">Situação</th><th scope="col">Observação</th></tr></thead><tbody>' +
       (rows || '<tr><td colspan="' + columnCount + '">' + EmptyState({ compact: true, title: settings.emptyTitle || "Nenhum dia encontrado", description: settings.emptyDescription || "Ajuste os filtros para ver outros registros." }) + "</td></tr>") + "</tbody></table></div>";
   }
 
@@ -399,8 +403,11 @@
       var source = [];
       if (punch.line != null || punch.linha != null || punch.sourceLine != null || punch.linhaOrigem != null) source.push("linha " + valueOf(punch.line, punch.linha, punch.sourceLine, punch.linhaOrigem));
       if (punch.page != null || punch.pagina != null) source.push("página " + valueOf(punch.page, punch.pagina));
+      var used = Object.values(settings.slots || {}).includes(Utils.normalizeTimeInput(value));
+      var options = [["entry", "Entrada 1"], ["breakStart", "Saída 1"], ["breakEnd", "Entrada 2"], ["exit", "Saída 2"]];
+      var assign = settings.assist && !used ? '<label class="punch-assignment"><span class="sr-only">Atribuir batida ' + text(value) + ' a</span><select data-action="assign-original-punch" data-day-id="' + text(settings.dayId) + '" data-punch-index="' + index + '"><option value="">Atribuir a…</option>' + options.map(function (option) { return '<option value="' + option[0] + '"' + boolAttr("disabled", Boolean(settings.slots[option[0]])) + '>' + option[1] + '</option>'; }).join("") + '</select></label>' : settings.assist && used ? '<small>Já atribuída</small>' : "";
       return '<li class="original-punch"><span class="punch-order" aria-hidden="true">' + text(index + 1) + '</span><time class="punch-time">' + text(value) + "</time>" +
-        (source.length ? '<span class="punch-source">' + text(source.join(" · ")) + "</span>" : "") + "</li>";
+        (source.length ? '<span class="punch-source">' + text(source.join(" · ")) + "</span>" : "") + assign + "</li>";
     }).join("");
     return '<div class="original-punches-list" data-component="original-punches-list"><h3>' + text(settings.title || "Batidas originais") + ' <span class="readonly-label">Somente leitura</span></h3>' +
       (items ? '<ol aria-label="Batidas originais em ordem">' + items + "</ol>" : EmptyState({ compact: true, icon: "clock", title: "Nenhuma batida original", description: "O arquivo não contém marcações para este dia." })) + "</div>";
@@ -476,9 +483,9 @@
     var hasRegion = Boolean(valueOf(source.region, source.regiao, original.region, original.regiao, punches.some(function (punch) { return punch.region || punch.regiao; })));
     var actions = readonly ? [] : valueOf(settings.actions, defaultDayActions(day, punches));
     return '<aside id="day-details-panel" class="day-details-panel" data-component="day-details-panel" data-day-id="' + text(dayId) + '" aria-labelledby="day-details-title">' +
-      '<header class="details-header day-details-panel__header"><div><p class="details-eyebrow">' + text(Utils.formatWeekday(date, { long: true })) + '</p><h2 id="day-details-title">' + text(Utils.formatDate(date)) + "</h2></div>" + StatusChip(day.effectiveStatus || dayStatus(day)) + "</header>" + (day.calendarNote ? '<p class="context-note">' + text(day.calendarNote) + "</p>" : "") +
+      '<header class="details-header day-details-panel__header"><div><p class="details-eyebrow">' + text(Utils.formatWeekday(date, { long: true })) + '</p><h2 id="day-details-title">' + text(Utils.formatDate(date)) + "</h2></div>" + (day.problema === true ? problemBadge(day) : StatusChip(day.effectiveStatus || dayStatus(day))) + "</header>" + (day.calendarNote ? '<p class="context-note">' + text(day.calendarNote) + "</p>" : "") +
       (day.occurrenceLabel ? '<p class="context-note"><strong>' + text(day.occurrenceLabel) + '</strong> · Abono calculado: ' + text(day.excusedMinutes || 0) + ' min. As batidas permanecem preservadas.</p>' : "") +
-      OriginalPunchesList({ punches: punches }) +
+      OriginalPunchesList({ punches: punches, dayId: dayId, assist: !readonly && !day.confirmed && !day.conferido && punches.length <= 4, slots: {entry:slots.entry, breakStart:slots.breakOut, breakEnd:slots.breakIn, exit:slots.exit} }) +
       '<section class="details-section current-interpretation"><h3>Interpretação atual</h3><dl>' + detailRow("Entrada", slots.entry) + detailRow("Saída intervalo", slots.breakOut) + detailRow("Retorno", slots.breakIn) + detailRow("Saída", slots.exit) + detailRow("Jornada prevista", formatMinutesOrValue(expected, false)) + detailRow("Jornada apurada", formatMinutesOrValue(worked, false)) + detailRow("Saldo", formatMinutesOrValue(balance, true), Number(balance) > 0 ? "is-positive" : Number(balance) < 0 ? "is-negative" : "") + "</dl>" +
       (valueOf(current.differenceReason, current.motivoDiferenca, day.differenceReason, day.motivoDiferenca) ? '<p class="difference-reason"><strong>Motivo:</strong> ' + text(valueOf(current.differenceReason, current.motivoDiferenca, day.differenceReason, day.motivoDiferenca)) + "</p>" : "") + "</section>" +
       '<section class="details-section issues-section"><h3>Pendências <span class="count-badge">' + text(array(valueOf(day.issues, day.pendencias)).length) + "</span></h3>" + (issues ? '<ul class="issues-list">' + issues + "</ul>" : '<p class="muted-text">Nenhuma pendência identificada.</p>') + "</section>" +

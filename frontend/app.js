@@ -314,9 +314,9 @@
       id: source.id,
       companyId: source.companyId !== undefined ? source.companyId : source.empresa_id,
       empresa_id: source.empresa_id !== undefined ? source.empresa_id : source.companyId,
-      name: source.name || source.nome || "Funcionário",
+      name: source.nome_exibicao || source.nome || source.name || "Funcionário",
       nome: source.nome || source.name || "Funcionário",
-      code: source.code !== undefined ? source.code : source.codigo,
+      code: source.codigo_exibicao || (source.codigo !== undefined ? source.codigo : source.code),
       codigo: source.codigo !== undefined ? source.codigo : source.code,
       role: source.role || source.cargo || "",
       cargo: source.cargo || source.role || "",
@@ -1053,6 +1053,8 @@
       day.confirmed = confirmed;
       day.conferido = confirmed;
       day.problema = detail.problema === true;
+      day.problemLabel = detail.problema_rotulo;
+      day.bloqueante = detail.bloqueante === true;
       day.pendingCalculation = pendingCalculation;
       day.pendente_calculo = pendingCalculation;
       day.pendingOperational = pendingOperational;
@@ -2509,6 +2511,38 @@
     render();
   }
 
+  function moveToProblemEmployee() {
+    var summary = (data.competenceSummaries || {})[String(state.selectedCompetenceId)];
+    var next = Utils.nextProblemEmployee(companyEmployees(), summary && summary.rows, state.selectedEmployeeId);
+    if (!next) return showToast("Não há próximo funcionário com problema nesta ordem.", "info");
+    state.employeeSearch = "";
+    state.reviewFilter = "pending";
+    selectEmployee(next.id);
+  }
+
+  function assignOriginalPunch(dayId, index, field) {
+    if (!ensureCompetencyWritable("A atribuição de batidas")) return;
+    var day = findDay(dayId);
+    if (!day || dayIsConfirmed(day)) return showToast("Reabra a conferência antes de atribuir uma batida.", "warning");
+    var fields = ["entry", "breakStart", "breakEnd", "exit"];
+    if (fields.indexOf(field) < 0) return;
+    var punches = day.originalPunches || [];
+    var punch = punches[index];
+    var value = typeof punch === "object" && punch ? punch.value || punch.time || punch.horario : punch;
+    var parsed = Utils.validateTimeInput(value || "");
+    if (!parsed.valid || !parsed.normalized) return;
+    var slots = currentSlots(day);
+    if (slots[field] || Object.values(slots).includes(parsed.normalized)) return showToast("A batida já está atribuída ou o campo está ocupado. Corrija ou desfaça antes de atribuir.", "warning");
+    var proposed = Object.assign({}, slots); proposed[field] = parsed.normalized;
+    var ordered = fields.map(function (key) { return proposed[key]; }).filter(Boolean);
+    if (ordered.some(function (time, i) { return i && time <= ordered[i - 1]; })) return showToast("Esta atribuição deixaria os horários fora de ordem.", "warning");
+    applySlot(day, field, parsed.normalized);
+    state.undoStack.push({ type: "time", dayId: day.id, field: field, previous: slots[field], next: parsed.normalized });
+    addHistory(day, "Batida original atribuída a " + fieldLabel(field) + ": " + parsed.normalized + ".", "Operador local");
+    queueAutosave(day);
+    render();
+  }
+
   function moveEmployee(direction) {
     var list = companyEmployees();
     var index = list.findIndex(function (item) { return idsEqual(item.id, state.selectedEmployeeId); });
@@ -2517,6 +2551,7 @@
       showToast(direction < 0 ? "Este é o primeiro funcionário." : "Este é o último funcionário.", "info");
       return;
     }
+    state.employeeSearch = "";
     selectEmployee(list[nextIndex].id);
   }
 
@@ -3907,8 +3942,10 @@
       { name: "uf", type: "select", label: "UF", value: entity ? entity.uf || "" : "", options: [{ value: "", label: "Não informada" }].concat(UF_OPTIONS.map(function (uf) { return { value: uf, label: uf }; })) },
       { name: "ativa", type: "select", label: "Situação", value: entity && (entity.active === false || entity.ativa === false) ? "false" : "true", options: [{ value: "true", label: "Ativa" }, { value: "false", label: "Inativa" }] },
     ] : [
-      { name: "nome", type: "text", label: "Nome do funcionário", value: entity ? entity.name || entity.nome : "", required: true, maxlength: 180, autocomplete: "name" },
-      { name: "codigo", type: "text", label: "Código", value: entity ? entity.code || entity.codigo || "" : "", required: true, maxlength: 50, autocomplete: "off" },
+      { name: "nome", type: "text", label: "Nome original no ponto", value: entity ? entity.nome || entity.name : "", required: true, maxlength: 180, autocomplete: "name" },
+      { name: "codigo", type: "text", label: "Código original no ponto", value: entity ? entity.codigo || "" : "", required: true, maxlength: 50, autocomplete: "off" },
+      { name: "nome_exibicao", type: "text", label: "Nome de exibição no OnPonto", value: entity && entity.nome_exibicao || "", maxlength: 180, help: "Opcional. Vazio usa o nome original." },
+      { name: "codigo_exibicao", type: "text", label: "ID de exibição no OnPonto", value: entity && entity.codigo_exibicao || "", maxlength: 50, help: "Opcional. Não vincula registros de importação." },
       { name: "cargo", type: "text", label: "Cargo", value: entity ? entity.role || entity.cargo || "" : "", maxlength: 120, autocomplete: "organization-title" },
       { name: "data_admissao", type: "date", label: "Data de admissão", value: entity && entity.data_admissao || "", help: "Opcional. Dias anteriores ficam fora da apuração; batidas existentes continuam disponíveis para conferência." },
       { name: "data_demissao", type: "date", label: "Data de demissão", value: entity && entity.data_demissao || "", help: "Opcional. O dia da demissão ainda pertence ao vínculo; dias posteriores ficam fora da apuração." },
@@ -3932,7 +3969,7 @@
         var duplicate = employees().some(function (employee) {
           return (!entity || !idsEqual(employee.id, entity.id)) &&
             idsEqual(employee.companyId || employee.empresa_id, company.id) &&
-            String(employee.code || employee.codigo || "").trim() === code;
+            String(employee.codigo || "").trim() === code;
         });
         if (duplicate) return { message: "Código já usado nesta empresa.", field: "codigo" };
         var selectedScaleId = asId(values.escala_id);
@@ -3954,6 +3991,8 @@
           empresa_id: company.id,
           nome: String(values.nome || "").trim(),
           codigo: String(values.codigo || "").trim(),
+          nome_exibicao: String(values.nome_exibicao || "").trim() || null,
+          codigo_exibicao: String(values.codigo_exibicao || "").trim() || null,
           cargo: String(values.cargo || "").trim() || null,
           data_admissao: values.data_admissao || null,
           data_demissao: values.data_demissao || null,
@@ -4050,7 +4089,7 @@
       if (!element.disabled && fileInput && !fileInput.disabled && !competencyIsClosed()) fileInput.click();
       return;
     }
-    if (action === "search-companies") return;
+    if (action === "search-companies" || action === "search-employees") return;
     if (element.matches('input[type="checkbox"], input[type="radio"], input[type="file"], select, input[type="range"]')) return;
     if (action === "analyze-import" && element.type === "submit") return;
     if (action !== "edit-time") event.preventDefault();
@@ -4118,6 +4157,7 @@
     }
     if (action === "previous-employee") return moveEmployee(-1);
     if (action === "next-employee") return moveEmployee(1);
+    if (action === "next-problem-employee") return moveToProblemEmployee();
     if (action === "select-day") return selectDay(element.dataset.dayId);
     if (action === "edit-time") {
       var cell = element.closest(".editable-time-cell");
@@ -4209,6 +4249,7 @@
       return element.value ? openCompany(asId(element.value), "company-competencies") : navigate("companies");
     }
     if (action === "select-review-employee") return selectEmployee(asId(element.value));
+    if (action === "assign-original-punch") return assignOriginalPunch(element.dataset.dayId, Number(element.dataset.punchIndex), element.value);
     if (action === "toggle-import-row") return toggleImportRowSelection(asId(element.dataset.previewRowId), element.checked);
     if (action === "toggle-all-import-rows") return toggleAllImportRows(element.checked);
     if (action === "toggle-day-selection") return toggleDaySelection(element.dataset.dayId, element.checked);
@@ -4258,6 +4299,19 @@
   }
 
   function handleInput(event) {
+    var employeeInput = event.target.closest && event.target.closest('[data-action="search-employees"]');
+    if (employeeInput) {
+      var selectionStart = employeeInput.selectionStart;
+      var selectionEnd = employeeInput.selectionEnd;
+      state.employeeSearch = employeeInput.value;
+      render();
+      var replacement = document.querySelector('[data-action="search-employees"]');
+      if (replacement) {
+        replacement.focus({preventScroll:true});
+        if (selectionStart !== null) replacement.setSelectionRange(selectionStart, selectionEnd);
+      }
+      return;
+    }
     var element = event.target.closest && event.target.closest('[data-action="search-companies"]');
     if (element) updateCompanySearch(element, true);
   }

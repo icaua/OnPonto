@@ -419,7 +419,23 @@
     return values.slice(0, -1).join(", ") + " e " + values[values.length - 1];
   }
 
+  // Operator search only. Never used for import association.
+  function employeeMatches(employee, query) {
+    var needle = statusKey(query);
+    return !needle || [employee.nome_exibicao, employee.codigo_exibicao, employee.nome,
+      employee.codigo, employee.name, employee.code].some(function (value) { return statusKey(value).includes(needle); });
+  }
+
+  function nextProblemEmployee(employees, rows, selectedId) {
+    var index = employees.findIndex(function (employee) { return String(employee.id) === String(selectedId); });
+    return employees.slice(index + 1).find(function (employee) {
+      return (rows || []).some(function (row) { return String(row.employeeId) === String(employee.id) && Number(row.pending) > 0; });
+    }) || null;
+  }
+
   var api = {
+    employeeMatches: employeeMatches,
+    nextProblemEmployee: nextProblemEmployee,
     escapeHtml: escapeHtml,
     escape: escapeHtml,
     deepFreeze: deepFreeze,

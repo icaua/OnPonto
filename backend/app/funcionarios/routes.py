@@ -1,3 +1,5 @@
+import unicodedata
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -35,11 +37,19 @@ def validar_escala(
 def listar_funcionarios(
     empresa_id: int | None = Query(default=None),
     db: Session = Depends(get_db),
+    q: str | None = None,
 ) -> list[Funcionario]:
     query = db.query(Funcionario)
     if empresa_id:
         query = query.filter(Funcionario.empresa_id == empresa_id)
-    return query.order_by(Funcionario.nome.asc()).all()
+    funcionarios = query.all()
+    def normalizar(valor):
+        return "".join(c for c in unicodedata.normalize("NFD", valor or "") if not unicodedata.combining(c)).casefold()
+    if q:
+        termo = normalizar(q.strip())
+        funcionarios = [f for f in funcionarios if any(termo in normalizar(v) for v in
+            (f.nome, f.codigo, f.nome_exibicao, f.codigo_exibicao))]
+    return sorted(funcionarios, key=lambda f: (normalizar(f.nome_apresentacao), f.id))
 
 
 @router.post("", response_model=FuncionarioRead, status_code=status.HTTP_201_CREATED)

@@ -51,7 +51,7 @@ Na inicialização, migrações SQLite incrementais e idempotentes evoluem o sch
 - `POST /banco-horas/ajustes`
 - `POST /banco-horas/lancamentos/{id}/estornar`
 
-O banco de horas usa o schema 11 e aceita políticas por escala: folha, banco ou divisão percentual, adicionais, fatores por tipo de dia e ciclos. O booleano anterior permanece compatível quando `politica_horas` é nula. Fechamento, lançamentos diários, FIFO 1:1 por ciclo e snapshot pertencem à mesma transação; reabertura estorna a geração anterior e reconstrói as compensações. Os novos fechamentos congelam regras e saldos. `data_limite` filtra o ledger atualmente ativo no extrato. Contratos, arredondamento e limites estão no [relatório de confiabilidade e políticas](../RELATORIO-CONFIABILIDADE-E-POLITICAS.md); a implementação anterior está documentada no [relatório do ledger](../RELATORIO-BANCO-DE-HORAS.md).
+O banco de horas usa o schema 12 e aceita políticas por escala: folha, banco ou divisão percentual, adicionais, fatores por tipo de dia e ciclos. O booleano anterior permanece compatível quando `politica_horas` é nula. Fechamento, lançamentos diários, FIFO 1:1 por ciclo e snapshot pertencem à mesma transação; reabertura estorna a geração anterior e reconstrói as compensações. Os novos fechamentos congelam regras e saldos. `data_limite` filtra o ledger atualmente ativo no extrato. Contratos, arredondamento e limites estão no [relatório de confiabilidade e políticas](../RELATORIO-CONFIABILIDADE-E-POLITICAS.md); a implementação anterior está documentada no [relatório do ledger](../RELATORIO-BANCO-DE-HORAS.md).
 
 `POST /importadores/analisar` detecta automaticamente o adaptador adequado para o arquivo (`.txt` ou `.xlsx`). Nos TXT, os layouts homologados `txt_log_relogio` e `txt_id_tempo_maquina` continuam com prioridade; se nenhum deles reconhecer o conteúdo, entra o fallback `txt_generico`, que tenta localizar semanticamente ID/código/matrícula, nome e data/horário, aceitando aliases de cabeçalho, separadores comuns (TAB, `;`, `|`, `,`), datas brasileiras/ISO, UTF-8/UTF-16/CP1252 e linhas livres estruturadas. O fallback ignora linhas de rodapé/metadados que não contenham identificação e horário suficientes, em vez de inventar dados. Os XLSX continuam nos adaptadores `xlsx_ponto_generico` e `xlsx_cartao_ponto`. Todos compartilham a mesma regra de interpretação de batidas (`app/importadores/interpretacao_batidas.py`): 4 horários = normal, 2 = pendente (só entrada/saída), qualquer outra quantidade = pendente sem inventar qual horário é qual. A confirmação persiste somente registros válidos e selecionados; funcionário desconhecido, data fora da competência e reimportação permanecem conflitos explícitos, e `MarcacaoPonto.origem`/`batidas_originais` preservam qual adaptador interpretou cada marcação.
 
@@ -71,3 +71,16 @@ A partir da raiz do projeto:
 No Windows, substitua `.venv/bin/python` por `.venv\Scripts\python.exe`.
 
 O escopo congelado e as evidências de aceite estão no [checklist do MVP](../CHECKLIST-CONGELAMENTO-MVP.md).
+
+## Identidade de exibição e Conferência
+
+O schema 12 acrescenta `nome_exibicao` e `codigo_exibicao` opcionais aos funcionários.
+Os campos `nome` e `codigo` preservam a identidade de origem; importar continua usando
+as regras anteriores de associação, nunca o ID de exibição. `GET /funcionarios?q=...`
+busca nas quatro identidades, sem distinguir maiúsculas ou acentos. As respostas também
+incluem `nome_apresentacao` e `codigo_apresentacao`, com fallback para a origem.
+
+`GET /apuracao` mantém `resumo[].problemas` como fonte das contagens por funcionário e
+acrescenta `marcacoes[].problema_rotulo` e `bloqueante` para apresentação. A atribuição
+assistida de batidas usa o `PATCH /marcacoes/{id}` existente, com a mesma auditoria.
+Veja `RELATORIO-UX-CONFERENCIA.md` na raiz para escopo, validação e limitações.

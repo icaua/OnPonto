@@ -31,7 +31,7 @@ def resumo(empresa_id: int, db: Session = Depends(get_db)):
     for f in db.query(Funcionario).filter_by(empresa_id=empresa_id).order_by(Funcionario.nome):
         tem_historico = db.query(LancamentoBancoHoras.id).filter_by(funcionario_id=f.id).first()
         if (f.escala and f.escala.usa_banco_horas) or tem_historico:
-            itens.append({"funcionario_id": f.id, "funcionario": f.nome,
+            itens.append({"funcionario_id": f.id, "funcionario": f.nome_apresentacao,
                 "saldo_minutos": service.calcular_saldo_banco_horas(db, f.id),
                 "data_demissao": f.data_demissao,
                 "saldo_demissao_minutos": service.calcular_saldo_banco_horas(db, f.id, f.data_demissao) if f.data_demissao else None})

@@ -84,6 +84,17 @@ class Funcionario(Base, TimestampMixin):
     empresa_id: Mapped[int] = mapped_column(ForeignKey("empresas.id"), nullable=False, index=True)
     codigo: Mapped[str | None] = mapped_column(String(50), nullable=True, index=True)
     nome: Mapped[str] = mapped_column(String(180), nullable=False, index=True)
+    nome_exibicao: Mapped[str | None] = mapped_column(String(180), nullable=True)
+    codigo_exibicao: Mapped[str | None] = mapped_column(String(50), nullable=True)
+
+    @property
+    def nome_apresentacao(self):
+        return self.nome_exibicao or self.nome
+
+    @property
+    def codigo_apresentacao(self):
+        return self.codigo_exibicao or self.codigo
+
     cargo: Mapped[str | None] = mapped_column(String(120), nullable=True)
     data_admissao: Mapped[date | None] = mapped_column(Date, nullable=True)
     data_demissao: Mapped[date | None] = mapped_column(Date, nullable=True)

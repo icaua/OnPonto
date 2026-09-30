@@ -1,6 +1,6 @@
 from datetime import date, datetime
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class DatasVinculo(BaseModel):
@@ -14,7 +14,17 @@ class DatasVinculo(BaseModel):
         return self
 
 
-class FuncionarioBase(DatasVinculo):
+class IdentidadeExibicao(DatasVinculo):
+    nome_exibicao: str | None = Field(default=None, max_length=180)
+    codigo_exibicao: str | None = Field(default=None, max_length=50)
+
+    @field_validator("nome_exibicao", "codigo_exibicao", mode="before")
+    @classmethod
+    def limpar_identidade(cls, valor):
+        return valor.strip() or None if isinstance(valor, str) else valor
+
+
+class FuncionarioBase(IdentidadeExibicao):
     empresa_id: int
     codigo: str | None = None
     nome: str = Field(..., min_length=1, max_length=180)
@@ -28,7 +38,7 @@ class FuncionarioCreate(FuncionarioBase):
     pass
 
 
-class FuncionarioUpdate(DatasVinculo):
+class FuncionarioUpdate(IdentidadeExibicao):
     empresa_id: int | None = None
     codigo: str | None = None
     nome: str | None = Field(default=None, min_length=1, max_length=180)
@@ -41,6 +51,8 @@ class FuncionarioUpdate(DatasVinculo):
 class FuncionarioRead(FuncionarioBase):
     model_config = ConfigDict(from_attributes=True)
 
+    nome_apresentacao: str
+    codigo_apresentacao: str | None
     id: int
     created_at: datetime
     updated_at: datetime

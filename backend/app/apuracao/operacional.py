@@ -6,8 +6,32 @@ from datetime import date
 from app.calendario.service import dentro_vinculo
 
 
+def contar_batidas_originais(valor):
+    try:
+        batidas = json.loads(valor or "[]")
+        return len(batidas) if isinstance(batidas, list) else 0
+    except (ValueError, TypeError):
+        return 0
+
+
 def classificar_dia(dia):
     problema = bool(dia.get("pendente_calculo") or dia.get("pendencia_tipo"))
+    # Atribuir só duas das três batidas não resolve a batida restante.
+    preenchidos = sum(bool(dia.get(c)) for c in ("entrada", "saida_almoco", "retorno_almoco", "saida"))
+    brutas = dia.get("quantidade_batidas_originais", 0)
+    if brutas > preenchidos and preenchidos < 4:
+        problema = True
+        dia["pendencia_tipo"] = dia.get("pendencia_tipo") or "batidas_nao_atribuidas"
+        dia["pendencia_motivo"] = dia.get("pendencia_motivo") if dia.get("pendente_calculo") else "Há batidas originais ainda não atribuídas."
+    tipo = dia.get("pendencia_tipo")
+    rotulos = {"escala_nao_cadastrada": "Sem escala", "escala_incompleta": "Escala incompleta",
+        "horario_fixo_incompleto": "Horário incompleto", "batidas_em_dia_sem_calculo": "Conflito de batidas",
+        "batidas_nao_atribuidas": "Batida não atribuída"}
+    rotulo = rotulos.get(tipo, "Conflito")
+    if tipo == "batidas_insuficientes":
+        rotulo = "Batida ímpar" if (preenchidos % 2 or (not preenchidos and brutas % 2)) else "Batida faltante"
+    dia["problema_rotulo"] = rotulo if problema else None
+    dia["bloqueante"] = problema
     dia["problema"] = problema
     dia["aguardando_conferencia"] = not problema and not dia["conferido"] and not dia.get("fora_vinculo")
     dia["conferido"] = bool(dia["conferido"] and not problema)
