@@ -398,16 +398,24 @@
   function OriginalPunchesList(input) {
     var settings = Array.isArray(input) ? { punches: input } : input || {};
     var punches = normalizeOriginalPunches(settings);
+    var discarded = array(settings.discarded);
     var items = punches.map(function (punch, index) {
       var value = valueOf(punch.value, punch.time, punch.horario, punch.raw, "—");
       var source = [];
       if (punch.line != null || punch.linha != null || punch.sourceLine != null || punch.linhaOrigem != null) source.push("linha " + valueOf(punch.line, punch.linha, punch.sourceLine, punch.linhaOrigem));
       if (punch.page != null || punch.pagina != null) source.push("página " + valueOf(punch.page, punch.pagina));
+      var discard = discarded.find(function (item) { return Number(item.indice) === index; });
+      if (discard) {
+        return '<li class="original-punch is-discarded"><span class="punch-order" aria-hidden="true">' + text(index + 1) + '</span><time class="punch-time"><s>' + text(value) + '</s></time>' +
+          '<small class="punch-discard-reason">Desconsiderada: ' + text(discard.justificativa) + '</small>' +
+          (settings.editable ? '<button type="button" class="text-button" data-action="restore-original-punch" data-day-id="' + text(settings.dayId) + '" data-punch-index="' + index + '">Restaurar</button>' : "") + "</li>";
+      }
       var used = Object.values(settings.slots || {}).includes(Utils.normalizeTimeInput(value));
       var options = [["entry", "Entrada 1"], ["breakStart", "Saída 1"], ["breakEnd", "Entrada 2"], ["exit", "Saída 2"]];
       var assign = settings.assist && !used ? '<label class="punch-assignment"><span class="sr-only">Atribuir batida ' + text(value) + ' a</span><select data-action="assign-original-punch" data-day-id="' + text(settings.dayId) + '" data-punch-index="' + index + '"><option value="">Atribuir a…</option>' + options.map(function (option) { return '<option value="' + option[0] + '"' + boolAttr("disabled", Boolean(settings.slots[option[0]])) + '>' + option[1] + '</option>'; }).join("") + '</select></label>' : settings.assist && used ? '<small>Já atribuída</small>' : "";
+      var discardButton = settings.allowDiscard ? '<button type="button" class="text-button" data-action="discard-original-punch" data-day-id="' + text(settings.dayId) + '" data-punch-index="' + index + '" aria-label="Desconsiderar batida ' + text(value) + '">Desconsiderar</button>' : "";
       return '<li class="original-punch"><span class="punch-order" aria-hidden="true">' + text(index + 1) + '</span><time class="punch-time">' + text(value) + "</time>" +
-        (source.length ? '<span class="punch-source">' + text(source.join(" · ")) + "</span>" : "") + assign + "</li>";
+        (source.length ? '<span class="punch-source">' + text(source.join(" · ")) + "</span>" : "") + assign + discardButton + "</li>";
     }).join("");
     return '<div class="original-punches-list" data-component="original-punches-list"><h3>' + text(settings.title || "Batidas originais") + ' <span class="readonly-label">Somente leitura</span></h3>' +
       (items ? '<ol aria-label="Batidas originais em ordem">' + items + "</ol>" : EmptyState({ compact: true, icon: "clock", title: "Nenhuma batida original", description: "O arquivo não contém marcações para este dia." })) + "</div>";
@@ -482,10 +490,17 @@
     var sourceLines = valueOf(source.sourceLines, source.linhasOrigem, original.lines, original.linhas, punches.map(function (punch) { return valueOf(punch.line, punch.linha, punch.sourceLine, punch.linhaOrigem); }).filter(function (line) { return line != null; }));
     var hasRegion = Boolean(valueOf(source.region, source.regiao, original.region, original.regiao, punches.some(function (punch) { return punch.region || punch.regiao; })));
     var actions = readonly ? [] : valueOf(settings.actions, defaultDayActions(day, punches));
+    // Ocorrência integral decide o dia sem horários: as brutas ficam só como registro.
+    var integralOccurrence = array(day.occurrences).some(function (item) { return item && !item.hora_inicio; });
+    var discardedPunches = array(valueOf(day.batidas_desconsideradas, day.discardedPunches, []));
+    var editablePunches = !readonly && !day.confirmed && !day.conferido;
     return '<aside id="day-details-panel" class="day-details-panel" data-component="day-details-panel" data-day-id="' + text(dayId) + '" aria-labelledby="day-details-title">' +
       '<header class="details-header day-details-panel__header"><div><p class="details-eyebrow">' + text(Utils.formatWeekday(date, { long: true })) + '</p><h2 id="day-details-title">' + text(Utils.formatDate(date)) + "</h2></div>" + (day.problema === true ? problemBadge(day) : StatusChip(day.effectiveStatus || dayStatus(day))) + "</header>" + (day.calendarNote ? '<p class="context-note">' + text(day.calendarNote) + "</p>" : "") +
       (day.occurrenceLabel ? '<p class="context-note"><strong>' + text(day.occurrenceLabel) + '</strong> · Abono calculado: ' + text(day.excusedMinutes || 0) + ' min. As batidas permanecem preservadas.</p>' : "") +
-      OriginalPunchesList({ punches: punches, dayId: dayId, assist: !readonly && !day.confirmed && !day.conferido && punches.length <= 4, slots: {entry:slots.entry, breakStart:slots.breakOut, breakEnd:slots.breakIn, exit:slots.exit} }) +
+      OriginalPunchesList({ punches: punches, dayId: dayId, discarded: discardedPunches, editable: editablePunches,
+        assist: editablePunches && !integralOccurrence && punches.length - discardedPunches.length <= 4,
+        allowDiscard: editablePunches && !integralOccurrence && day.problema === true,
+        slots: {entry:slots.entry, breakStart:slots.breakOut, breakEnd:slots.breakIn, exit:slots.exit} }) +
       '<section class="details-section current-interpretation"><h3>Interpretação atual</h3><dl>' + detailRow("Entrada", slots.entry) + detailRow("Saída intervalo", slots.breakOut) + detailRow("Retorno", slots.breakIn) + detailRow("Saída", slots.exit) + detailRow("Jornada prevista", formatMinutesOrValue(expected, false)) + detailRow("Jornada apurada", formatMinutesOrValue(worked, false)) + detailRow("Saldo", formatMinutesOrValue(balance, true), Number(balance) > 0 ? "is-positive" : Number(balance) < 0 ? "is-negative" : "") + "</dl>" +
       (valueOf(current.differenceReason, current.motivoDiferenca, day.differenceReason, day.motivoDiferenca) ? '<p class="difference-reason"><strong>Motivo:</strong> ' + text(valueOf(current.differenceReason, current.motivoDiferenca, day.differenceReason, day.motivoDiferenca)) + "</p>" : "") + "</section>" +
       '<section class="details-section issues-section"><h3>Pendências <span class="count-badge">' + text(array(valueOf(day.issues, day.pendencias)).length) + "</span></h3>" + (issues ? '<ul class="issues-list">' + issues + "</ul>" : '<p class="muted-text">Nenhuma pendência identificada.</p>') + "</section>" +

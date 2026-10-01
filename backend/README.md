@@ -40,7 +40,9 @@ Na inicialização, migrações SQLite incrementais e idempotentes evoluem o sch
 - `GET /arquivos/{arquivo_id}/download`
 - `POST /importadores/analisar`
 - `POST /importadores/confirmar`
+- `GET/POST /importadores/ignorados`, `DELETE /importadores/ignorados/{id}`
 - `GET/POST/PATCH /marcacoes`
+- `POST /marcacoes/{id}/batidas-desconsideradas`, `DELETE /marcacoes/{id}/batidas-desconsideradas/{indice}`
 - `GET /apuracao?competencia_id={id}`
 - `GET /relatorios/excel?competencia_id={id}`
 - `GET /relatorios/impressao?competencia_id={id}`
@@ -84,3 +86,32 @@ incluem `nome_apresentacao` e `codigo_apresentacao`, com fallback para a origem.
 acrescenta `marcacoes[].problema_rotulo` e `bloqueante` para apresentação. A atribuição
 assistida de batidas usa o `PATCH /marcacoes/{id}` existente, com a mesma auditoria.
 Veja `RELATORIO-UX-CONFERENCIA.md` na raiz para escopo, validação e limitações.
+
+## Destino das batidas e pessoas ignoradas no relógio
+
+O schema 13 acrescenta `marcacoes_ponto.batidas_desconsideradas_json` e a tabela
+`identificacoes_ignoradas`. Nenhuma das duas reescreve batidas originais ou arquivos.
+
+Toda batida bruta precisa de destino: um dos quatro horários ou uma desconsideração
+justificada. Dia com ocorrência integral (atestado, férias, afastamento, folga
+compensatória) e horários vazios não exige destino; as brutas ficam só como registro.
+
+- `POST /marcacoes/{id}/batidas-desconsideradas` com `{indice, justificativa}` (mín. 10
+  caracteres) tira uma batida da contagem, por exemplo uma duplicada. O dia precisa estar
+  reaberto e a competência editável; o evento entra no histórico do dia.
+- `DELETE /marcacoes/{id}/batidas-desconsideradas/{indice}` restaura a batida.
+- `GET /importadores/{arquivo_id}/pendencias-agrupadas` agrupa as pendências de
+  importação por pessoa do relógio, sem gravar nada.
+- `GET /importadores/ignorados?empresa_id={id}` lista as pessoas ignoradas.
+- `POST /importadores/ignorados` com `{empresa_id, codigo_origem, nome_origem,
+  justificativa}` ignora uma pessoa nas importações da empresa (ex.: gestão que não
+  apura ponto). Os registros dela nas competências abertas viram exclusões justificadas
+  com a regra de origem, e as próximas análises aplicam a mesma decisão. O código do
+  relógio identifica a pessoa; o nome só decide quando falta código. Funcionário
+  cadastrado sempre prevalece, e a regra é recusada quando já existe cadastro com a
+  mesma identificação.
+- `DELETE /importadores/ignorados/{id}` desativa a regra e devolve às pendências o que
+  ela excluiu nas competências abertas. Competências fechadas não são alteradas.
+
+Arquivo cuja análise não deixa registro pendente (por exemplo, só com pessoas ignoradas)
+fica `confirmada` automaticamente, sem bloquear o fechamento.

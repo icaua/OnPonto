@@ -29,14 +29,17 @@ def registrar_alteracao(marcacao, antes: dict | None) -> None:
                   for campo in CAMPOS if antes is None or antes.get(campo) != depois[campo]}
     if not alteracoes:
         return
-    historico = marcacao.historico
     descricao = "; ".join(
         f"{ROTULOS[campo]}: {mudanca['antes'] if mudanca['antes'] is not None else '—'} → "
         f"{mudanca['depois'] if mudanca['depois'] is not None else '—'}"
         for campo, mudanca in alteracoes.items()
     )
+    registrar_evento(marcacao, "Registro criado" if antes is None else "Registro alterado", descricao, alteracoes)
+
+
+def registrar_evento(marcacao, titulo: str, descricao: str, alteracoes: dict) -> None:
+    historico = marcacao.historico
     historico.append({"id": str(uuid4()), "at": datetime.now(timezone.utc).isoformat(),
                       "actor": "Operador local", "description": descricao,
-                      "title": "Registro criado" if antes is None else "Registro alterado",
-                      "type": "manual", "alteracoes": alteracoes})
+                      "title": titulo, "type": "manual", "alteracoes": alteracoes})
     marcacao.historico_json = json.dumps(historico, ensure_ascii=False)

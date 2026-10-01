@@ -1,4 +1,5 @@
-from datetime import date
+import json
+from datetime import date, datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.exc import IntegrityError
@@ -7,11 +8,11 @@ from sqlalchemy.orm import Session
 from app.competencias.service import exigir_competencia_editavel, sincronizar_status_competencia
 from app.database.models import Competencia, Funcionario, MarcacaoPonto
 from app.database.session import get_db
-from app.marcacoes.schemas import MarcacaoCreate, MarcacaoRead, MarcacaoUpdate, ORIGENS, STATUS_DIA
+from app.marcacoes.schemas import DesconsideracaoBatida, MarcacaoCreate, MarcacaoRead, MarcacaoUpdate, ORIGENS, STATUS_DIA
 from app.apuracao.service import apurar_competencia
 from app.ocorrencias.service import iniciar_escrita
 from pydantic import BaseModel, Field
-from app.marcacoes.auditoria import estado, registrar_alteracao, validar_sequencia
+from app.marcacoes.auditoria import estado, registrar_alteracao, registrar_evento, validar_sequencia
 
 
 router = APIRouter(prefix="/marcacoes", tags=["Marcações de ponto"])
@@ -195,5 +196,59 @@ def atualizar_marcacao(
     except IntegrityError as exc:
         db.rollback()
         raise HTTPException(status_code=400, detail="Não foi possível atualizar a marcação.") from exc
+    db.refresh(marcacao)
+    return marcacao
+
+
+def marcacao_para_decisao_de_batida(db: Session, marcacao_id: int) -> tuple[MarcacaoPonto, Competencia, list]:
+    iniciar_escrita(db)
+    marcacao = db.get(MarcacaoPonto, marcacao_id)
+    if not marcacao:
+        raise HTTPException(status_code=404, detail="Marcação não encontrada.")
+    competencia = db.get(Competencia, marcacao.competencia_id)
+    exigir_competencia_editavel(competencia)
+    if marcacao.conferido:
+        raise HTTPException(status_code=409, detail="Reabra a conferência do dia antes de alterar o destino de uma batida.")
+    try:
+        brutas = json.loads(marcacao.batidas_originais or "[]")
+    except ValueError:
+        brutas = []
+    return marcacao, competencia, [str(item) for item in brutas] if isinstance(brutas, list) else []
+
+
+@router.post("/{marcacao_id}/batidas-desconsideradas", response_model=MarcacaoRead)
+def desconsiderar_batida(marcacao_id: int, payload: DesconsideracaoBatida, db: Session = Depends(get_db)) -> MarcacaoPonto:
+    """Tira uma batida bruta da contagem (ex.: batida duplicada). A batida original é preservada."""
+    marcacao, competencia, brutas = marcacao_para_decisao_de_batida(db, marcacao_id)
+    if payload.indice >= len(brutas):
+        raise HTTPException(status_code=422, detail="Batida original não encontrada neste dia.")
+    atuais = marcacao.batidas_desconsideradas
+    if any(item["indice"] == payload.indice for item in atuais):
+        raise HTTPException(status_code=409, detail="Esta batida já está desconsiderada.")
+    horario = brutas[payload.indice]
+    atuais.append({"indice": payload.indice, "horario": horario, "justificativa": payload.justificativa,
+                   "em": datetime.now(timezone.utc).isoformat()})
+    marcacao.batidas_desconsideradas_json = json.dumps(sorted(atuais, key=lambda item: item["indice"]), ensure_ascii=False)
+    registrar_evento(marcacao, "Batida desconsiderada", f"Batida original {horario} desconsiderada: {payload.justificativa}",
+                     {"batidas_desconsideradas": {"antes": None, "depois": {"indice": payload.indice, "horario": horario}}})
+    sincronizar_status_competencia(db, competencia)
+    db.commit()
+    db.refresh(marcacao)
+    return marcacao
+
+
+@router.delete("/{marcacao_id}/batidas-desconsideradas/{indice}", response_model=MarcacaoRead)
+def restaurar_batida(marcacao_id: int, indice: int, db: Session = Depends(get_db)) -> MarcacaoPonto:
+    marcacao, competencia, _ = marcacao_para_decisao_de_batida(db, marcacao_id)
+    atuais = marcacao.batidas_desconsideradas
+    removida = next((item for item in atuais if item["indice"] == indice), None)
+    if removida is None:
+        raise HTTPException(status_code=404, detail="Esta batida não está desconsiderada.")
+    restantes = [item for item in atuais if item["indice"] != indice]
+    marcacao.batidas_desconsideradas_json = json.dumps(restantes, ensure_ascii=False) if restantes else None
+    registrar_evento(marcacao, "Batida restaurada", f"Batida original {removida['horario']} voltou a exigir destino.",
+                     {"batidas_desconsideradas": {"antes": {"indice": indice, "horario": removida["horario"]}, "depois": None}})
+    sincronizar_status_competencia(db, competencia)
+    db.commit()
     db.refresh(marcacao)
     return marcacao

@@ -1745,6 +1745,7 @@
     Array.prototype.forEach.call(main.querySelectorAll('[data-indeterminate="true"]'), function (checkbox) {
       checkbox.indeterminate = true;
     });
+    if (state.route === "imports") ensureImportPendingData();
 
     var target = settings.focus || renderFocus;
     renderFocus = null;
@@ -2543,6 +2544,58 @@
     render();
   }
 
+  function updateDayFromMarking(day, marking) {
+    day.batidas_desconsideradas = marking.batidas_desconsideradas || [];
+    if (Array.isArray(marking.historico)) {
+      day.history = marking.historico;
+      day.historico = marking.historico;
+    }
+  }
+
+  function originalPunchDecision(dayId, request, successMessage) {
+    var day = findDay(dayId);
+    if (!day || state.apiMode !== "online") return Promise.reject(new Error("A decisão sobre batidas exige a API conectada."));
+    var competenceId = day.competenceId || day.competencia_id || state.selectedCompetenceId;
+    // Salvamentos pendentes (ex.: reabertura do dia) precisam chegar antes da decisão.
+    return flushPendingDaySaves().then(request).then(function (marking) {
+      updateDayFromMarking(day, marking || {});
+      return refreshAffectedCompetence(competenceId);
+    }).then(function () {
+      render();
+      showToast(successMessage, "success", "A batida original continua preservada no arquivo e no registro do dia.");
+    });
+  }
+
+  function discardOriginalPunch(dayId, index) {
+    if (!ensureCompetencyWritable("A desconsideração de batidas")) return;
+    var day = findDay(dayId);
+    if (!day || dayIsConfirmed(day)) return showToast("Reabra a conferência antes de desconsiderar uma batida.", "warning");
+    var value = (day.originalPunches || [])[index];
+    showDialog({
+      title: "Desconsiderar batida " + (value || "") + "?",
+      description: "Use para batidas duplicadas ou sem efeito. A batida deixa de exigir atribuição, mas continua preservada e o motivo fica no histórico.",
+      confirmLabel: "Desconsiderar batida",
+      fields: [{ name: "justificativa", label: "Justificativa", type: "textarea", required: true, maxlength: 1000, placeholder: "Ex.: batida duplicada no mesmo minuto.",
+        validate: function (text) { return String(text || "").trim().length < 10 ? "Informe uma justificativa com ao menos dez caracteres." : ""; } }],
+      onConfirm: function (values) {
+        return originalPunchDecision(dayId, function () {
+          return apiRequest("/marcacoes/" + encodeURIComponent(day.id) + "/batidas-desconsideradas", { method: "POST", body: { indice: index, justificativa: String(values.justificativa).trim() } });
+        }, "Batida desconsiderada.");
+      },
+    });
+  }
+
+  function restoreOriginalPunch(dayId, index) {
+    if (!ensureCompetencyWritable("A restauração de batidas")) return;
+    var day = findDay(dayId);
+    if (!day || dayIsConfirmed(day)) return showToast("Reabra a conferência antes de restaurar uma batida.", "warning");
+    originalPunchDecision(dayId, function () {
+      return apiRequest("/marcacoes/" + encodeURIComponent(day.id) + "/batidas-desconsideradas/" + encodeURIComponent(index), { method: "DELETE" });
+    }, "Batida restaurada.").catch(function (error) {
+      showToast("Não foi possível restaurar a batida.", "error", error && error.message);
+    });
+  }
+
   function moveEmployee(direction) {
     var list = companyEmployees();
     var index = list.findIndex(function (item) { return idsEqual(item.id, state.selectedEmployeeId); });
@@ -3196,6 +3249,136 @@
         return result;
       });
     }).catch(function(error){ showToast("Não foi possível conferir.", "error", error.message); return false; });
+  }
+
+  var importGroupRequests = Object.create(null);
+  var ignoredPeopleRequests = Object.create(null);
+
+  function importPendingKey(file) {
+    var control = file && file.controle_importacao;
+    return (control && control.pendencias || []).map(function (item) { return item.registro_id; }).join(",");
+  }
+
+  // Pendências agrupadas por pessoa do relógio; só recarrega quando a lista do arquivo muda.
+  function ensureImportPendingData() {
+    if (state.apiMode !== "online" || state.route !== "imports" || state.selectedCompetenceId == null) return;
+    data.importGroups = data.importGroups || Object.create(null);
+    files().forEach(function (file) {
+      if (!idsEqual(file.competenceId || file.competencia_id, state.selectedCompetenceId)) return;
+      var fileKey = String(file.id);
+      var key = importPendingKey(file);
+      var cached = data.importGroups[fileKey];
+      if (!key || (cached && cached.key === key) || importGroupRequests[fileKey] === key) return;
+      importGroupRequests[fileKey] = key;
+      apiRequest("/importadores/" + encodeURIComponent(file.id) + "/pendencias-agrupadas", { timeout: 15000 }).then(function (groups) {
+        data.importGroups[fileKey] = { key: key, groups: Array.isArray(groups) ? groups : [] };
+      }).catch(function (error) {
+        data.importGroups[fileKey] = { key: key, groups: null, error: error && error.message };
+      }).then(function () {
+        if (importGroupRequests[fileKey] === key) delete importGroupRequests[fileKey];
+        if (state.route === "imports") render();
+      });
+    });
+    data.ignoredPeople = data.ignoredPeople || Object.create(null);
+    var companyKey = String(state.selectedCompanyId);
+    if (state.selectedCompanyId != null && !data.ignoredPeople[companyKey] && !ignoredPeopleRequests[companyKey]) {
+      ignoredPeopleRequests[companyKey] = true;
+      apiRequest("/importadores/ignorados?empresa_id=" + encodeURIComponent(state.selectedCompanyId)).then(function (list) {
+        data.ignoredPeople[companyKey] = Array.isArray(list) ? list : [];
+      }).catch(function () {
+        data.ignoredPeople[companyKey] = [];
+      }).then(function () {
+        delete ignoredPeopleRequests[companyKey];
+        if (state.route === "imports") render();
+      });
+    }
+  }
+
+  function importGroup(fileId, index) {
+    var cached = data.importGroups && data.importGroups[String(fileId)];
+    return cached && cached.groups ? cached.groups[index] || null : null;
+  }
+
+  function importPersonLabel(group) {
+    return (group.nome_origem || "Pessoa sem nome") + (group.codigo_origem ? " (código " + group.codigo_origem + " no relógio)" : "");
+  }
+
+  // A decisão vale para a empresa: todas as competências abertas são recarregadas.
+  function refreshImportsAfterDecision(companyId) {
+    competencies().forEach(function (competence) {
+      if (!idsEqual(competence.companyId || competence.empresa_id, companyId)) return;
+      delete loadedCompetenceFiles[String(competence.id)];
+      delete loadedCompetenceSummaries[String(competence.id)];
+    });
+    if (data.ignoredPeople) delete data.ignoredPeople[String(companyId)];
+    return loadCompetenceData(state.selectedCompetenceId, { force: true, summaryForce: true }).then(function () { render(); });
+  }
+
+  var IMPORT_JUSTIFICATION_FIELD = { name: "justificativa", label: "Justificativa", type: "textarea", required: true, maxlength: 1000,
+    validate: function (text) { return String(text || "").trim().length < 10 ? "Informe uma justificativa com ao menos dez caracteres." : ""; } };
+
+  function ignoreImportPerson(fileId, index) {
+    if (!ensureCompetencyWritable("A decisão sobre importações")) return;
+    var group = importGroup(fileId, index);
+    if (!group) return;
+    var companyId = state.selectedCompanyId;
+    var days = (group.registros || []).length;
+    // Quem bate ponto quase todo dia provavelmente é funcionário sem cadastro, não gestão.
+    var frequentWarning = days >= 5 ? " Atenção: são " + days + " dias com batidas neste arquivo. Se for funcionário, cadastre-o em vez de ignorar." : "";
+    showDialog({
+      title: "Ignorar " + (group.nome_origem || "esta pessoa") + " nas importações?",
+      description: importPersonLabel(group) + " deixa de compor a apuração desta empresa, agora e nas próximas importações. Os registros ficam excluídos com esta justificativa, o arquivo original é preservado e a decisão pode ser desfeita. Se a pessoa for cadastrada no OnPonto, o cadastro prevalece." + frequentWarning,
+      confirmLabel: "Ignorar nas importações",
+      fields: [Object.assign({}, IMPORT_JUSTIFICATION_FIELD, { placeholder: "Ex.: Diretoria, não controla jornada no ponto." })],
+      onConfirm: function (values) {
+        return apiRequest("/importadores/ignorados", { method: "POST", timeout: 30000, body: {
+          empresa_id: companyId, codigo_origem: group.codigo_origem || null, nome_origem: group.nome_origem || null,
+          justificativa: String(values.justificativa).trim(),
+        } }).then(function (result) {
+          return refreshImportsAfterDecision(companyId).then(function () {
+            showToast(importPersonLabel(group) + " será ignorada nas importações.", "success", (result.registros_excluidos || 0) + " registro(s) excluído(s) da apuração nas competências abertas.");
+          });
+        });
+      },
+    });
+  }
+
+  function discardImportGroup(fileId, index) {
+    if (!ensureCompetencyWritable("A exclusão de registros")) return;
+    var group = importGroup(fileId, index);
+    if (!group) return;
+    var ids = group.registros.map(function (item) { return item.registro_id; });
+    showDialog({
+      title: "Excluir " + ids.length + " registro(s) da apuração?",
+      description: importPersonLabel(group) + ": os registros desta pessoa neste arquivo não comporão a competência. O arquivo original é preservado. Para que as próximas importações também ignorem a pessoa, use “Ignorar nas importações”.",
+      confirmLabel: "Registrar exclusão",
+      fields: [IMPORT_JUSTIFICATION_FIELD],
+      onConfirm: function (values) {
+        return apiRequest("/importadores/" + encodeURIComponent(fileId) + "/descartar-pendencias", { method: "POST", body: { registros_ids: ids, justificativa: String(values.justificativa).trim() } })
+          .then(function () { return refreshImportsAfterDecision(state.selectedCompanyId); });
+      },
+    });
+  }
+
+  function unignoreImportPerson(ruleId) {
+    if (!ensureCompetencyWritable("A decisão sobre importações")) return;
+    var companyId = state.selectedCompanyId;
+    var rule = ((data.ignoredPeople || {})[String(companyId)] || []).find(function (item) { return idsEqual(item.id, ruleId); });
+    if (!rule) return;
+    showDialog({
+      title: "Voltar a considerar " + (rule.nome_origem || "esta pessoa") + "?",
+      description: "Os registros excluídos por esta regra nas competências abertas voltam a ser pendências de importação. Competências fechadas não são alteradas.",
+      confirmLabel: "Voltar a considerar",
+      onConfirm: function () {
+        return apiRequest("/importadores/ignorados/" + encodeURIComponent(ruleId), { method: "DELETE", timeout: 30000 }).then(function (result) {
+          return refreshImportsAfterDecision(companyId).then(function () {
+            showToast("Regra desativada.", "success", (result.registros_restaurados || 0) + " registro(s) voltaram a ser pendências.");
+          });
+        }).catch(function (error) {
+          showToast("Não foi possível desativar a regra.", "error", error && error.message);
+        });
+      },
+    });
   }
 
   function resumeImport(fileId) {
@@ -4185,6 +4368,11 @@
       return showDialog({title:"Inicializar calendário?", description:"Criar os dias ausentes dos vínculos ativos para conferência manual. Marcações existentes serão preservadas.", confirmLabel:"Inicializar", onConfirm:function(){return apiRequest("/competencias/"+calendarCompetenceId+"/inicializar-calendario",{method:"POST"}).then(function(){return loadCompetenceData(calendarCompetenceId,{force:true,summaryForce:true});}).then(function(){render();});}});
     }
     if (action === "resume-import") return resumeImport(element.dataset.fileId);
+    if (action === "discard-original-punch") return discardOriginalPunch(element.dataset.dayId, Number(element.dataset.punchIndex));
+    if (action === "restore-original-punch") return restoreOriginalPunch(element.dataset.dayId, Number(element.dataset.punchIndex));
+    if (action === "ignore-import-person") return ignoreImportPerson(element.dataset.fileId, Number(element.dataset.groupIndex));
+    if (action === "discard-import-group") return discardImportGroup(element.dataset.fileId, Number(element.dataset.groupIndex));
+    if (action === "unignore-import-person") return unignoreImportPerson(asId(element.dataset.ruleId));
     if (action === "discard-import-record") {
       var fileId = element.dataset.fileId, recordId = element.dataset.recordId, competenceId = state.selectedCompetenceId;
       return showDialog({title:"Excluir registro da apuração?", description:"O arquivo original será preservado. Justifique por que este registro não deve compor a competência.", confirmLabel:"Registrar exclusão", fields:[{name:"justificativa", label:"Justificativa", type:"textarea", required:true}],

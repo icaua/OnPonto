@@ -166,6 +166,20 @@ class ArquivoRecebido(Base):
     marcacoes = relationship("MarcacaoPonto", back_populates="arquivo_origem")
 
 
+class IdentificacaoIgnorada(Base, TimestampMixin):
+    """Pessoa do relógio que a empresa não apura (ex.: gestão sem controle de ponto)."""
+
+    __tablename__ = "identificacoes_ignoradas"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    empresa_id: Mapped[int] = mapped_column(ForeignKey("empresas.id"), nullable=False, index=True)
+    codigo_origem: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    nome_origem: Mapped[str | None] = mapped_column(String(180), nullable=True)
+    justificativa: Mapped[str] = mapped_column(Text, nullable=False)
+    ativa: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    desativada_em: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
 class MarcacaoPonto(Base, TimestampMixin):
     __tablename__ = "marcacoes_ponto"
     __table_args__ = (
@@ -189,6 +203,8 @@ class MarcacaoPonto(Base, TimestampMixin):
     conferido: Mapped[bool] = mapped_column(Boolean, default=False)
     observacoes: Mapped[str | None] = mapped_column(Text, nullable=True)
     batidas_originais: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Decisões humanas sobre batidas brutas; a lista original nunca é reescrita.
+    batidas_desconsideradas_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     historico_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     arquivo_origem_id: Mapped[int | None] = mapped_column(
         ForeignKey("arquivos_recebidos.id"), nullable=True, index=True
@@ -202,6 +218,11 @@ class MarcacaoPonto(Base, TimestampMixin):
     def historico(self) -> list[dict]:
         import json
         return json.loads(self.historico_json) if self.historico_json else []
+
+    @property
+    def batidas_desconsideradas(self) -> list[dict]:
+        import json
+        return json.loads(self.batidas_desconsideradas_json) if self.batidas_desconsideradas_json else []
 
     @property
     def arquivo_origem_nome(self) -> str | None:

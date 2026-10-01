@@ -7,7 +7,7 @@ import logging
 from sqlalchemy import Connection, Engine, inspect
 
 
-SCHEMA_VERSION = 12
+SCHEMA_VERSION = 13
 logger = logging.getLogger(__name__)
 
 COLUNAS_EMPRESA_LEGADAS = (
@@ -531,10 +531,14 @@ def _aplicar_sqlite(conexao: Connection) -> dict[str, int]:
     _migrar_banco_horas(conexao, tabelas)
     if "arquivos_recebidos" in tabelas and "controle_importacao_json" not in _nomes_colunas(conexao, "arquivos_recebidos"):
         conexao.exec_driver_sql("ALTER TABLE arquivos_recebidos ADD COLUMN controle_importacao_json TEXT")
+    if "empresas" in tabelas:
+        from app.database.models import IdentificacaoIgnorada
+        IdentificacaoIgnorada.__table__.create(conexao, checkfirst=True)
     for tabela, colunas in {
         "escalas": {"politica_horas_json": "TEXT"},
         "lancamentos_banco_horas": {"politica_aplicada_json": "TEXT", "ciclo_inicio": "DATE", "ciclo_fim": "DATE",
                                     "lancamento_referencia_id": "INTEGER REFERENCES lancamentos_banco_horas(id)"},
+        "marcacoes_ponto": {"batidas_desconsideradas_json": "TEXT"},
     }.items():
         if tabela in set(inspect(conexao).get_table_names()):
             existentes = _nomes_colunas(conexao, tabela)

@@ -12,7 +12,8 @@ from sqlalchemy.orm import Session
 
 from app.apuracao.service import placeholder_calendario_intocado
 from app.competencias.service import exigir_competencia_editavel
-from app.database.models import ArquivoRecebido, Competencia, Empresa, Funcionario, MarcacaoPonto
+from app.ocorrencias.service import iniciar_escrita
+from app.database.models import ArquivoRecebido, Competencia, Empresa, Funcionario, IdentificacaoIgnorada, MarcacaoPonto
 from app.database.session import BACKEND_DIR, UPLOADS_DIR, get_db
 from app.importadores.deteccao import (
     ADAPTADORES_TXT,
@@ -20,7 +21,8 @@ from app.importadores.deteccao import (
     detectar_adaptadores_txt,
     detectar_adaptadores_xlsx,
 )
-from app.importadores.schemas import ConfirmacaoImportacao
+from app.importadores import ignorados
+from app.importadores.schemas import ConfirmacaoImportacao, IdentificacaoIgnoradaCreate
 from app.importadores.txt_generico import parse_txt_generico
 from app.importadores.txt_id_tempo_maquina import parse_txt_id_tempo_maquina
 from app.importadores.txt_log_relogio import parse_txt_log_relogio
@@ -171,7 +173,8 @@ def detectar_adaptador(caminho: Path, extensao: str) -> tuple[object, bytes | st
     return encontrados[0], argumento_parse
 
 
-def analisar_arquivo_salvo(db: Session, competencia: Competencia, registro: ArquivoRecebido) -> dict:
+def gerar_previa(db: Session, competencia: Competencia, registro: ArquivoRecebido) -> tuple[object, dict]:
+    """Interpreta o arquivo salvo sem gravar nada."""
     caminho = caminho_arquivo_recebido(registro)
     extensao = Path(registro.nome_original).suffix.lower()
     funcionarios = db.query(Funcionario).filter(Funcionario.empresa_id == competencia.empresa_id).all()
@@ -209,6 +212,12 @@ def analisar_arquivo_salvo(db: Session, competencia: Competencia, registro: Arqu
                 item["selecionado"] = False
                 item["status"] = "conferir"
                 item["pendencias"].append("ID ou nome diverge do cadastro sugerido; confirme a associação antes de selecionar este registro.")
+    return adaptador, resultado
+
+
+def analisar_arquivo_salvo(db: Session, competencia: Competencia, registro: ArquivoRecebido) -> dict:
+    adaptador, resultado = gerar_previa(db, competencia, registro)
+    preview = resultado["registros"]
     confirmacoes_anteriores = (registro.observacoes or "").partition(" Confirmação:")[2]
     registro.tipo_arquivo = adaptador.NOME_ADAPTER
     registro.observacoes = (
@@ -222,10 +231,11 @@ def analisar_arquivo_salvo(db: Session, competencia: Competencia, registro: Arqu
     if confirmacoes_anteriores:
         registro.observacoes += " Confirmação:" + confirmacoes_anteriores
     controle = json.loads(registro.controle_importacao_json) if registro.controle_importacao_json else {}
+    ignorados.aplicar_regras(controle, preview, ignorados.regras_ativas(db, competencia.empresa_id))
     resolvidos = set(controle.get("importados", [])) | {p["registro_id"] for p in controle.get("descartados", [])}
-    controle.update(estado="analisada", pendencias=[{"registro_id": p["id"], "tipo": "aguardando_importacao",
-        "mensagem": "; ".join(p["pendencias"]) or "Registro ainda não importado.", "data": p["data"]}
-        for p in preview if p["id"] not in resolvidos])
+    pendencias = [ignorados.pendencia_do_registro(p) for p in preview if p["id"] not in resolvidos]
+    # Sem registro pendente não há o que confirmar (ex.: arquivo só com pessoas ignoradas).
+    controle.update(estado="analisada" if pendencias else "confirmada", pendencias=pendencias)
     registro.controle_importacao_json = json.dumps(controle, ensure_ascii=False)
     db.commit()
     for item in preview:
@@ -240,7 +250,12 @@ def analisar_arquivo_salvo(db: Session, competencia: Competencia, registro: Arqu
     funcionarios_nao_encontrados = {
         (item["funcionario"]["codigo_origem"], item["funcionario"]["nome_origem"])
         for item in preview
-        if not item["funcionario"]["encontrado"]
+        if not item["funcionario"]["encontrado"] and not item.get("ignorado")
+    }
+    pessoas_ignoradas = {
+        (item["funcionario"]["codigo_origem"], item["funcionario"]["nome_origem"])
+        for item in preview
+        if item.get("ignorado")
     }
     return {
         "arquivo": {
@@ -258,6 +273,8 @@ def analisar_arquivo_salvo(db: Session, competencia: Competencia, registro: Arqu
         "linhas_rejeitadas": resultado.get("linhas_rejeitadas", []),
         "total_funcionarios_encontrados": len(funcionarios_encontrados),
         "total_funcionarios_nao_cadastrados": len(funcionarios_nao_encontrados),
+        "total_pessoas_ignoradas": len(pessoas_ignoradas),
+        "total_registros_ignorados": sum(1 for item in preview if item.get("ignorado")),
         "total_batidas": sum(len(item["batidas_originais"]) for item in preview),
         "total_dias": len(preview),
         "total_pendencias": sum(len(item["pendencias"]) for item in preview),
@@ -305,6 +322,97 @@ def descartar_pendencias(arquivo_id: int, payload: DescartePendencias, db: Sessi
     arquivo.controle_importacao_json = json.dumps(controle, ensure_ascii=False)
     db.commit()
     return {"descartados": len(ids), "restantes": len(controle["pendencias"])}
+
+
+@router.get("/{arquivo_id}/pendencias-agrupadas")
+def pendencias_agrupadas(arquivo_id: int, db: Session = Depends(get_db)):
+    """Agrupa as pendências por pessoa do relógio, sem gravar nada."""
+    arquivo = db.get(ArquivoRecebido, arquivo_id)
+    if not arquivo:
+        raise HTTPException(404, "Arquivo não encontrado.")
+    pendencias = (arquivo.controle_importacao or {}).get("pendencias", [])
+    identidades = {}
+    if any("nome_origem" not in p for p in pendencias):
+        # Arquivos analisados antes desta versão não guardavam a identidade na pendência.
+        _, resultado = gerar_previa(db, arquivo.competencia, arquivo)
+        identidades = {item["id"]: ignorados.pendencia_do_registro(item) for item in resultado["registros"]}
+    grupos = {}
+    for pendencia in pendencias:
+        completa = {**identidades.get(pendencia["registro_id"], {}), **pendencia}
+        chave = (ignorados.normalizar_codigo(completa.get("codigo_origem")), ignorados.normalizar_nome(completa.get("nome_origem")))
+        grupo = grupos.setdefault(chave, {"codigo_origem": completa.get("codigo_origem"), "nome_origem": completa.get("nome_origem"),
+                                         "funcionario_encontrado": completa.get("funcionario_encontrado", True), "registros": []})
+        grupo["registros"].append({k: completa.get(k) for k in ("registro_id", "data", "mensagem", "tipo")})
+    return sorted(grupos.values(), key=lambda g: (g["funcionario_encontrado"], ignorados.normalizar_nome(g["nome_origem"]),
+                                                  ignorados.normalizar_codigo(g["codigo_origem"])))
+
+
+@router.get("/ignorados")
+def listar_ignorados(empresa_id: int, incluir_inativas: bool = False, db: Session = Depends(get_db)):
+    query = db.query(IdentificacaoIgnorada).filter_by(empresa_id=empresa_id)
+    if not incluir_inativas:
+        query = query.filter_by(ativa=True)
+    return [ignorados.serializar(regra) for regra in query.order_by(IdentificacaoIgnorada.id)]
+
+
+def arquivos_editaveis(db: Session, empresa_id: int) -> list[ArquivoRecebido]:
+    return (db.query(ArquivoRecebido).join(Competencia)
+            .filter(Competencia.empresa_id == empresa_id, Competencia.status != "fechada",
+                    ArquivoRecebido.controle_importacao_json.isnot(None))
+            .order_by(ArquivoRecebido.id).all())
+
+
+@router.post("/ignorados", status_code=status.HTTP_201_CREATED)
+def ignorar_identificacao(payload: IdentificacaoIgnoradaCreate, db: Session = Depends(get_db)):
+    """Ignora uma pessoa do relógio nesta empresa e aplica a decisão às competências abertas."""
+    iniciar_escrita(db)
+    if not db.get(Empresa, payload.empresa_id):
+        raise HTTPException(404, "Empresa não encontrada.")
+    regra = IdentificacaoIgnorada(**payload.model_dump())
+    for funcionario in db.query(Funcionario).filter_by(empresa_id=payload.empresa_id):
+        if ignorados.corresponde(regra, funcionario.codigo, funcionario.nome):
+            raise HTTPException(409, f"{funcionario.nome_apresentacao} está cadastrado no OnPonto com esta identificação; o cadastro prevalece.")
+    if any(ignorados.corresponde(r, regra.codigo_origem, regra.nome_origem) for r in ignorados.regras_ativas(db, payload.empresa_id)):
+        raise HTTPException(409, "Esta pessoa já está ignorada nas importações desta empresa.")
+    db.add(regra)
+    db.flush()
+    excluidos, falhas = 0, []
+    for arquivo in arquivos_editaveis(db, payload.empresa_id):
+        try:
+            _, resultado = gerar_previa(db, arquivo.competencia, arquivo)
+        except HTTPException as exc:
+            falhas.append({"arquivo_id": arquivo.id, "motivo": exc.detail})
+            continue
+        controle = arquivo.controle_importacao
+        novos = ignorados.aplicar_regras(controle, resultado["registros"], [regra])
+        if novos:
+            if not controle["pendencias"]:
+                controle["estado"] = "confirmada"
+            arquivo.controle_importacao_json = json.dumps(controle, ensure_ascii=False)
+            excluidos += novos
+    db.commit()
+    db.refresh(regra)
+    return {"regra": ignorados.serializar(regra), "registros_excluidos": excluidos, "arquivos_nao_reprocessados": falhas}
+
+
+@router.delete("/ignorados/{regra_id}")
+def deixar_de_ignorar(regra_id: int, db: Session = Depends(get_db)):
+    """Desativa a regra; registros excluídos por ela em competências abertas voltam a pendências."""
+    iniciar_escrita(db)
+    regra = db.get(IdentificacaoIgnorada, regra_id)
+    if not regra or not regra.ativa:
+        raise HTTPException(404, "Regra não encontrada ou já desativada.")
+    regra.ativa = False
+    regra.desativada_em = datetime.now(timezone.utc).replace(tzinfo=None)
+    restaurados = 0
+    for arquivo in arquivos_editaveis(db, regra.empresa_id):
+        controle = arquivo.controle_importacao
+        quantidade = ignorados.restaurar_regra(controle, regra.id)
+        if quantidade:
+            arquivo.controle_importacao_json = json.dumps(controle, ensure_ascii=False)
+            restaurados += quantidade
+    db.commit()
+    return {"regra": ignorados.serializar(regra), "registros_restaurados": restaurados}
 
 
 def placeholder_calendario_vazio(marcacao: MarcacaoPonto) -> bool:
@@ -467,7 +575,8 @@ def confirmar_importacao(
     importados = set(controle.get("importados", [])) | (set(ids_selecionados) - {c["registro_id"] for c in conflitos})
     controle["importados"] = sorted(importados)
     conflitos_por_id = {c["registro_id"]: c for c in conflitos}
-    controle["pendencias"] = [conflitos_por_id.get(p["registro_id"], p) for p in controle["pendencias"] if p["registro_id"] not in importados]
+    # O conflito substitui a mensagem, mas a identidade do relógio continua na pendência.
+    controle["pendencias"] = [{**p, **conflitos_por_id.get(p["registro_id"], {})} for p in controle["pendencias"] if p["registro_id"] not in importados]
     controle["estado"] = "confirmada"
     arquivo.controle_importacao_json = json.dumps(controle, ensure_ascii=False)
     if marcacoes or conflitos:

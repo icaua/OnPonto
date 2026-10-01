@@ -16,13 +16,16 @@ def contar_batidas_originais(valor):
 
 def classificar_dia(dia):
     problema = bool(dia.get("pendente_calculo") or dia.get("pendencia_tipo"))
-    # Atribuir só duas das três batidas não resolve a batida restante.
+    # Toda batida bruta precisa de destino: um campo ou uma desconsideração justificada.
+    # Atribuir só duas de três batidas não resolve a restante. Ocorrência integral
+    # decide o dia sem horários; as brutas ficam preservadas apenas como registro.
     preenchidos = sum(bool(dia.get(c)) for c in ("entrada", "saida_almoco", "retorno_almoco", "saida"))
-    brutas = dia.get("quantidade_batidas_originais", 0)
-    if brutas > preenchidos and preenchidos < 4:
+    brutas = dia.get("quantidade_batidas_originais", 0) - dia.get("quantidade_batidas_desconsideradas", 0)
+    if brutas > preenchidos and preenchidos < 4 and not dia.get("ocorrencia_integral"):
         problema = True
         dia["pendencia_tipo"] = dia.get("pendencia_tipo") or "batidas_nao_atribuidas"
-        dia["pendencia_motivo"] = dia.get("pendencia_motivo") if dia.get("pendente_calculo") else "Há batidas originais ainda não atribuídas."
+        dia["pendencia_motivo"] = dia.get("pendencia_motivo") if dia.get("pendente_calculo") else (
+            "Há batidas originais sem destino. Atribua cada uma a um horário ou desconsidere com justificativa.")
     tipo = dia.get("pendencia_tipo")
     rotulos = {"escala_nao_cadastrada": "Sem escala", "escala_incompleta": "Escala incompleta",
         "horario_fixo_incompleto": "Horário incompleto", "batidas_em_dia_sem_calculo": "Conflito de batidas",

@@ -71,12 +71,25 @@ class MarcacaoUpdate(BaseModel):
     observacoes: str | None = None
 
 
+class DesconsideracaoBatida(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    indice: int = Field(ge=0)
+    justificativa: str = Field(min_length=10, max_length=1000)
+
+    @field_validator("justificativa", mode="before")
+    @classmethod
+    def limpar_justificativa(cls, valor):
+        return valor.strip() if isinstance(valor, str) else valor
+
+
 class MarcacaoRead(MarcacaoBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
     historico: list[dict] = Field(default_factory=list)
     batidas_originais: list[str] = Field(default_factory=list)
+    batidas_desconsideradas: list[dict] = Field(default_factory=list)
     arquivo_origem_id: int | None = None
     arquivo_origem_nome: str | None = None
     created_at: datetime

@@ -700,16 +700,64 @@
     ].join("");
   }
 
+  function importPendingRecord(file, record) {
+    return '<li>' + escapeHtml(record.data ? formatDate(record.data, true) : "Sem data") + ' · ' + escapeHtml(record.mensagem || "Registro pendente") +
+      ' <button class="text-button" type="button" data-action="discard-import-record" data-file-id="' + escapeHtml(file.id) + '" data-record-id="' + escapeHtml(record.registro_id) + '">Excluir só este</button></li>';
+  }
+
+  function importPendingGroups(file, groups) {
+    return '<ul class="import-pending-groups">' + groups.map(function (group, index) {
+      var records = asArray(group.registros);
+      var found = group.funcionario_encontrado !== false;
+      // A falta de cadastro já aparece no selo; o texto mostra só os demais motivos.
+      var reasons = [];
+      records.forEach(function (record) {
+        String(record.mensagem || "").split(/;\s*/).forEach(function (reason) {
+          if (reason && reasons.indexOf(reason) === -1 && (found || !/não cadastrado/i.test(reason))) reasons.push(reason);
+        });
+      });
+      return '<li class="import-pending-group">' +
+        '<div class="import-pending-group__who"><strong>' + escapeHtml(group.nome_origem || "Pessoa sem nome no arquivo") + '</strong>' +
+        (group.codigo_origem ? '<small>Código no relógio: ' + escapeHtml(group.codigo_origem) + '</small>' : "") +
+        (!found ? '<span class="preview-warning preview-warning--danger">Não cadastrado no OnPonto</span>' : "") + '</div>' +
+        '<p class="import-pending-group__what">' + records.length + (records.length === 1 ? " registro pendente" : " registros pendentes") + (reasons.length ? " · " + escapeHtml(reasons.slice(0, 2).join(" / ")) : "") + '</p>' +
+        '<div class="import-pending-group__actions">' +
+        (!found ? '<button class="button button--primary" type="button" data-action="ignore-import-person" data-file-id="' + escapeHtml(file.id) + '" data-group-index="' + index + '">Ignorar nas importações</button>' : "") +
+        '<button class="button button--secondary" type="button" data-action="discard-import-group" data-file-id="' + escapeHtml(file.id) + '" data-group-index="' + index + '">Excluir ' + records.length + ' deste arquivo</button></div>' +
+        '<details class="import-pending-group__days"><summary>Ver dias</summary><ul>' + records.map(function (record) { return importPendingRecord(file, record); }).join("") + '</ul></details></li>';
+    }).join("") + '</ul>';
+  }
+
+  function importIgnoredPeople(context, entities) {
+    var rules = asArray((valueOf(context.data, ["ignoredPeople"], {}) || {})[String(idOf(entities.company))]);
+    if (!rules.length) return "";
+    return '<details class="work-card import-ignored"><summary>Pessoas ignoradas nas importações desta empresa (' + rules.length + ')</summary><ul>' + rules.map(function (rule) {
+      // O backend grava em UTC sem fuso; a data exibida segue o horário local.
+      var created = rule.criada_em ? new Date(String(rule.criada_em).replace(/(Z|[+-]\d{2}:\d{2})?$/, function (zone) { return zone || "Z"; })) : null;
+      var since = created && !isNaN(created.getTime()) ? " · desde " + created.toLocaleDateString("pt-BR") : "";
+      return '<li><div><strong>' + escapeHtml(rule.nome_origem || "Pessoa sem nome") + '</strong>' + (rule.codigo_origem ? '<small>Código no relógio: ' + escapeHtml(rule.codigo_origem) + '</small>' : "") +
+        '<small>' + escapeHtml(rule.justificativa) + escapeHtml(since) + '</small></div>' +
+        '<button class="text-button" type="button" data-action="unignore-import-person" data-rule-id="' + escapeHtml(rule.id) + '">Voltar a considerar</button></li>';
+    }).join("") + '</ul></details>';
+  }
+
   function importPendingControls(context, entities) {
     if (competenceIsClosed(entities.competence)) return "";
     var files = filesForCompetence(context, entities.competence);
+    var groupsByFile = valueOf(context.data, ["importGroups"], {}) || {};
     var cards = files.map(function(file){
       var c = file.controle_importacao;
-      if (c && c.estado === "confirmada" && !asArray(c.pendencias).length) return "";
-      return '<article class="work-card"><h2>' + escapeHtml(file.name || file.nome_original) + '</h2><button class="button button--secondary" data-action="resume-import" data-file-id="' + escapeHtml(file.id) + '">Retomar análise</button>' +
-        asArray(c && c.pendencias).map(function(p){return '<p>' + escapeHtml(p.data || "") + ' · ' + escapeHtml(p.mensagem) + ' <button class="text-button" data-action="discard-import-record" data-file-id="' + escapeHtml(file.id) + '" data-record-id="' + escapeHtml(p.registro_id) + '">Excluir da apuração com justificativa</button></p>';}).join("") + '</article>';
+      var pending = asArray(c && c.pendencias);
+      if (c && c.estado === "confirmada" && !pending.length) return "";
+      var cached = groupsByFile[String(file.id)];
+      var body = !pending.length ? "" : cached && cached.groups ? importPendingGroups(file, cached.groups)
+        : cached && cached.error ? '<p class="muted-text">Não foi possível agrupar por pessoa: ' + escapeHtml(cached.error) + '</p><ul class="import-pending-flat">' + pending.map(function (p) { return importPendingRecord(file, p); }).join("") + '</ul>'
+        : '<p class="muted-text" role="status">Agrupando pendências por pessoa…</p>';
+      return '<article class="work-card import-pending-file"><header class="import-pending-file__header"><div><h2>' + escapeHtml(file.name || file.nome_original) + '</h2>' +
+        (pending.length ? '<p class="helper-text">' + pending.length + (pending.length === 1 ? " registro pendente impede" : " registros pendentes impedem") + ' o fechamento da competência.</p>' : "") +
+        '</div><button class="button button--secondary" type="button" data-action="resume-import" data-file-id="' + escapeHtml(file.id) + '">Retomar análise</button></header>' + body + '</article>';
     }).join("");
-    return cards ? '<section aria-label="Importações a resolver">' + cards + '</section>' : "";
+    return (cards ? '<section class="import-pending" aria-label="Importações a resolver">' + cards + '</section>' : "") + importIgnoredPeople(context, entities);
   }
 
   function rowSuggestion(row) {
@@ -791,7 +839,7 @@
         return [
           '<tr class="preview-row' + (!employeeFound ? " has-unmatched-employee" : "") + (outsideCompetence ? " is-outside-competence" : "") + '" data-preview-row-id="' + escapeHtml(rowId) + '">',
           '<td class="selection-cell"><input type="checkbox" data-action="toggle-import-row" data-preview-row-id="' + escapeHtml(rowId) + '" aria-label="Selecionar registro de ' + escapeHtml(sourceName) + '"' + (selected ? " checked" : "") + (!employeeFound || closed ? " disabled" : "") + "></td>",
-          "<td><strong>" + escapeHtml(registeredName || sourceName) + "</strong>" + (registeredName && registeredName !== sourceName ? "<small>Origem: " + escapeHtml(sourceName) + "</small>" : "") + (!employeeFound ? '<span class="preview-warning preview-warning--danger">Funcionário não cadastrado</span>' : "") + "</td>",
+          "<td><strong>" + escapeHtml(registeredName || sourceName) + "</strong>" + (registeredName && registeredName !== sourceName ? "<small>Origem: " + escapeHtml(sourceName) + "</small>" : "") + (row.ignorado ? '<span class="preview-warning" title="' + escapeHtml(row.ignorado.justificativa || "") + '">Ignorado nas importações</span>' : !employeeFound ? '<span class="preview-warning preview-warning--danger">Funcionário não cadastrado</span>' : "") + "</td>",
           "<td>" + escapeHtml(formatDate(valueOf(row, ["date", "data"], null), true)) + (outsideCompetence ? '<span class="preview-warning">Data fora da competência</span>' : "") + "</td>",
           '<td><span class="original-data">' + escapeHtml(punches.length ? punches.join(", ") : "Sem batidas") + "</span></td>",
           '<td><span class="suggested-data">' + escapeHtml(rowSuggestion(row)) + "</span></td>",

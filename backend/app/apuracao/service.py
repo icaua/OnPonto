@@ -411,6 +411,7 @@ def detalhe_marcacao(
         "fora_vinculo": False,
         "origem": marcacao.origem,
         "quantidade_batidas_originais": contar_batidas_originais(marcacao.batidas_originais),
+        "quantidade_batidas_desconsideradas": contar_batidas_originais(marcacao.batidas_desconsideradas_json),
         "conferido": conferido,
         "jornada_prevista_minutos": prevista,
         "jornada_prevista": formatar_minutos(prevista),

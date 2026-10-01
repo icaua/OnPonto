@@ -9,7 +9,7 @@ from fastapi import HTTPException
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import test_confiabilidade_operacional as fixture_module
 from app.database.models import Funcionario
-from app.database.migrations import aplicar_migracoes_compativeis
+from app.database.migrations import SCHEMA_VERSION, aplicar_migracoes_compativeis
 from app.funcionarios.schemas import FuncionarioRead, FuncionarioUpdate
 from app.funcionarios.routes import atualizar_funcionario, listar_funcionarios
 from app.apuracao.service import apurar_competencia
@@ -112,7 +112,7 @@ class IdentidadeConferenciaTest(unittest.TestCase):
         with self.engine.connect() as c:
             linha = c.execute(text("SELECT id,nome,nome_exibicao,codigo_exibicao FROM funcionarios")).one()
             self.assertEqual(tuple(linha), (fid,"Pessoa Fictícia",None,None))
-            self.assertEqual(c.exec_driver_sql("PRAGMA user_version").scalar_one(),12)
+            self.assertEqual(c.exec_driver_sql("PRAGMA user_version").scalar_one(),SCHEMA_VERSION)
             self.assertEqual(c.exec_driver_sql("PRAGMA integrity_check").scalar_one(),"ok")
 
 if __name__ == "__main__": unittest.main()

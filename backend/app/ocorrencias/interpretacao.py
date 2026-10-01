@@ -53,7 +53,7 @@ def aplicar_ocorrencias(detalhe, funcionario, marcacao, ocorrencias):
         ocorrencia = integrais[0]
         if ocorrencia.tipo == "FOLGA_COMPENSATORIA":
             detalhe["minutos_folga_compensatoria"] = detalhe["jornada_prevista_minutos"] or 0
-        detalhe.update(status_dia=STATUS_INTEGRAL[ocorrencia.tipo], falta=0,
+        detalhe.update(status_dia=STATUS_INTEGRAL[ocorrencia.tipo], ocorrencia_integral=True, falta=0,
                        atestado=int(ocorrencia.tipo == "ATESTADO"), atraso_minutos=0, atraso="00:00",
                        extra_minutos=0, extra="00:00", jornada_exigida_minutos=0,
                        minutos_abonados=detalhe["jornada_prevista_minutos"] or 0,
