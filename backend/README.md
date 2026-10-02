@@ -115,3 +115,12 @@ compensatória) e horários vazios não exige destino; as brutas ficam só como 
 
 Arquivo cuja análise não deixa registro pendente (por exemplo, só com pessoas ignoradas)
 fica `confirmada` automaticamente, sem bloquear o fechamento.
+
+A desconsideração é recusada (HTTP 409) quando o horário continua em uso e não há
+outra batida original disponível no mesmo minuto. Duplicatas são tratadas por índice.
+A apuração também bloqueia esse conflito em decisões já salvas e exige tratamento
+quando restam mais batidas do que campos preenchidos, inclusive com quatro campos.
+Correções manuais de horários continuam permitidas e auditadas. O frontend só envia
+a desconsideração ou restauração depois de confirmar o salvamento dos horários.
+Excluir registros de pessoas não cadastradas do arquivo, ou ignorar essas pessoas
+com justificativa, continua liberando o fechamento após conferir os dias cadastrados.

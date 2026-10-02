@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.competencias.service import exigir_competencia_editavel, sincronizar_status_competencia
 from app.database.models import Competencia, Funcionario, MarcacaoPonto
 from app.database.session import get_db
+from app.marcacoes.batidas import desconsideradas_em_uso
 from app.marcacoes.schemas import DesconsideracaoBatida, MarcacaoCreate, MarcacaoRead, MarcacaoUpdate, ORIGENS, STATUS_DIA
 from app.apuracao.service import apurar_competencia
 from app.ocorrencias.service import iniciar_escrita
@@ -228,6 +229,8 @@ def desconsiderar_batida(marcacao_id: int, payload: DesconsideracaoBatida, db: S
     horario = brutas[payload.indice]
     atuais.append({"indice": payload.indice, "horario": horario, "justificativa": payload.justificativa,
                    "em": datetime.now(timezone.utc).isoformat()})
+    if desconsideradas_em_uso(marcacao, atuais):
+        raise HTTPException(status_code=409, detail="Esta batida está em uso nos horários do dia. Corrija ou remova o horário antes de desconsiderá-la.")
     marcacao.batidas_desconsideradas_json = json.dumps(sorted(atuais, key=lambda item: item["indice"]), ensure_ascii=False)
     registrar_evento(marcacao, "Batida desconsiderada", f"Batida original {horario} desconsiderada: {payload.justificativa}",
                      {"batidas_desconsideradas": {"antes": None, "depois": {"indice": payload.indice, "horario": horario}}})

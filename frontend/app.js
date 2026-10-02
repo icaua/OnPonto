@@ -2557,7 +2557,13 @@
     if (!day || state.apiMode !== "online") return Promise.reject(new Error("A decisão sobre batidas exige a API conectada."));
     var competenceId = day.competenceId || day.competencia_id || state.selectedCompetenceId;
     // Salvamentos pendentes (ex.: reabertura do dia) precisam chegar antes da decisão.
-    return flushPendingDaySaves().then(request).then(function (marking) {
+    return flushPendingDaySaves().then(function (results) {
+      if (results.some(function (result) { return !result.ok; }) || state.autosaveStatus === "error" ||
+          autosaveFlushPromise || Object.keys(pendingDaySaves).length) {
+        throw new Error("Não foi possível salvar todos os horários. Revise o salvamento e tente novamente antes de alterar o destino da batida.");
+      }
+      return request();
+    }).then(function (marking) {
       updateDayFromMarking(day, marking || {});
       return refreshAffectedCompetence(competenceId);
     }).then(function () {

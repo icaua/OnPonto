@@ -13,6 +13,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import test_confiabilidade_operacional as fixture_module
 from test_support import TemporaryDirectory
 from app.apuracao.service import apurar_competencia
+from app.competencias.routes import fechar_competencia
+from app.competencias.schemas import FechamentoCompetenciaRequest
 from app.database.migrations import SCHEMA_VERSION, aplicar_migracoes_compativeis
 from app.database.models import ArquivoRecebido, IdentificacaoIgnorada, MarcacaoPonto, OcorrenciaFuncionario
 from app.importadores import routes as importadores
@@ -80,6 +82,74 @@ class DesconsiderarBatidaTest(unittest.TestCase):
         self.assertIsNone(m.batidas_desconsideradas_json)
         self.assertEqual(m.historico[-1]["title"], "Batida restaurada")
         self.assertTrue(apurar_competencia(self.db, self.c.id)["marcacoes"][0]["problema"])
+
+    def test_nao_desconsidera_horario_em_uso_para_esconder_batida_restante(self):
+        m = self.dia(saida_almoco=None, retorno_almoco=None, batidas_originais='["08:00:00","12:00:00","17:00:00"]')
+        antes = m.historico_json
+        with self.assertRaises(HTTPException) as erro:
+            desconsiderar_batida(m.id, DesconsideracaoBatida(indice=0, justificativa=JUSTIFICATIVA), self.db)
+        self.assertEqual(erro.exception.status_code, 409)
+        self.db.rollback()
+        self.assertIsNone(m.batidas_desconsideradas_json)
+        self.assertEqual(m.historico_json, antes)
+        self.assertFalse(apurar_competencia(self.db, self.c.id)["fechamento"]["pode_fechar"])
+        with self.assertRaises(HTTPException):
+            atualizar_marcacao(m.id, MarcacaoUpdate(conferido=True), self.db)
+        # A decisão correta sobre a batida das 12h permite conferir e fechar.
+        desconsiderar_batida(m.id, DesconsideracaoBatida(indice=1, justificativa=JUSTIFICATIVA), self.db)
+        atualizar_marcacao(m.id, MarcacaoUpdate(conferido=True), self.db)
+        fechar_competencia(self.c.id, FechamentoCompetenciaRequest(), self.db)
+        self.assertEqual(self.c.status, "fechada")
+
+    def test_decisao_inconsistente_ja_salva_bloqueia_fechamento(self):
+        m = self.dia(saida_almoco=None, retorno_almoco=None, conferido=True,
+                     batidas_originais='["08:00:00","12:00:00","17:00:00"]',
+                     batidas_desconsideradas_json=json.dumps([{"indice": 0, "horario": "08:00:00", "justificativa": JUSTIFICATIVA}]))
+        r = apurar_competencia(self.db, self.c.id)
+        self.assertEqual(r["marcacoes"][0]["pendencia_tipo"], "batida_desconsiderada_em_uso")
+        self.assertFalse(r["marcacoes"][0]["conferido"])
+        self.assertFalse(r["fechamento"]["pode_fechar"])
+        with self.assertRaises(HTTPException):
+            fechar_competencia(self.c.id, FechamentoCompetenciaRequest(confirmar_pendencias=True), self.db)
+        self.db.rollback()
+        self.assertNotEqual(self.c.status, "fechada")
+        self.assertEqual(len(m.batidas_desconsideradas), 1)
+
+    def test_reusar_batida_desconsiderada_volta_a_bloquear(self):
+        m = self.dia(saida_almoco=None, retorno_almoco=None, batidas_originais='["08:00","12:00","17:00"]')
+        desconsiderar_batida(m.id, DesconsideracaoBatida(indice=1, justificativa=JUSTIFICATIVA), self.db)
+        atualizar_marcacao(m.id, MarcacaoUpdate(saida_almoco=time(12), retorno_almoco=time(13)), self.db)
+        self.assertTrue(apurar_competencia(self.db, self.c.id)["marcacoes"][0]["problema"])
+        with self.assertRaises(HTTPException):
+            atualizar_marcacao(m.id, MarcacaoUpdate(conferido=True), self.db)
+        restaurar_batida(m.id, 1, self.db)
+        atualizar_marcacao(m.id, MarcacaoUpdate(conferido=True), self.db)
+        self.assertTrue(apurar_competencia(self.db, self.c.id)["fechamento"]["pode_fechar"])
+
+    def test_quatro_campos_nao_escondem_quinta_batida(self):
+        m = self.dia(batidas_originais='["08:00","12:00","13:00","16:00","17:00"]')
+        self.assertTrue(apurar_competencia(self.db, self.c.id)["marcacoes"][0]["problema"])
+        with self.assertRaises(HTTPException):
+            atualizar_marcacao(m.id, MarcacaoUpdate(conferido=True), self.db)
+        desconsiderar_batida(m.id, DesconsideracaoBatida(indice=3, justificativa=JUSTIFICATIVA), self.db)
+        atualizar_marcacao(m.id, MarcacaoUpdate(conferido=True), self.db)
+        self.assertTrue(apurar_competencia(self.db, self.c.id)["fechamento"]["pode_fechar"])
+
+    def test_duplicatas_no_mesmo_minuto_mantem_uma_batida_disponivel(self):
+        m = self.duplicada()
+        desconsiderar_batida(m.id, DesconsideracaoBatida(indice=0, justificativa=JUSTIFICATIVA), self.db)
+        with self.assertRaises(HTTPException) as erro:
+            desconsiderar_batida(m.id, DesconsideracaoBatida(indice=1, justificativa=JUSTIFICATIVA), self.db)
+        self.assertEqual(erro.exception.status_code, 409)
+        self.db.rollback()
+        self.assertEqual([d["indice"] for d in m.batidas_desconsideradas], [0])
+        atualizar_marcacao(m.id, MarcacaoUpdate(conferido=True), self.db)
+
+    def test_correcao_manual_de_horario_permanece_permitida(self):
+        m = self.dia(batidas_originais='["08:03","12:02","13:01","17:05"]')
+        atualizar_marcacao(m.id, MarcacaoUpdate(entrada=time(8, 10), conferido=True), self.db)
+        self.assertTrue(apurar_competencia(self.db, self.c.id)["fechamento"]["pode_fechar"])
+        self.assertIn("entrada", m.historico[-1]["alteracoes"])
 
     def test_validacoes(self):
         m = self.duplicada()
@@ -157,6 +227,38 @@ class GestaoNoRelogioTest(unittest.TestCase):
         self.assertEqual((reanalise["total_funcionarios_nao_cadastrados"], reanalise["total_pessoas_ignoradas"]), (0, 1))
         self.assertEqual(len(arquivo.controle_importacao["pendencias"]), 1)
         self.assertEqual(Path(arquivo.caminho_arquivo).read_text(encoding="utf-8").count("900"), 2)
+
+    def fechar_com_pessoa_fora_da_apuracao(self, persistente):
+        self.f.data_demissao = date(2026, 9, 1)
+        self.db.commit()
+        arquivo = self.gestao_e_funcionario()
+        original = Path(arquivo.caminho_arquivo).read_bytes()
+        analise = importadores.analisar_arquivo_salvo(self.db, self.c, arquivo)
+        registro = next(item for item in analise["preview"] if item["funcionario"]["encontrado"])
+        importadores.confirmar_importacao(importadores.ConfirmacaoImportacao(
+            empresa_id=self.f.empresa_id, competencia_id=self.c.id, arquivo_id=arquivo.id,
+            registros_ids=[registro["id"]]), self.db)
+        m = self.db.query(MarcacaoPonto).one()
+        atualizar_marcacao(m.id, MarcacaoUpdate(conferido=True), self.db)
+        self.assertFalse(apurar_competencia(self.db, self.c.id)["fechamento"]["pode_fechar"])
+        if persistente:
+            self.ignorar()
+        else:
+            importadores.descartar_pendencias(arquivo.id, importadores.DescartePendencias(
+                registros_ids=[p["registro_id"] for p in arquivo.controle_importacao["pendencias"]],
+                justificativa="Pessoa fora da apuração neste arquivo."), self.db)
+        self.assertTrue(apurar_competencia(self.db, self.c.id)["fechamento"]["pode_fechar"])
+        fechar_competencia(self.c.id, FechamentoCompetenciaRequest(), self.db)
+        self.assertEqual(self.c.status, "fechada")
+        self.assertEqual(len(arquivo.controle_importacao["descartados"]), 2)
+        self.assertEqual(self.db.query(MarcacaoPonto).count(), 1)
+        self.assertEqual(Path(arquivo.caminho_arquivo).read_bytes(), original)
+
+    def test_fecha_com_nao_cadastrada_ignorada(self):
+        self.fechar_com_pessoa_fora_da_apuracao(persistente=True)
+
+    def test_fecha_com_nao_cadastrada_excluida_apenas_do_arquivo(self):
+        self.fechar_com_pessoa_fora_da_apuracao(persistente=False)
 
     def test_arquivo_novo_so_com_gestao_nao_bloqueia(self):
         self.ignorar()

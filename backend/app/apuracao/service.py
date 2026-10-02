@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 from app.banco_horas.regras import distribuir_dia, resumir_distribuicao
 from app.funcionarios.historico_escalas import escala_no_dia
+from app.marcacoes.batidas import desconsideradas_em_uso
 from app.apuracao.operacional import classificar_dia, indicadores, contar_batidas_originais
 from calendar import monthrange
 import json
@@ -412,6 +413,7 @@ def detalhe_marcacao(
         "origem": marcacao.origem,
         "quantidade_batidas_originais": contar_batidas_originais(marcacao.batidas_originais),
         "quantidade_batidas_desconsideradas": contar_batidas_originais(marcacao.batidas_desconsideradas_json),
+        "batida_desconsiderada_em_uso": desconsideradas_em_uso(marcacao),
         "conferido": conferido,
         "jornada_prevista_minutos": prevista,
         "jornada_prevista": formatar_minutos(prevista),
