@@ -18,12 +18,6 @@ set "FRONTEND_DIR=%ROOT%\frontend"
 set "FRONTEND_URL=http://127.0.0.1:5500/"
 set "API_URL=http://127.0.0.1:8000/"
 
-if not exist "%VENV_PYTHON%" (
-    echo.
-    echo Ambiente do On Ponto não encontrado. Execute instalar_onponto.bat primeiro.
-    goto :erro
-)
-
 if not exist "%BACKEND_DIR%\app\main.py" (
     echo.
     echo ERRO: O backend do On Ponto não foi encontrado.
@@ -36,13 +30,22 @@ if not exist "%FRONTEND_DIR%\index.html" (
     goto :erro
 )
 
-"%VENV_PYTHON%" -c "import fastapi, openpyxl, sqlalchemy, uvicorn, multipart" >nul 2>&1
+rem Ambiente ausente, quebrado ou desatualizado: o instalador conserta antes de abrir.
+call :ambiente_pronto
+if not errorlevel 1 goto :ambiente_ok
+echo Preparando o ambiente do On Ponto (só na primeira vez ou após uma atualização)...
+set "ONPONTO_INSTALACAO_AUTOMATICA=1"
+call "%ROOT%\instalar_onponto.bat" --sem-atalho
+set "ONPONTO_INSTALACAO_AUTOMATICA="
+title On Ponto
+call :ambiente_pronto
 if errorlevel 1 (
     echo.
-    echo ERRO: As dependências do On Ponto não estão instaladas corretamente.
-    echo Execute instalar_onponto.bat novamente.
+    echo ERRO: O ambiente do On Ponto não ficou pronto.
+    echo Veja as mensagens acima e o registro mais recente em logs\instalacao-*.log.
     goto :erro
 )
+:ambiente_ok
 
 call :porta_livre 8000
 if errorlevel 1 (
@@ -77,8 +80,9 @@ if errorlevel 1 (
 echo Aguardando os serviços iniciarem...
 timeout /t 2 /nobreak >nul 2>&1
 
+rem Sem proxy: o proxy da empresa não alcança o 127.0.0.1 desta máquina.
 for /L %%I in (1,1,20) do (
-    "%VENV_PYTHON%" -c "import urllib.request; urllib.request.urlopen('%API_URL%', timeout=1).close()" >nul 2>&1
+    "%VENV_PYTHON%" -c "import urllib.request as u; u.build_opener(u.ProxyHandler({})).open('%API_URL%', timeout=1).close()" >nul 2>&1
     if not errorlevel 1 goto :api_pronta
     timeout /t 1 /nobreak >nul 2>&1
 )
@@ -86,7 +90,7 @@ goto :api_indisponivel
 
 :api_pronta
 for /L %%I in (1,1,10) do (
-    "%VENV_PYTHON%" -c "import urllib.request; urllib.request.urlopen('%FRONTEND_URL%', timeout=1).close()" >nul 2>&1
+    "%VENV_PYTHON%" -c "import urllib.request as u; u.build_opener(u.ProxyHandler({})).open('%FRONTEND_URL%', timeout=1).close()" >nul 2>&1
     if not errorlevel 1 goto :frontend_pronto
     timeout /t 1 /nobreak >nul 2>&1
 )
@@ -133,6 +137,11 @@ exit /b 1
 
 :porta_livre
 "%VENV_PYTHON%" -c "import socket; s=socket.socket(); s.bind(('127.0.0.1', %~1)); s.close()" >nul 2>&1
+exit /b %errorlevel%
+
+:ambiente_pronto
+if not exist "%VENV_PYTHON%" exit /b 1
+"%VENV_PYTHON%" "%ROOT%\setup\instalar_onponto.py" --verificar >nul 2>&1
 exit /b %errorlevel%
 
 :pausar

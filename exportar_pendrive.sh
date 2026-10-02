@@ -66,6 +66,8 @@ rsync -av --delete \
     --exclude='.git/' \
     --exclude='.github/' \
     --exclude='.venv/' \
+    --exclude='.venv-*/' \
+    --exclude='logs/' \
     --exclude='.venv-linux/' \
     --exclude='venv/' \
     --exclude='__pycache__/' \
