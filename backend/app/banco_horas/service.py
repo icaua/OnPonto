@@ -7,7 +7,7 @@ from fastapi import HTTPException
 from app.banco_horas.politica import hoje_local, validar_prazo, vencimento_credito
 from app.banco_horas.regras import politica_da_escala, ciclo
 from app.database.models import Funcionario, LancamentoBancoHoras, CompensacaoBancoHoras
-from app.funcionarios.historico_escalas import registrar_vinculo_inicial, escala_no_dia
+from app.funcionarios.historico_escalas import registrar_vinculo_inicial, escala_no_dia, ResolvedorEscalas
 
 
 def gerar_lancamentos(db, competencia, resultado):
@@ -15,11 +15,12 @@ def gerar_lancamentos(db, competencia, resultado):
     funcionarios = {f.id: f for f in db.query(Funcionario).filter_by(empresa_id=competencia.empresa_id)}
     for funcionario in funcionarios.values():
         registrar_vinculo_inicial(db, funcionario)
+    resolvedor_escalas = ResolvedorEscalas(db, competencia.empresa_id)
     gerados = []
     for dia in sorted(resultado["marcacoes"], key=lambda d: (d["data"], d["funcionario_id"])):
         funcionario = funcionarios[dia["funcionario_id"]]
         referencia = date.fromisoformat(dia["data"])
-        escala = escala_no_dia(db, funcionario, referencia)
+        escala = resolvedor_escalas.escala_no_dia(funcionario, referencia)
         if dia.get("minutos_folga_compensatoria", 0) and (not escala or not escala.usa_banco_horas):
             raise HTTPException(409, "A folga compensatória exige banco de horas habilitado na escala de origem. Revise a ocorrência antes de fechar.")
         if not escala or not escala.usa_banco_horas or dia.get("fora_vinculo"):
@@ -251,11 +252,13 @@ def formatar_saldo(minutos):
     return f"{sinal}{horas:02d}:{resto:02d}"
 
 
-def complementar_apuracao(db, competencia, resultado):
+def complementar_apuracao(db, competencia, resultado, *, resolvedor_escalas=None):
     """Acrescenta uma visão do ledger; não modifica o snapshot de ponto salvo."""
     from calendar import monthrange
     if competencia.status == "fechada" and competencia.versao_fechamento == 0:
         return resultado  # Nenhuma aplicação retroativa a fechamentos legados.
+    if competencia.status != "fechada" and resolvedor_escalas is None:
+        resolvedor_escalas = ResolvedorEscalas(db, competencia.empresa_id)
     inicio = date(competencia.ano, competencia.mes, 1)
     fim = date(competencia.ano, competencia.mes, monthrange(competencia.ano, competencia.mes)[1])
     por_funcionario = {}
@@ -269,7 +272,7 @@ def complementar_apuracao(db, competencia, resultado):
         if competencia.status == "fechada":
             habilitado = any(d.get("banco_horas_regra") for d in dias)
         else:
-            vinculos = [escala_no_dia(db, funcionario, date.fromisoformat(d["data"])) for d in dias]
+            vinculos = [resolvedor_escalas.escala_no_dia(funcionario, date.fromisoformat(d["data"])) for d in dias]
             habilitado = any(e and e.usa_banco_horas for e in vinculos) or bool(funcionario.escala and funcionario.escala.usa_banco_horas)
         if not habilitado:
             continue

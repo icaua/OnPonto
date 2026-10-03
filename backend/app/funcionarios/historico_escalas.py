@@ -1,7 +1,34 @@
 from sqlalchemy import or_
+from sqlalchemy.orm import joinedload
 
 from app.banco_horas.politica import hoje_local
-from app.database.models import Escala, HistoricoVinculoEscala, MarcacaoPonto
+from app.database.models import Escala, Funcionario, HistoricoVinculoEscala, MarcacaoPonto
+
+
+class ResolvedorEscalas:
+    """Histórico da empresa válido apenas durante a operação atual."""
+
+    def __init__(self, db, empresa_id):
+        self.vinculos = {}
+        for vinculo in (db.query(HistoricoVinculoEscala)
+                .join(Funcionario, Funcionario.id == HistoricoVinculoEscala.funcionario_id)
+                .filter(Funcionario.empresa_id == empresa_id)
+                .options(joinedload(HistoricoVinculoEscala.escala))
+                .order_by(HistoricoVinculoEscala.vigente_desde.desc(), HistoricoVinculoEscala.id.desc())):
+            self.vinculos.setdefault(vinculo.funcionario_id, []).append(vinculo)
+        # Referências fortes mantêm as escalas atuais no mapa de identidade da sessão.
+        self.escalas = (db.query(Escala).join(Funcionario, Funcionario.escala_id == Escala.id)
+                        .filter(Funcionario.empresa_id == empresa_id).all())
+
+    def escala_no_dia(self, funcionario, dia):
+        vinculos = self.vinculos.get(funcionario.id, [])
+        for vinculo in vinculos:
+            if vinculo.vigente_desde <= dia and (vinculo.vigente_ate is None or vinculo.vigente_ate >= dia):
+                return vinculo.escala
+        primeiro = vinculos[-1] if vinculos else None
+        if primeiro and dia < primeiro.vigente_desde:
+            return primeiro.escala
+        return funcionario.escala if not primeiro else None
 
 
 def registrar_vinculo_inicial(db, funcionario):

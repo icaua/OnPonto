@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 from app.banco_horas.regras import distribuir_dia, resumir_distribuicao
-from app.funcionarios.historico_escalas import escala_no_dia
+from app.funcionarios.historico_escalas import ResolvedorEscalas
 from app.marcacoes.batidas import desconsideradas_em_uso
 from app.apuracao.operacional import classificar_dia, indicadores, contar_batidas_originais
 from calendar import monthrange
@@ -491,6 +491,7 @@ def apurar_competencia(
         .all()
     )
     funcionarios_por_id = {funcionario.id: funcionario for funcionario in funcionarios}
+    resolvedor_escalas = ResolvedorEscalas(db, competencia.empresa_id)
 
     resumo = {
         funcionario.id: {
@@ -544,7 +545,7 @@ def apurar_competencia(
 
         if not dentro_vinculo(funcionario, marcacao.data) and placeholder_calendario_intocado(marcacao):
             continue
-        escala_dia = escala_no_dia(db, funcionario, marcacao.data)
+        escala_dia = resolvedor_escalas.escala_no_dia(funcionario, marcacao.data)
         # Regras legadas continuam com a jornada vigente, como antes da política.
         # Políticas explícitas usam a mesma escala histórica na jornada e no banco.
         escala_apuracao = escala_dia if (escala_dia and escala_dia.politica_horas
@@ -656,4 +657,4 @@ def apurar_competencia(
         decisao.update(pode_fechar=False, motivo_bloqueio=" ".join(decisao["motivos"]))
         if not resultado["operacional"]["problemas"] and not resultado["pendencias_importacao"]:
             decisao["proxima_acao"] = "revisar_banco"
-    return complementar_apuracao(db, competencia, resultado) if incluir_banco else resultado
+    return complementar_apuracao(db, competencia, resultado, resolvedor_escalas=resolvedor_escalas) if incluir_banco else resultado
