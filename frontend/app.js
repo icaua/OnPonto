@@ -181,6 +181,36 @@
   var renderFocus = null;
   var deferredRender = false;
   var contextSwitchPending = false;
+  var tentativaApiTimer = null;
+  var conexaoApiPendente = null;
+
+  function demonstracaoSolicitada() {
+    return Boolean(root.location && new URLSearchParams(root.location.search || "").get("demo") === "1");
+  }
+
+  function marcarApiIndisponivel(error) {
+    state.apiMode = "indisponivel";
+    state.apiError = error && error.message || "API indisponível.";
+    data = {};
+    state.ocr = {};
+  }
+
+  function conectarApi() {
+    if (conexaoApiPendente) return conexaoApiPendente;
+    root.clearTimeout(tentativaApiTimer);
+    tentativaApiTimer = null;
+    conexaoApiPendente = bootstrapApiData().then(function () {
+      if (state.apiMode === "indisponivel") {
+        render();
+        tentativaApiTimer = root.setTimeout(conectarApi, 5000);
+        return;
+      }
+      return syncRouteFromLocation();
+    }).finally(function () {
+      conexaoApiPendente = null;
+    });
+    return conexaoApiPendente;
+  }
 
   function byId(id) {
     return document.getElementById(id);
@@ -1262,7 +1292,12 @@
   }
 
   function bootstrapApiData() {
-    state.apiMode = "loading";
+    if (demonstracaoSolicitada()) {
+      state.apiMode = "offline";
+      state.apiError = "";
+      return Promise.resolve(false);
+    }
+    if (state.apiMode !== "indisponivel") state.apiMode = "loading";
     state.apiError = "";
     return Promise.all([
       apiRequest("/empresas", { timeout: 5000 }),
@@ -1321,8 +1356,7 @@
       state.apiError = "";
       return true;
     }).catch(function (error) {
-      state.apiMode = "offline";
-      state.apiError = error && error.message || "API indisponível.";
+      marcarApiIndisponivel(error);
       return false;
     });
   }
@@ -1723,6 +1757,26 @@
     var settings = options || {};
     deferredRender = false;
     var main = byId("mainContent");
+    var semConexao = state.apiMode === "indisponivel" || state.apiMode === "loading" && !demonstracaoSolicitada();
+    byId("topbarContext").hidden = semConexao;
+    var acoesTopo = document.querySelector(".topbar__actions");
+    if (acoesTopo) acoesTopo.hidden = semConexao;
+    if (semConexao) {
+      byId("appSidebar").innerHTML = "";
+      byId("sidebarExpandButton").hidden = true;
+      var contexto = document.querySelector(".topbar__context .eyebrow");
+      if (contexto) contexto.textContent = "Conexão com o On Ponto";
+      main.dataset.route = "api-indisponivel";
+      main.dataset.reviewKey = "";
+      main.innerHTML = '<section class="screen"><section class="work-card" role="status">' + Components.EmptyState({
+        icon: "alert",
+        title: state.apiMode === "loading" ? "Conectando ao On Ponto" : "O On Ponto não está conectado",
+        description: "Abra o On Ponto pelo atalho ou pelo iniciar_onponto.bat e mantenha aberta a janela 'On Ponto API'",
+        action: { action: "tentar-conexao-api", label: "Tentar de novo", variant: "primary", disabled: state.apiMode === "loading" },
+      }) + '<p class="helper-text">A conexão será tentada novamente a cada 5 segundos.</p></section></section>';
+      document.title = "Conexão · On Ponto";
+      return;
+    }
     var reviewKey = state.route === "review" ? JSON.stringify([state.selectedCompanyId, state.selectedCompetenceId, state.selectedEmployeeId, state.reviewFilter]) : "";
     var scroll = captureReviewScroll(main, reviewKey);
     if (state.route === "review") ensureReviewSelection();
@@ -3856,6 +3910,7 @@
   }
 
   function resetDemo() {
+    if (!demonstracaoSolicitada()) return;
     showDialog({
       title: "Restaurar dados simulados?",
       description: "Todas as edições desta sessão serão descartadas e os mocks voltarão ao estado inicial.",
@@ -4299,6 +4354,11 @@
     var element = event.target.closest("[data-action]");
     if (!element) return;
     var action = element.dataset.action;
+    if (action === "tentar-conexao-api") {
+      event.preventDefault();
+      return conectarApi();
+    }
+    if (state.apiMode === "indisponivel") return;
 
     if (root.OnPontoOcorrencias.action(action, element, event)) return;
     if (root.OnPontoBancoHoras && root.OnPontoBancoHoras.action(action, element, event)) return;
@@ -4557,6 +4617,7 @@
   }
 
   function handleKeydown(event) {
+    if (state.apiMode === "indisponivel") return;
     var target = event.target;
     if (competencyIsClosed() && state.route === "review") {
       var closedShortcut = (event.ctrlKey || event.metaKey) && ["s", "z"].indexOf(event.key.toLowerCase()) !== -1;
@@ -4689,6 +4750,10 @@
 
   function syncRouteFromLocation(options) {
     if (state.apiMode === "loading") return Promise.resolve();
+    if (state.apiMode === "indisponivel") {
+      render(options);
+      return Promise.resolve();
+    }
     if (editSession && !finishEditing({ move: null })) {
       root.history.replaceState(null, "", routeHash({
         view: state.route,
@@ -4782,14 +4847,9 @@
       reloadAttendance: loadAttendanceForCompetence,
       apiBase: configuredApiBase,
     };
-    bootstrapApiData().then(function (online) {
-      return syncRouteFromLocation().then(function () {
-        if (!online) showToast("API indisponível: usando dados de demonstração.", "warning", state.apiError + " Configure onponto.apiBase para alterar o endereço da API.");
-      });
-    }).catch(function (error) {
-      state.apiMode = "offline";
-      state.apiError = error && error.message || "API indisponível.";
-      syncRouteFromLocation();
+    if (!demonstracaoSolicitada()) render();
+    conectarApi().catch(function (error) {
+      showToast("Não foi possível carregar esta tela.", "error", error && error.message);
     });
   }
 
