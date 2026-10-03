@@ -5,6 +5,7 @@ from app.arquivos.routes import router as arquivos_router
 from app.apuracao.routes import router as apuracao_router
 from app.competencias.routes import router as competencias_router
 from app.database.migrations import aplicar_migracoes_compativeis
+from app.database.backup import realizar_backups_automaticos
 from app.database.session import Base, engine
 from app.empresas.routes import router as empresas_router
 from app.escalas.routes import router as escalas_router
@@ -36,6 +37,7 @@ app.add_middleware(
 
 @app.on_event("startup")
 def criar_tabelas() -> None:
+    realizar_backups_automaticos(engine)
     Base.metadata.create_all(bind=engine)
     aplicar_migracoes_compativeis(engine)
     preservar_fechamentos_legados(engine)

@@ -581,6 +581,22 @@ backend/uploads/
 
 O banco e os arquivos anexados fazem parte do mesmo conjunto operacional de dados.
 
+## Backups automáticos
+
+Ao iniciar com um banco SQLite existente, a API faz uma cópia antes de migrar o
+schema e uma cópia diária na primeira subida do dia. Se o backup pré-migração
+falhar, a API não inicia; falhas no diário geram aviso no log. São mantidas as
+10 cópias pré-migração e as 7 diárias mais recentes, verificadas por integridade.
+
+O banco padrão usa `backups/automaticos/` na raiz do projeto. Outros bancos usam
+`backups/` ao lado do banco; `ONPONTO_BACKUP_DIR` permite escolher outra pasta.
+O caminho de cada cópia criada é registrado no log. Os backups não vão na
+exportação limpa para pendrive.
+
+Para restaurar, feche o On Ponto e a janela **On Ponto API**, preserve o banco
+atual e copie o backup desejado sobre `backend/onponto.db`. As cópias automáticas
+contêm apenas o banco: continue preservando `backend/uploads/` junto dos dados.
+
 ---
 
 # Migrações

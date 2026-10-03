@@ -48,6 +48,7 @@ rm -rf \
     "$ALVO/venv" \
     "$ALVO/backend/__pycache__" \
     "$ALVO/backend/.test-data" \
+    "$ALVO/backups" \
     "$ALVO/frontend/node_modules" \
     "$ALVO/.pytest_cache"
 
@@ -68,6 +69,7 @@ rsync -av --delete \
     --exclude='.venv/' \
     --exclude='.venv-*/' \
     --exclude='logs/' \
+    --exclude='backups/' \
     --exclude='.venv-linux/' \
     --exclude='venv/' \
     --exclude='__pycache__/' \
