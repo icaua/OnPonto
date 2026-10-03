@@ -3,7 +3,40 @@
   var labels = { ATESTADO: "Atestado", DECLARACAO: "Declaração de horas", FERIAS: "Férias", AFASTAMENTO: "Afastamento", FOLGA_COMPENSATORIA: "Folga compensatória" };
   var ctx, items = [], companyId = null, sequence = 0, loading = false, error = "";
   var filters = {};
+  var DIAS_MAXIMOS = 366;
   function esc(value) { return root.OnPontoUtils.escapeHtml(value == null ? "" : value); }
+  // Datas ISO tratadas em UTC: somar dias não sofre com fuso nem horário de verão.
+  function somarDias(iso, dias) {
+    var partes = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || "");
+    if (!partes) return null;
+    return new Date(Date.UTC(Number(partes[1]), Number(partes[2]) - 1, Number(partes[3]) + dias)).toISOString().slice(0, 10);
+  }
+  // Atestado chega como "N dias a partir de": o primeiro dia conta.
+  function fimPorDias(inicio, dias) {
+    var quantidade = Number(dias);
+    if (!Number.isInteger(quantidade) || quantidade < 1 || quantidade > DIAS_MAXIMOS) return null;
+    return somarDias(inicio, quantidade - 1);
+  }
+  function diasEntre(inicio, fim) {
+    var de = somarDias(inicio, 0), ate = somarDias(fim, 0);
+    return de && ate ? Math.round((Date.parse(ate) - Date.parse(de)) / 86400000) + 1 : null;
+  }
+  function dataComDia(iso) { return root.OnPontoUtils.formatDate(iso) + " (" + root.OnPontoUtils.formatWeekday(iso) + ")"; }
+  function quantidadeDias(n) { return n + (n === 1 ? " dia" : " dias"); }
+  function ajudaDias(v) {
+    var fim = fimPorDias(v.data_inicio, v.dias);
+    if (!fim) return "O primeiro dia conta: 3 dias a partir de 10/09 vão até 12/09.";
+    return "Término presumido em " + dataComDia(fim) + "; retorno em " + dataComDia(somarDias(fim, 1)) + ".";
+  }
+  function ajudaDataFinal(v) {
+    var ferias = v.tipo === "FERIAS";
+    var lembrete = ferias ? " Informe o último dia de férias, não a data de retorno do recibo." : "";
+    if (!v.data_fim) return (v.tipo === "AFASTAMENTO" ? "Em branco: afastamento em aberto." : "Obrigatória.") + lembrete;
+    var dias = diasEntre(v.data_inicio, v.data_fim);
+    if (dias === null) return lembrete.trim();
+    if (dias < 1) return "A data final é anterior à inicial.";
+    return quantidadeDias(dias) + (ferias ? " de férias" : "") + "; retorno em " + dataComDia(somarDias(v.data_fim, 1)) + "." + lembrete;
+  }
   function button(action, label, id, disabled) {
     return '<button type="button" class="button ' + (action === 'new' ? 'button--primary' : 'button--secondary') + '" data-action="ocorrencia-' + action + '" data-oc-id="' + esc(id || "") + '"' + (disabled ? " disabled" : "") + '>' + esc(label) + '</button>';
   }
@@ -31,7 +64,9 @@
     var company = companies.find(function (c) { return String(c.id) === String(state.selectedCompanyId); });
     var rows = items.map(function (o) {
       var employee = staff.find(function (e) { return e.id === o.funcionario_id; });
-      var dateLabel = root.OnPontoUtils.formatDate(o.data_inicio) + " até " + (o.data_fim ? root.OnPontoUtils.formatDate(o.data_fim) : "em aberto");
+      var duracao = o.data_fim && !o.hora_inicio ? diasEntre(o.data_inicio, o.data_fim) : null;
+      var dateLabel = root.OnPontoUtils.formatDate(o.data_inicio) + " até " + (o.data_fim ? root.OnPontoUtils.formatDate(o.data_fim) : "em aberto") +
+        (duracao ? " · " + quantidadeDias(duracao) : "");
       var hours = o.hora_inicio ? '<small>' + esc(o.hora_inicio.slice(0, 5)) + "–" + esc(o.hora_fim.slice(0, 5)) + '</small>' : '';
       var actions = button("history", "Histórico", o.id);
       if (!o.excluido_em) actions = button("edit", "Editar", o.id) + button("delete", "Excluir", o.id) + actions +
@@ -75,18 +110,24 @@
     var settings = options || {};
     var staff = employees(ctx.state(), ctx.data()), o = item || settings.defaults || {};
     var partial = function (v) { return v.tipo === "DECLARACAO" || (["ATESTADO", "FOLGA_COMPENSATORIA"].indexOf(v.tipo) !== -1 && v.periodo === "parcial"); };
+    // Atestado integral é digitado como no documento: quantidade de dias, término calculado.
+    var atestadoPorDias = function (v) { return v.tipo === "ATESTADO" && v.periodo !== "parcial"; };
+    var diasIniciais = o.data_inicio && o.data_fim && !o.hora_inicio ? diasEntre(o.data_inicio, o.data_fim) : 1;
     ctx.dialog({title: item ? "Editar ocorrência" : "Adicionar ocorrência", wide: true, fieldLayout: "grid", confirmLabel: "Salvar ocorrência",
       fields: [
         {name:"funcionario_id", label:"Funcionário", type:"select", required:true, value:o.funcionario_id, options:staff.map(function(e){return {value:e.id,label:e.name || e.nome};})},
         {name:"tipo",label:"Tipo",type:"select",value:o.tipo || "ATESTADO",options:Object.keys(labels).map(function(t){return {value:t,label:labels[t]};})},
         {name:"periodo",label:"Cobertura da ocorrência",type:"select",value:o.hora_inicio ? "parcial" : "integral",options:[{value:"integral",label:"Dia(s) integral(is)"},{value:"parcial",label:"Período por horário"}],visibleWhen:function(v){return ["ATESTADO", "FOLGA_COMPENSATORIA"].indexOf(v.tipo) !== -1;}},
         {name:"data_inicio",label:"Data inicial",type:"date",required:true,value:o.data_inicio || ""},
-        {name:"data_fim",label:"Data final",type:"date",value:o.data_fim || "",help:"Obrigatória, exceto para afastamento em aberto.",visibleWhen:function(v){return !partial(v);}},
+        {name:"dias",label:"Quantidade de dias",type:"number",required:true,min:1,max:DIAS_MAXIMOS,step:1,value:diasIniciais || 1,
+         invalidMessage:"Informe a quantidade de dias do atestado, de 1 a " + DIAS_MAXIMOS + ".",help:ajudaDias,visibleWhen:atestadoPorDias},
+        {name:"data_fim",label:"Data final",type:"date",value:o.data_fim || "",help:ajudaDataFinal,visibleWhen:function(v){return !partial(v) && !atestadoPorDias(v);}},
         {name:"hora_inicio",label:"Hora inicial",type:"time",required:true,value:o.hora_inicio && o.hora_inicio.slice(0,5),visibleWhen:partial},
         {name:"hora_fim",label:"Hora final",type:"time",required:true,value:o.hora_fim && o.hora_fim.slice(0,5),visibleWhen:partial},
         {name:"observacao",label:"Observação / motivo",type:"textarea",value:o.observacao || "",maxlength:5000,fullWidth:true}
       ], onConfirm:function(v){
-        var payload = {funcionario_id:Number(v.funcionario_id),tipo:v.tipo,data_inicio:v.data_inicio,data_fim:partial(v) ? v.data_inicio : v.data_fim || null,
+        var dataFim = partial(v) ? v.data_inicio : atestadoPorDias(v) ? fimPorDias(v.data_inicio, v.dias) : v.data_fim || null;
+        var payload = {funcionario_id:Number(v.funcionario_id),tipo:v.tipo,data_inicio:v.data_inicio,data_fim:dataFim,
                        hora_inicio:partial(v) ? v.hora_inicio : null,hora_fim:partial(v) ? v.hora_fim : null,observacao:v.observacao || null};
         return Promise.resolve().then(function () { if (settings.beforeSave) return settings.beforeSave(); })
           .then(function () { return ctx.api('/ocorrencias' + (item ? '/' + item.id : ''), {method:item ? 'PATCH' : 'POST',body:payload}); })

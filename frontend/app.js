@@ -179,6 +179,7 @@
   var pendingDialog = null;
   var editSession = null;
   var renderFocus = null;
+  var deferredRender = false;
   var contextSwitchPending = false;
 
   function byId(id) {
@@ -1706,8 +1707,21 @@
     });
   }
 
+  // Atualização em segundo plano (ex.: depois do salvamento automático) não pode destruir
+  // um horário sendo digitado nem tirar o foco da célula selecionada.
+  function renderInBackground() {
+    if (editSession) {
+      deferredRender = true;
+      return;
+    }
+    var active = document.activeElement;
+    var cell = active && active.closest && active.closest(".editable-time-cell");
+    render(cell && cell.dataset.dayId ? { focus: { dayId: cell.dataset.dayId, field: cell.dataset.field } } : undefined);
+  }
+
   function render(options) {
     var settings = options || {};
+    deferredRender = false;
     var main = byId("mainContent");
     var reviewKey = state.route === "review" ? JSON.stringify([state.selectedCompanyId, state.selectedCompetenceId, state.selectedEmployeeId, state.reviewFilter]) : "";
     var scroll = captureReviewScroll(main, reviewKey);
@@ -1892,7 +1906,9 @@
       label.className = "dialog-field" + (field.fullWidth ? " dialog-field--full" : "");
       label.dataset.dialogFieldWrap = field.name || "value";
       label.htmlFor = fieldId;
-      label.innerHTML = '<span>' + Utils.escapeHtml(field.label || "Valor") + "</span>" + dialogFieldMarkup(field, fieldId) + (field.help ? '<small class="dialog-field-help">' + Utils.escapeHtml(field.help) + "</small>" : "");
+      // help pode ser uma função dos valores atuais; o texto é refeito a cada digitação.
+      var dynamicHelp = typeof field.help === "function";
+      label.innerHTML = '<span>' + Utils.escapeHtml(field.label || "Valor") + "</span>" + dialogFieldMarkup(field, fieldId) + (field.help ? '<small class="dialog-field-help"' + (dynamicHelp ? ' aria-live="polite"' : "") + ">" + (dynamicHelp ? "" : Utils.escapeHtml(field.help)) + "</small>" : "");
       if (fieldsHost === bodyAnchor.parentNode) fieldsHost.insertBefore(label, bodyAnchor);
       else fieldsHost.appendChild(label);
     });
@@ -1913,6 +1929,7 @@
     pendingDialog = { dialog: dialog, config: config, fields: fields, trigger: trigger, busy: false };
     refreshConditionalDialogFields(pendingDialog);
     dialog.addEventListener("change", function () { refreshConditionalDialogFields(pendingDialog); });
+    dialog.addEventListener("input", function () { refreshConditionalDialogFields(pendingDialog); });
     dialog.addEventListener("cancel", function (event) {
       event.preventDefault();
       closeDialog();
@@ -1965,6 +1982,8 @@
         element.disabled = !visible || current.busy;
         element.required = Boolean(field.required && visible);
       }
+      var help = typeof field.help === "function" && wrapper && wrapper.querySelector(".dialog-field-help");
+      if (help) help.textContent = visible ? field.help(values) || "" : "";
     });
   }
 
@@ -2942,7 +2961,7 @@
           return null;
         });
       })).then(function () {
-        if (Object.keys(competencesToRefresh).some(function (key) { return idsEqual(key, state.selectedCompetenceId); })) render();
+        if (Object.keys(competencesToRefresh).some(function (key) { return idsEqual(key, state.selectedCompetenceId); })) renderInBackground();
         return results;
       });
     }).finally(function () {
@@ -3064,6 +3083,18 @@
     editSession = null;
     restoreCell(session.cell, session.original);
     session.cell.focus();
+    // Horário inválido descartado não é falha de salvamento: retoma o que estava agendado.
+    if (state.autosaveStatus === "error" && !autosaveFlushPromise && !competencyIsClosed()) {
+      if (Object.keys(pendingDaySaves).length) queueAutosave(null);
+      else {
+        state.autosaveStatus = "saved";
+        updateAutosaveIndicator();
+      }
+    }
+    if (deferredRender) {
+      renderFocus = { dayId: session.dayId, field: session.field };
+      render();
+    }
   }
 
   function restoreCell(cell, value) {
@@ -3105,7 +3136,10 @@
     editSession = null;
     if (normalized === session.original) {
       restoreCell(session.cell, normalized);
-      if (move) moveFromCell(session.dayId, session.field, move);
+      if (deferredRender) {
+        renderFocus = movementTarget(session.dayId, session.field, move) || { dayId: session.dayId, field: session.field };
+        render();
+      } else if (move) moveFromCell(session.dayId, session.field, move);
       return true;
     }
 
@@ -4583,7 +4617,14 @@
   function handleBlur(event) {
     if (!editSession || event.target !== editSession.input) return;
     root.setTimeout(function () {
-      if (editSession && document.activeElement !== editSession.input) finishEditing({ move: null });
+      if (!editSession || document.activeElement === editSession.input) return;
+      // Campo removido por um redesenho: um horário digitado pela metade (ex.: "12")
+      // nunca deve ser gravado; o valor salvo continua o anterior.
+      if (!editSession.input.isConnected) {
+        editSession = null;
+        return;
+      }
+      finishEditing({ move: null });
     }, 0);
   }
 
