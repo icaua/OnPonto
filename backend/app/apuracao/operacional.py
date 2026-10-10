@@ -13,21 +13,22 @@ def controle_arquivo(arquivo):
     return json.loads(arquivo.controle_importacao_json) if arquivo.controle_importacao_json else None
 
 
-def indicadores(resultado, funcionarios, arquivos, competencia):
+def indicadores(resultado, funcionarios, arquivos, competencia, *, arquivos_com_marcacoes=None, contagens_dias=None, presentes=None):
     dias = resultado["marcacoes"]
     controles = [controle_arquivo(a) for a in arquivos]
     pendencias_importacao = [dict(p, arquivo_id=a.id) for a, c in zip(arquivos, controles) if c for p in c.get("pendencias", [])]
-    analises = sum(1 for a, c in zip(arquivos, controles) if (c and c.get("estado") != "confirmada") or (not c and not a.marcacoes))
-    presentes = {(d["funcionario_id"], d["data"]) for d in dias}
+    analises = sum(1 for a, c in zip(arquivos, controles) if (c and c.get("estado") != "confirmada") or
+        (not c and (a.id not in arquivos_com_marcacoes if arquivos_com_marcacoes is not None else not a.marcacoes)))
+    if presentes is None: presentes = {(d["funcionario_id"], d["data"]) for d in dias}
     faltantes = sum(1 for f in funcionarios if f.ativo for n in range(1, monthrange(competencia.ano, competencia.mes)[1] + 1)
         if dentro_vinculo(f, date(competencia.ano, competencia.mes, n)) and (f.id, date(competencia.ano, competencia.mes, n).isoformat()) not in presentes)
-    contagens = {"problemas": sum(d["problema"] for d in dias),
+    contagens = contagens_dias or {"problemas": sum(d["problema"] for d in dias),
         "aguardando_conferencia": sum(d["aguardando_conferencia"] for d in dias),
-        "conferidos": sum(d["conferido"] for d in dias), "total": len(dias),
-        "dias_sem_registro": faltantes, "analises_pendentes": analises,
-        "conflitos_importacao": len(pendencias_importacao), "total_arquivos": len(arquivos)}
+        "conferidos": sum(d["conferido"] for d in dias), "total": len(dias)}
+    contagens.update(dias_sem_registro=faltantes,analises_pendentes=analises,
+        conflitos_importacao=len(pendencias_importacao),total_arquivos=len(arquivos))
     motivos = []
-    if not dias: motivos.append("Não há registros processados.")
+    if not contagens["total"]: motivos.append("Não há registros processados.")
     if analises: motivos.append(f"{analises} arquivo(s) aguardam confirmação da importação.")
     if pendencias_importacao: motivos.append(f"{len(pendencias_importacao)} registro(s) de importação não resolvidos.")
     if contagens["problemas"]: motivos.append(f"{contagens['problemas']} dia(s) com problemas bloqueantes.")
@@ -36,7 +37,7 @@ def indicadores(resultado, funcionarios, arquivos, competencia):
     fechada = competencia.status == "fechada"
     proxima = ("exportar" if fechada else "confirmar_importacao" if analises else
         "resolver_problemas" if contagens["problemas"] or pendencias_importacao else
-        "importar" if not dias else "continuar_conferencia" if contagens["aguardando_conferencia"] or faltantes else "revisar_fechar")
+        "importar" if not contagens["total"] else "continuar_conferencia" if contagens["aguardando_conferencia"] or faltantes else "revisar_fechar")
     resultado["operacional"] = contagens
     resultado["pendencias_importacao"] = pendencias_importacao
     resultado["fechamento"] = {"pode_fechar": not fechada and not motivos,

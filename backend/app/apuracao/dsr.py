@@ -38,6 +38,7 @@ def preparar_dsr(db, competencia, empresa, funcionarios, resolvedor):
         ocorrencias.setdefault(o.funcionario_id,[]).append(o)
     calculos, saida = {}, {}
     for f in funcionarios:
+        dto_funcionario=adaptadores.funcionario(f)
         semanas = {}
         for n in range((fim-inicio).days+1):
             dia = inicio+timedelta(days=n)
@@ -58,7 +59,7 @@ def preparar_dsr(db, competencia, empresa, funcionarios, resolvedor):
                     if m is None:
                         refs.append(DiaReferenciaDSR(anterior,True,None,None,None,False));continue
                     regra_anterior = resolvedor.regra_no_dia(f,anterior)
-                    dto = replace(adaptadores.funcionario(f),escala=regra_anterior)
+                    dto = replace(dto_funcionario,escala=regra_anterior)
                     calculo = apurar_dia(dto,adaptadores.marcacoes(m),ContextoCalendario(tuple(feriados.get(anterior,[]))),
                         adaptadores.ocorrencias(ocorrencias.get(f.id,[])))
                     calculos[m.id] = calculo
@@ -74,8 +75,11 @@ def preparar_dsr(db, competencia, empresa, funcionarios, resolvedor):
 
 
 def resumir_dsr(resumos, dias):
+    por_funcionario={}
+    for d in dias:
+        if d.get("dsr"): por_funcionario.setdefault(d["funcionario_id"],[]).append(d["dsr"])
     for resumo in resumos:
-        registros = [d["dsr"] for d in dias if d["funcionario_id"]==resumo["funcionario_id"] and d.get("dsr")]
+        registros=por_funcionario.get(resumo["funcionario_id"],[])
         if registros:
             resumo["dsr_dias"] = len(registros)
             resumo["dsr_desconto_dias"] = None if any(d["desconto_dias"] is None for d in registros) else sum(d["desconto_dias"] for d in registros)

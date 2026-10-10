@@ -7,7 +7,7 @@ import logging
 from sqlalchemy import Connection, Engine, inspect
 
 
-SCHEMA_VERSION = 16
+SCHEMA_VERSION = 17
 logger = logging.getLogger(__name__)
 
 COLUNAS_EMPRESA_LEGADAS = (
@@ -619,6 +619,9 @@ def _aplicar_sqlite(conexao: Connection) -> dict[str, int]:
                     conexao.exec_driver_sql(f"ALTER TABLE {tabela} ADD COLUMN {coluna} {tipo}")
     _migrar_versoes_escalas(conexao,set(inspect(conexao).get_table_names()))
     _migrar_fechamentos_revisoes(conexao,set(inspect(conexao).get_table_names()))
+    if "competencias" in tabelas and "funcionarios" in tabelas:
+        from app.database.models import CacheConferencia
+        CacheConferencia.__table__.create(conexao,checkfirst=True)
     if "marcacoes_ponto" in tabelas:
         from app.database.models import DependenciaFechamento
         DependenciaFechamento.__table__.create(conexao, checkfirst=True)

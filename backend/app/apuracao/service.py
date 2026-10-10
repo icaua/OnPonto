@@ -190,16 +190,12 @@ def apurar_competencia(
     if gerar_calendario:
         gerar_dias_faltantes(db, competencia)
 
-    empresa = competencia.empresa
-    feriados = feriados_da_competencia(db, empresa, competencia.ano, competencia.mes)
-    funcionarios = (
-        db.query(Funcionario)
-        .filter(Funcionario.empresa_id == competencia.empresa_id)
-        .order_by(Funcionario.nome.asc())
-        .all()
-    )
-    funcionarios_por_id = {funcionario.id: funcionario for funcionario in funcionarios}
-    resolvedor_escalas = ResolvedorEscalas(db, competencia.empresa_id)
+    from app.apuracao.contexto import ContextoApuracao
+    contexto_apuracao=ContextoApuracao(db,competencia)
+    empresa=contexto_apuracao.empresa
+    funcionarios=contexto_apuracao.funcionarios
+    funcionarios_por_id=contexto_apuracao.por_id
+    resolvedor_escalas=contexto_apuracao.resolvedor
 
     resumo = {
         funcionario.id: {
@@ -229,49 +225,11 @@ def apurar_competencia(
         for funcionario in funcionarios
     }
 
-    marcacoes = (
-        db.query(MarcacaoPonto)
-        .filter(MarcacaoPonto.competencia_id == competencia.id)
-        .order_by(MarcacaoPonto.data.asc(), MarcacaoPonto.funcionario_id.asc())
-        .all()
-    )
-
-    detalhes = []
-    pendencias = []
-    dias_com_pendencia: set[tuple[int, date]] = set()
-    ocorrencias_por_funcionario = {}
-    for ocorrencia in consultar_ocorrencias(db, empresa_id=competencia.empresa_id,
-            inicio=date(competencia.ano, competencia.mes, 1),
-            fim=date(competencia.ano, competencia.mes, monthrange(competencia.ano, competencia.mes)[1])):
-        ocorrencias_por_funcionario.setdefault(ocorrencia.funcionario_id, []).append(ocorrencia)
-
-    acumuladores_politica = {}
-    dsr_por_dia, calculos_dsr = preparar_dsr(db,competencia,empresa,funcionarios,resolvedor_escalas)
-    for marcacao in marcacoes:
-        funcionario = funcionarios_por_id.get(marcacao.funcionario_id)
-        if not funcionario:
-            continue
-
-        if not dentro_vinculo(funcionario, marcacao.data) and placeholder_calendario_intocado(marcacao):
-            continue
-        escala_dia = resolvedor_escalas.regra_no_dia(funcionario, marcacao.data)
-        escala_apuracao = escala_dia
-        contexto = SimpleNamespace(**{c.name: getattr(funcionario, c.name) for c in Funcionario.__table__.columns},
-                                   escala=escala_apuracao, empresa=funcionario.empresa)
-        detalhe = (calculos_dsr.get(marcacao.id) or motor.apurar_dia(adaptadores.funcionario(contexto),adaptadores.marcacoes(marcacao),
-            ContextoCalendario(tuple(feriados.get(marcacao.data,[]))),
-            adaptadores.ocorrencias(ocorrencias_por_funcionario.get(funcionario.id,[])))).para_api_legada()
-        detalhe["revisao"] = marcacao.revisao
-        dsr = dsr_por_dia.get((funcionario.id,marcacao.data))
-        if dsr:
-            detalhe["dsr"] = dsr
-            if dsr["desconto_dias"] is None:
-                detalhe.update(pendente_calculo=True,pendencia_tipo="dsr_requer_revisao",
-                    pendencia_motivo="DSR exige conferir os seis dias anteriores ao descanso: " + ", ".join(dsr["dias_pendentes"]))
-        distribuir_dia(detalhe, escala_dia, marcacao, empresa, acumuladores_politica)
-        classificar_dia(detalhe)
-        detalhes.append(detalhe)
-
+    detalhes=contexto_apuracao.detalhes()
+    pendencias=[]
+    dias_com_pendencia=set()
+    for detalhe in detalhes:
+        funcionario=funcionarios_por_id[detalhe['funcionario_id']]
         item_resumo = resumo[funcionario.id]
         item_resumo["dias_processados"] += int(not detalhe["fora_vinculo"])
         item_resumo["atrasos_minutos"] += detalhe["atraso_minutos"]
@@ -288,7 +246,7 @@ def apurar_competencia(
         if detalhe["pendente"]:
             item_resumo["pendencias"] += 1
             pendencias.append(detalhe)
-            dias_com_pendencia.add((funcionario.id, marcacao.data))
+            dias_com_pendencia.add((funcionario.id, detalhe["data"]))
 
     for item in resumo.values():
         if item.pop("_horas_feriado_pendentes"):
@@ -362,8 +320,11 @@ def apurar_competencia(
         "marcacoes": detalhes,
         "pendencias": pendencias,
     }
-    indicadores(resultado, funcionarios, db.query(ArquivoRecebido).filter_by(competencia_id=competencia.id).all(), competencia)
-    bloqueios = bloqueios_saldo_projetado(db, resultado)
+    indicadores(resultado, funcionarios, contexto_apuracao.arquivos, competencia,
+        arquivos_com_marcacoes=contexto_apuracao.arquivos_com_marcacoes)
+    from app.banco_horas.consulta import LedgerEmMemoria
+    ledger=LedgerEmMemoria(db,funcionarios_por_id)
+    bloqueios = bloqueios_saldo_projetado(db, resultado,ledger=ledger)
     resultado["bloqueios_politica"] = bloqueios
     if bloqueios:
         decisao = resultado["fechamento"]
@@ -371,4 +332,5 @@ def apurar_competencia(
         decisao.update(pode_fechar=False, motivo_bloqueio=" ".join(decisao["motivos"]))
         if not resultado["operacional"]["problemas"] and not resultado["pendencias_importacao"]:
             decisao["proxima_acao"] = "revisar_banco"
-    return complementar_apuracao(db, competencia, resultado, resolvedor_escalas=resolvedor_escalas) if incluir_banco else resultado
+    return complementar_apuracao(db, competencia, resultado, resolvedor_escalas=resolvedor_escalas,
+        ledger=ledger,funcionarios_por_id=funcionarios_por_id) if incluir_banco else resultado

@@ -99,6 +99,8 @@ def _atualizar(
     nova_versao(db,escala,validados.model_dump(mode="json"),desde)
     for campo, valor in validados.model_dump().items():
         setattr(escala, campo, valor)
+    from app.competencias.service import sincronizar_abertas_empresa
+    sincronizar_abertas_empresa(db,escala.empresa_id)
     db.commit()
     db.refresh(escala)
     return escala

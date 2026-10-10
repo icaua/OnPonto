@@ -7,14 +7,14 @@ from fastapi import HTTPException
 from app.banco_horas.politica import hoje_local, validar_prazo, vencimento_credito
 from app.banco_horas.regras import politica_da_escala, ciclo
 from app.database.models import Funcionario, LancamentoBancoHoras, CompensacaoBancoHoras
-from app.funcionarios.historico_escalas import registrar_vinculo_inicial, escala_no_dia, ResolvedorEscalas
+from app.funcionarios.historico_escalas import registrar_vinculo_inicial, registrar_vinculos_iniciais, escala_no_dia, ResolvedorEscalas
+from app.banco_horas.consulta import LedgerEmMemoria
 
 
 def gerar_lancamentos(db, competencia, resultado):
     """Consome a única apuração obtida pelo fechamento, sem recalcular o ponto."""
     funcionarios = {f.id: f for f in db.query(Funcionario).filter_by(empresa_id=competencia.empresa_id)}
-    for funcionario in funcionarios.values():
-        registrar_vinculo_inicial(db, funcionario)
+    registrar_vinculos_iniciais(db,list(funcionarios.values()))
     resolvedor_escalas = ResolvedorEscalas(db, competencia.empresa_id)
     gerados = []
     for dia in sorted(resultado["marcacoes"], key=lambda d: (d["data"], d["funcionario_id"])):
@@ -62,18 +62,19 @@ def gerar_lancamentos(db, competencia, resultado):
 
 def validar_cobertura_folgas(db, gerados):
     ids = {i.id for i in gerados if i.origem == "folga_compensatoria"}
+    ledger=LedgerEmMemoria(db,{i.funcionario_id for i in gerados if i.id in ids})
     for funcionario_id in {i.funcionario_id for i in gerados if i.id in ids}:
-        for item, _, restante in situacao_lancamentos(db, funcionario_id):
+        for item, _, restante in situacao_lancamentos(db, funcionario_id,ledger=ledger):
             regra = json.loads(item.politica_aplicada_json)["politica"] if item.politica_aplicada_json else None
             if item.id in ids and restante and not (regra and regra["permite_saldo_negativo"]):
                 raise HTTPException(409, f"Saldo insuficiente para folga compensatória em {item.data_referencia:%d/%m/%Y}: faltam {restante} min. O fechamento foi cancelado; revise a ocorrência ou o saldo do banco.")
 
 
-def reconciliar(db, funcionario_id, motivo="Reconciliação dos lançamentos ativos"):
+def reconciliar(db, funcionario_id, motivo="Reconciliação dos lançamentos ativos", *, ledger=None):
     """Reproduz a ordem de entrada; mantém compensações idênticas e audita mudanças."""
     db.flush()
-    itens = (db.query(LancamentoBancoHoras).filter_by(funcionario_id=funcionario_id, status="ativo")
-             .order_by(LancamentoBancoHoras.data_lancamento, LancamentoBancoHoras.id).all())
+    if ledger is None: ledger=LedgerEmMemoria(db,[funcionario_id])
+    itens=sorted((i for i in ledger.itens.get(funcionario_id,[]) if i.status=="ativo"),key=lambda i:(i.data_lancamento,i.id))
     restantes = {i.id: i.minutos for i in itens}
     creditos, debitos, esperadas = [], [], {}
     for item in itens:
@@ -96,9 +97,7 @@ def reconciliar(db, funcionario_id, motivo="Reconciliação dos lançamentos ati
                 restantes[outro.id] -= minutos
             if restantes[item.id] == 0:
                 break
-    todas_ids = [i[0] for i in db.query(LancamentoBancoHoras.id).filter_by(funcionario_id=funcionario_id)]
-    atuais = db.query(CompensacaoBancoHoras).filter(CompensacaoBancoHoras.credito_id.in_(todas_ids),
-                                                  CompensacaoBancoHoras.status == "ativo").all()
+    atuais=ledger.compensacoes_por_funcionario.get(funcionario_id,[])
     for compensacao in atuais:
         chave = (compensacao.credito_id, compensacao.debito_id)
         if esperadas.get(chave) == compensacao.minutos:
@@ -113,7 +112,9 @@ def reconciliar(db, funcionario_id, motivo="Reconciliação dos lançamentos ati
     db.flush()
 
 
-def situacao_lancamentos(db, funcionario_id, data_limite=None, incluir_estornados=False):
+def situacao_lancamentos(db, funcionario_id, data_limite=None, incluir_estornados=False, *, ledger=None):
+    if ledger is not None:
+        return ledger.situacao(funcionario_id,data_limite,incluir_estornados)
     query = db.query(LancamentoBancoHoras).filter_by(funcionario_id=funcionario_id)
     if data_limite:
         query = query.filter(LancamentoBancoHoras.data_referencia <= data_limite)
@@ -130,9 +131,9 @@ def situacao_lancamentos(db, funcionario_id, data_limite=None, incluir_estornado
     return [(i, consumidos[i.id], i.minutos - consumidos[i.id] if i.status == "ativo" else 0) for i in itens]
 
 
-def calcular_saldo_banco_horas(db, funcionario_id, data_limite=None):
+def calcular_saldo_banco_horas(db, funcionario_id, data_limite=None, *, ledger=None):
     return sum(restante if i.natureza == "credito" else -restante
-               for i, _, restante in situacao_lancamentos(db, funcionario_id, data_limite))
+               for i, _, restante in situacao_lancamentos(db, funcionario_id, data_limite,ledger=ledger))
 
 
 def obter_funcionario(db, funcionario_id):
@@ -201,8 +202,9 @@ def estornar_competencia(db, competencia):
         item.estornado_em = datetime.now(timezone.utc)
         item.motivo_estorno = motivo
     db.flush()
+    ledger=LedgerEmMemoria(db,funcionarios)
     for funcionario_id in sorted(funcionarios):
-        reconciliar(db, funcionario_id, motivo)
+        reconciliar(db, funcionario_id, motivo,ledger=ledger)
 
 
 def extrato(db, funcionario_id, data_limite=None):
@@ -230,8 +232,10 @@ def extrato(db, funcionario_id, data_limite=None):
 def alertas(db, empresa_id, dias=30, hoje=None):
     hoje = hoje or hoje_local()
     resultado = {"vencidos": [], "proximos_do_vencimento": [], "folgas_sem_cobertura": []}
-    for funcionario in db.query(Funcionario).filter_by(empresa_id=empresa_id).order_by(Funcionario.nome):
-        for item, _, restante in situacao_lancamentos(db, funcionario.id):
+    funcionarios=db.query(Funcionario).filter_by(empresa_id=empresa_id).order_by(Funcionario.nome).all()
+    ledger=LedgerEmMemoria(db,[f.id for f in funcionarios])
+    for funcionario in funcionarios:
+        for item, _, restante in situacao_lancamentos(db, funcionario.id,ledger=ledger):
             if item.origem == "folga_compensatoria" and restante:
                 resultado["folgas_sem_cobertura"].append(dict(id=item.id, funcionario_id=funcionario.id, funcionario=funcionario.nome_apresentacao,
                     data_referencia=item.data_referencia, data_vencimento=None, minutos_restantes=restante))
@@ -252,7 +256,7 @@ def formatar_saldo(minutos):
     return f"{sinal}{horas:02d}:{resto:02d}"
 
 
-def complementar_apuracao(db, competencia, resultado, *, resolvedor_escalas=None):
+def complementar_apuracao(db, competencia, resultado, *, resolvedor_escalas=None, ledger=None, funcionarios_por_id=None):
     """Acrescenta uma visão do ledger; não modifica o snapshot de ponto salvo."""
     from calendar import monthrange
     if competencia.status == "fechada" and competencia.versao_fechamento == 0:
@@ -261,11 +265,14 @@ def complementar_apuracao(db, competencia, resultado, *, resolvedor_escalas=None
         resolvedor_escalas = ResolvedorEscalas(db, competencia.empresa_id)
     inicio = date(competencia.ano, competencia.mes, 1)
     fim = date(competencia.ano, competencia.mes, monthrange(competencia.ano, competencia.mes)[1])
+    if funcionarios_por_id is None:
+        funcionarios_por_id={f.id:f for f in db.query(Funcionario).filter_by(empresa_id=competencia.empresa_id)}
+    if ledger is None: ledger=LedgerEmMemoria(db,[r["funcionario_id"] for r in resultado["resumo"]])
     por_funcionario = {}
     for dia in resultado["marcacoes"]:
         por_funcionario.setdefault(dia["funcionario_id"], []).append(dia)
     for resumo in resultado["resumo"]:
-        funcionario = db.get(Funcionario, resumo["funcionario_id"])
+        funcionario = funcionarios_por_id.get(resumo["funcionario_id"])
         if not funcionario:
             continue
         dias = por_funcionario.get(funcionario.id, [])
@@ -276,26 +283,28 @@ def complementar_apuracao(db, competencia, resultado, *, resolvedor_escalas=None
             habilitado = any(e and e.usa_banco_horas for e in vinculos) or bool(funcionario.escala and funcionario.escala.usa_banco_horas)
         if not habilitado:
             continue
-        itens = [i for i, _, _ in situacao_lancamentos(db, funcionario.id, fim) if i.data_referencia >= inicio]
+        situacao=situacao_lancamentos(db,funcionario.id,fim,ledger=ledger)
+        itens = [i for i, _, _ in situacao if i.data_referencia >= inicio]
         resumo["banco_horas"] = {
             "consolidado": competencia.status == "fechada",
-            "saldo_anterior_minutos": calcular_saldo_banco_horas(db, funcionario.id, inicio - timedelta(days=1)),
+            "saldo_anterior_minutos": calcular_saldo_banco_horas(db, funcionario.id, inicio - timedelta(days=1),ledger=ledger),
             "creditos_competencia_minutos": sum(i.minutos for i in itens if i.natureza == "credito"),
             "debitos_competencia_minutos": sum(i.minutos for i in itens if i.natureza == "debito"),
-            "saldo_final_minutos": calcular_saldo_banco_horas(db, funcionario.id, fim),
-            "compensados_minutos": sum(consumidos for i, consumidos, _ in situacao_lancamentos(db, funcionario.id, fim)
+            "saldo_final_minutos": calcular_saldo_banco_horas(db, funcionario.id, fim,ledger=ledger),
+            "compensados_minutos": sum(consumidos for i, consumidos, _ in situacao
                                        if i.natureza == "debito" and i.data_referencia >= inicio),
-            "tratamentos_pendentes": tratamentos_pendentes(db, funcionario, fim),
+            "tratamentos_pendentes": tratamentos_pendentes(db, funcionario, fim,ledger=ledger),
         }
         if funcionario.data_demissao and funcionario.data_demissao <= fim:
             resumo["banco_horas"].update(data_demissao=funcionario.data_demissao.isoformat(),
-                saldo_demissao_minutos=calcular_saldo_banco_horas(db, funcionario.id, funcionario.data_demissao))
+                saldo_demissao_minutos=calcular_saldo_banco_horas(db, funcionario.id, funcionario.data_demissao,ledger=ledger))
     return resultado
 
 
 def validar_saldos_permitidos(db, gerados):
+    ledger=LedgerEmMemoria(db,{i.funcionario_id for i in gerados})
     for funcionario_id in {i.funcionario_id for i in gerados}:
-        situacao = situacao_lancamentos(db, funcionario_id)
+        situacao = situacao_lancamentos(db, funcionario_id,ledger=ledger)
         for item in (i for i in gerados if i.funcionario_id == funcionario_id and i.politica_aplicada_json):
             regra = json.loads(item.politica_aplicada_json)["politica"]
             if regra["permite_saldo_negativo"]:
@@ -306,7 +315,7 @@ def validar_saldos_permitidos(db, gerados):
                 raise HTTPException(409, "Esta política não permite saldo negativo no ciclo. Revise os débitos antes de confirmar.")
 
 
-def bloqueios_saldo_projetado(db, resultado):
+def bloqueios_saldo_projetado(db, resultado, *, ledger=None):
     """Mesma restrição do fechamento, projetada sem inserir lançamentos."""
     grupos = {}
     for dia in resultado["marcacoes"]:
@@ -318,22 +327,23 @@ def bloqueios_saldo_projetado(db, resultado):
         grupo["delta"] += dia["extra_banco_minutos"] - dia["debito_banco_minutos"]
         grupo["restrito"] |= not aplicada["politica"]["permite_saldo_negativo"]
     motivos = []
+    if ledger is None: ledger=LedgerEmMemoria(db,[chave[0] for chave in grupos])
     for (funcionario_id, inicio, fim), grupo in grupos.items():
         if not grupo["restrito"]:
             continue
         saldo = sum(restante if i.natureza == "credito" else -restante
-                    for i, _, restante in situacao_lancamentos(db, funcionario_id)
+                    for i, _, restante in situacao_lancamentos(db, funcionario_id,ledger=ledger)
                     if i.ciclo_inicio == date.fromisoformat(inicio) and i.ciclo_fim == date.fromisoformat(fim))
         if saldo + grupo["delta"] < 0:
             motivos.append(f"Funcionário #{funcionario_id}: saldo projetado negativo no ciclo {inicio} a {fim}; a política não permite esse saldo.")
     return motivos
 
 
-def tratamentos_pendentes(db, funcionario, corte):
+def tratamentos_pendentes(db, funcionario, corte, *, ledger=None):
     """Indicações para decisão/folha; nunca quita, transporta ou calcula reais."""
     grupos = {}
     desligado = bool(funcionario.data_demissao and funcionario.data_demissao <= corte)
-    for item, _, restante in situacao_lancamentos(db, funcionario.id, min(corte, funcionario.data_demissao) if desligado else corte):
+    for item, _, restante in situacao_lancamentos(db, funcionario.id, min(corte, funcionario.data_demissao) if desligado else corte,ledger=ledger):
         if not restante or not item.politica_aplicada_json or not item.ciclo_fim:
             continue
         if not desligado and item.ciclo_fim >= corte:

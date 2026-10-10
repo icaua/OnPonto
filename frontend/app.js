@@ -1185,7 +1185,7 @@
       delete loadedCompetenceSummaries[key];
       delete data.competenceSummaries[key];
     }
-    if (loadedCompetenceSummaries[key] && !settings.force) {
+    if (loadedCompetenceSummaries[key] && !settings.force && (state.route !== "review" || data.competenceSummaries[key].apurationDetailed)) {
       if (idsEqual(state.selectedCompetenceId, competenceId)) {
         state.competenceSummaryLoading = false;
         state.competenceSummaryError = "";
@@ -1199,9 +1199,11 @@
       state.competenceSummaryLoading = true;
       state.competenceSummaryError = "";
     }
-    return apiRequest("/apuracao?competencia_id=" + encodeURIComponent(competenceId)).then(function (payload) {
+    var endpoint = state.route === "review" ? "/apuracao" : "/apuracao/resumo";
+    return apiRequest(endpoint + "?competencia_id=" + encodeURIComponent(competenceId), { timeout: 60000 }).then(function (payload) {
       if (competenceSummarySequences[key] !== sequence) return null;
       var summary = normalizeCompetenceSummary(payload);
+      summary.apurationDetailed = Array.isArray(payload.marcacoes);
       if (summary.competence) updateCompetenceFromPayload(competenceId, summary.competence);
       data.competenceSummaries[key] = summary;
       var competence = competencies().find(function(c){return idsEqual(c.id, competenceId);});
@@ -1241,8 +1243,8 @@
     // Apuração e marcações são consultas; o calendário nasce da importação ou de ação explícita.
     return summaryPromise.then(function (summary) {
       return Promise.all([
-        loadAttendanceForCompetence(competenceId, settings),
-        loadFilesForCompetence(competenceId, settings),
+        state.route === "review" || state.route === "competency-history" ? loadAttendanceForCompetence(competenceId, settings) : Promise.resolve([]),
+        state.route === "competency-summary" ? Promise.resolve([]) : loadFilesForCompetence(competenceId, settings),
       ]).then(function (results) {
         if (summary) applyApurationDetails(competenceId, summary.markings);
     if (idsEqual(state.selectedCompetenceId, competenceId) && !state.reviewFilterInitialized) {

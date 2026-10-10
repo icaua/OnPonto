@@ -76,6 +76,16 @@ async function main(){
   await page.waitForFunction(()=>document.querySelector('.autosave-indicator')?.textContent.includes('salvas'));
   assert.deepEqual(await(await fetch(base+'/marcacoes/'+day.id)).json(),saved);
   await page2.close();
+  const summaryRequests=[];page.on('request',r=>{if(r.url().startsWith(base))summaryRequests.push(r.url());});
+  await page.evaluate(()=>window.OnPontoApp.navigate('competency-summary'));
+  await page.getByRole('heading',{name:'Resumo por funcionário',exact:true}).waitFor();
+  assert.ok(summaryRequests.some(u=>u.includes('/apuracao/resumo?')));
+  assert.equal(summaryRequests.some(u=>u.includes('/marcacoes?') || /\/apuracao\?/.test(u)),false);
+  for(const [width,height] of [[1366,768],[1920,1080]]){
+   await page.setViewportSize({width,height});
+   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
+   await page.screenshot({path:path.join(out,`resumo-${width}x${height}.png`)});
+  }
   assert.deepEqual(errors,[]);console.log(JSON.stringify({out,measures,checks:'identity, original-code search, next problem, assisted assignment, autosave, persisted audit, undo, two windows and explicit 409 resolution, no browser errors'},null,2));
  }finally{if(browser)await browser.close();await new Promise(r=>server.close(r));api.kill();}
 }

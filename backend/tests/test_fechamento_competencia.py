@@ -305,7 +305,8 @@ class FechamentoCompetenciaApiTest(unittest.TestCase):
             "PATCH", f'/marcacoes/{marcacao["id"]}', {"conferido": True}
         )
         self.assertEqual(status_http, 200)
-        self.assertEqual(self.obter_competencia(competencia["id"])["status"], "conferida")
+        # Conferir um dia não resolve os outros dias do vínculo sem registro.
+        self.assertEqual(self.obter_competencia(competencia["id"])["status"], "em_conferencia")
 
         self.resolver_calendario(competencia["id"])
         self.assertEqual(self.obter_competencia(competencia["id"])["status"], "conferida")

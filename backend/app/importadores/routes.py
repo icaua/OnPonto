@@ -615,7 +615,8 @@ def confirmar_importacao(
         if marcacoes:
             from app.apuracao.service import gerar_dias_faltantes
             gerar_dias_faltantes(db, competencia)
-            competencia.status = "em_conferencia"
+        from app.competencias.service import sincronizar_status_competencia
+        sincronizar_status_competencia(db,competencia)
         try:
             db.commit()
         except IntegrityError as exc:

@@ -28,13 +28,17 @@ def resumo(empresa_id: int, db: Session = Depends(get_db)):
     if not db.get(Empresa, empresa_id):
         raise HTTPException(404, "Empresa não encontrada.")
     itens = []
-    for f in db.query(Funcionario).filter_by(empresa_id=empresa_id).order_by(Funcionario.nome):
-        tem_historico = db.query(LancamentoBancoHoras.id).filter_by(funcionario_id=f.id).first()
+    from sqlalchemy.orm import joinedload
+    from app.banco_horas.consulta import LedgerEmMemoria
+    funcionarios=db.query(Funcionario).filter_by(empresa_id=empresa_id).options(joinedload(Funcionario.escala)).order_by(Funcionario.nome).all()
+    ledger=LedgerEmMemoria(db,[f.id for f in funcionarios])
+    for f in funcionarios:
+        tem_historico=bool(ledger.itens.get(f.id))
         if (f.escala and f.escala.usa_banco_horas) or tem_historico:
             itens.append({"funcionario_id": f.id, "funcionario": f.nome_apresentacao,
-                "saldo_minutos": service.calcular_saldo_banco_horas(db, f.id),
+                "saldo_minutos": service.calcular_saldo_banco_horas(db, f.id,ledger=ledger),
                 "data_demissao": f.data_demissao,
-                "saldo_demissao_minutos": service.calcular_saldo_banco_horas(db, f.id, f.data_demissao) if f.data_demissao else None})
+                "saldo_demissao_minutos": service.calcular_saldo_banco_horas(db, f.id, f.data_demissao,ledger=ledger) if f.data_demissao else None})
     return itens
 
 

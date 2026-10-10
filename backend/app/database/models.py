@@ -11,6 +11,16 @@ class TimestampMixin:
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class CacheConferencia(Base):
+    __tablename__ = "cache_conferencia"
+    __table_args__ = (UniqueConstraint("competencia_id","funcionario_id",name="uq_cache_conferencia"),)
+    id: Mapped[int] = mapped_column(Integer,primary_key=True)
+    competencia_id: Mapped[int] = mapped_column(ForeignKey("competencias.id"),nullable=False,index=True)
+    funcionario_id: Mapped[int] = mapped_column(ForeignKey("funcionarios.id"),nullable=False)
+    assinatura: Mapped[str] = mapped_column(String(64),nullable=False)
+    contadores_json: Mapped[str] = mapped_column(Text,nullable=False)
+
+
 class Empresa(Base, TimestampMixin):
     __tablename__ = "empresas"
 

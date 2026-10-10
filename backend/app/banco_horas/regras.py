@@ -164,8 +164,11 @@ def distribuir_dia(dia, escala, marcacao, empresa, acumuladores):
 
 
 def resumir_distribuicao(resumo, dias):
+    por_funcionario={}
+    for d in dias:
+        if not d.get("fora_vinculo"): por_funcionario.setdefault(d["funcionario_id"],[]).append(d)
     for item in resumo:
-        registros = [d for d in dias if d["funcionario_id"] == item["funcionario_id"] and not d.get("fora_vinculo")]
+        registros=por_funcionario.get(item["funcionario_id"],[])
         for campo in CAMPOS_DISTRIBUICAO:
             valores = [d.get(campo) for d in registros]
             item[campo] = sum(valores) if valores and all(v is not None for v in valores) else None

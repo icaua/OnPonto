@@ -44,7 +44,10 @@ class ResolvedorEscalas:
             if (versao.vigente_desde is None or versao.vigente_desde<=dia) and (versao.vigente_ate is None or versao.vigente_ate>=dia):
                 if versao.id not in self.regras: self.regras[versao.id]=regra_da_versao(versao)
                 return self.regras[versao.id].para_dia(dia)
-        return None if versoes else regra(escala).para_dia(dia)
+        if versoes: return None
+        chave=("legado",escala.id)
+        if chave not in self.regras: self.regras[chave]=regra(escala)
+        return self.regras[chave].para_dia(dia)
 
 
 def registrar_vinculo_inicial(db, funcionario):
@@ -58,6 +61,22 @@ def registrar_vinculo_inicial(db, funcionario):
         datas.append(primeira[0])
     db.add(HistoricoVinculoEscala(funcionario_id=funcionario.id, escala_id=funcionario.escala_id,
                                  vigente_desde=min(datas)))
+    db.flush()
+
+
+def registrar_vinculos_iniciais(db, funcionarios):
+    from sqlalchemy import func
+    ids=[f.id for f in funcionarios if f.escala_id is not None]
+    if not ids: return
+    existentes={id for id, in db.query(HistoricoVinculoEscala.funcionario_id).filter(HistoricoVinculoEscala.funcionario_id.in_(ids)).distinct()}
+    primeiras=dict(db.query(MarcacaoPonto.funcionario_id,func.min(MarcacaoPonto.data)).filter(
+        MarcacaoPonto.funcionario_id.in_(ids)).group_by(MarcacaoPonto.funcionario_id).all())
+    for f in funcionarios:
+        if f.escala_id is None or f.id in existentes: continue
+        datas=[hoje_local(),f.created_at.date() if f.created_at else hoje_local()]
+        if f.data_admissao: datas.append(f.data_admissao)
+        if primeiras.get(f.id): datas.append(primeiras[f.id])
+        db.add(HistoricoVinculoEscala(funcionario_id=f.id,escala_id=f.escala_id,vigente_desde=min(datas)))
     db.flush()
 
 

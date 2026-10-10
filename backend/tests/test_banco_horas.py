@@ -377,8 +377,8 @@ class ReaberturaBancoTest(BancoFixture, unittest.TestCase):
         from app.banco_horas.service import reconciliar
         self.lancar("debito",30); self.db.commit()
         self.dias(); self.batida()
-        def falhar(db, funcionario_id, motivo):
-            reconciliar(db, funcionario_id, motivo)
+        def falhar(db, funcionario_id, motivo, **kwargs):
+            reconciliar(db, funcionario_id, motivo, **kwargs)
             raise RuntimeError("Falha após FIFO")
         with patch("app.competencias.routes.reconciliar",side_effect=falhar), self.assertRaises(RuntimeError):
             self.fechar()

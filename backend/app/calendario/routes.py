@@ -32,6 +32,21 @@ def validar_referencias_dsr(db, evento):
             raise HTTPException(409,"O feriado participa de referência DSR fechada. Reabra a competência antes de alterar o calendário.")
 
 
+def sincronizar_calendario(db, eventos):
+    from calendar import monthrange
+    from datetime import timedelta
+    from app.database.models import Competencia
+    from app.calendario.service import abrange_empresa, data_no_ano
+    from app.competencias.service import sincronizar_status_competencia
+    db.flush()
+    for c in db.query(Competencia).filter(Competencia.status!="fechada"):
+        inicio=date(c.ano,c.mes,1)-timedelta(days=6)
+        fim=date(c.ano,c.mes,monthrange(c.ano,c.mes)[1])+timedelta(days=6)
+        if any(e.tipo=="FERIADO" and abrange_empresa(e,c.empresa) and any(
+                (d:=data_no_ano(e,ano)) is not None and inicio<=d<=fim for ano in range(inicio.year,fim.year+1)) for e in eventos):
+            sincronizar_status_competencia(db,c)
+
+
 @router.get("", response_model=list[EventoRead])
 def listar_eventos(ano: int = Query(default=date.today().year, ge=1, le=9999),
                    tipo: TipoEvento | None = None, abrangencia: AbrangenciaEvento | None = None,
@@ -54,6 +69,7 @@ def criar_evento(payload: EventoCreate, db: Session = Depends(get_db)):
     evento = EventoCalendario(**payload.model_dump())
     validar_referencias_dsr(db,evento)
     db.add(evento)
+    sincronizar_calendario(db,[evento])
     db.commit()
     db.refresh(evento)
     return evento
@@ -64,6 +80,7 @@ def criar_evento(payload: EventoCreate, db: Session = Depends(get_db)):
 def atualizar_evento(evento_id: int, payload: EventoUpdate, db: Session = Depends(get_db)):
     evento = obter_evento(evento_id, db)
     validar_referencias_dsr(db,evento)
+    anterior=EventoCalendario(**{campo:getattr(evento,campo) for campo in EventoCreate.model_fields})
     dados = {campo: getattr(evento, campo) for campo in EventoCreate.model_fields}
     dados.update(payload.model_dump(exclude_unset=True))
     try:
@@ -74,6 +91,7 @@ def atualizar_evento(evento_id: int, payload: EventoUpdate, db: Session = Depend
     validar_referencias_dsr(db,EventoCalendario(**validado.model_dump()))
     for campo, valor in validado.model_dump().items():
         setattr(evento, campo, valor)
+    sincronizar_calendario(db,[anterior,evento])
     db.commit()
     db.refresh(evento)
     return evento

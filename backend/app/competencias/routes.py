@@ -144,12 +144,13 @@ def fechar_competencia(
             "mensagem": decisao["motivo_bloqueio"], **decisao, "operacional": resultado["operacional"]})
 
     try:
-        resultado = apurar_competencia(db, competencia.id, gerar_calendario=False, incluir_banco=False)
         competencia.data_fechamento = datetime.now(FUSO_HORARIO_LOCAL).date()
         competencia.versao_fechamento += 1
         gerados = gerar_lancamentos(db, competencia, resultado)
+        from app.banco_horas.consulta import LedgerEmMemoria
+        ledger=LedgerEmMemoria(db,{i.funcionario_id for i in gerados})
         for funcionario_id in sorted({item.funcionario_id for item in gerados}):
-            reconciliar(db, funcionario_id, "Fechamento de competência")
+            reconciliar(db, funcionario_id, "Fechamento de competência",ledger=ledger)
         validar_cobertura_folgas(db, gerados)
         validar_saldos_permitidos(db, gerados)
         resultado["fechamento"] = {"pode_fechar": False, "motivo_bloqueio": "A competência já está fechada.", "proxima_acao": "exportar"}

@@ -5,6 +5,7 @@ Instrumentação existe apenas neste processo de teste; não há rota de diagnó
 """
 import argparse
 import json
+import hashlib
 import os
 from pathlib import Path
 import platform
@@ -19,6 +20,14 @@ from urllib.request import Request,urlopen
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0,str(Path(__file__).resolve().parent))
+
+
+def hash_codigo():
+    digest=hashlib.sha256()
+    for arquivo in sorted((Path(__file__).resolve().parents[1]/"app").rglob("*.py")):
+        digest.update(arquivo.relative_to(Path(__file__).resolve().parents[1]).as_posix().encode())
+        digest.update(arquivo.read_bytes())
+    return digest.hexdigest()
 
 
 def serve(port,quantidade):
@@ -85,9 +94,16 @@ def medir(quantidade):
                 rows=[]
                 for rep in range(3):
                     rows.append(dict(requisicao(base,"GET /apuracao","/apuracao?competencia_id=1"),repeticao=rep+1))
+                rows.append(requisicao(base,"GET resumo","/apuracao/resumo?competencia_id=1"))
+                rows.append(requisicao(base,"GET triagem","/apuracao/triagem?competencia_id=1"))
+                rows.append(requisicao(base,"GET dias funcionário","/apuracao/dias?competencia_id=1&funcionario_id=2"))
                 with urlopen(base+"/marcacoes/31",timeout=300) as response:
                     revisao=json.load(response)["revisao"]
                 rows.append(requisicao(base,"PATCH marcação","/marcacoes/31","PATCH",{"entrada":"08:01","revisao":revisao}))
+                with urlopen(base+"/marcacoes/31",timeout=300) as response:
+                    revisao=json.load(response)["revisao"]
+                rows.append(requisicao(base,"PATCH incremental","/marcacoes/31","PATCH",{"entrada":"08:02","revisao":revisao}))
+                rows.append(requisicao(base,"GET triagem após PATCH","/apuracao/triagem?competencia_id=2"))
                 with urlopen(base+"/marcacoes?competencia_id=2",timeout=300) as response:
                     revisoes={m["id"]:m["revisao"] for m in json.load(response)}
                 rows.append(requisicao(base,"confirmar lote","/marcacoes/conferir-lote","POST",
@@ -115,7 +131,8 @@ if __name__=="__main__":
     if args.serve: serve(args.serve,args.count)
     else:
         import sqlalchemy,fastapi
-        result={"python":platform.python_version(),"sqlite":sqlite3.sqlite_version,
+        codigo=hash_codigo()
+        result={"python":platform.python_version(),"sqlite":sqlite3.sqlite_version,"codigo_backend_sha256":codigo,
             "sqlalchemy":sqlalchemy.__version__,"fastapi":fastapi.__version__,
             "plataforma":platform.platform(),"cenario":"synthetic_scenarios.criar_cenario v1",
             "metodo":"HTTP real em loopback; SQL via evento engine; pico incremental tracemalloc do handler; latência inclui transferência. GET repetido 3 vezes; mutações 1 vez. Tracing ativo em todas as fases.",
@@ -123,6 +140,8 @@ if __name__=="__main__":
         for count in args.counts:
             print(f"Medindo {count} funcionários...",flush=True)
             result["cenarios"].append(medir(count))
+            if hash_codigo()!=codigo:
+                raise RuntimeError("Código alterado durante medição; repita os cenários com implementação estável.")
             if args.output:
                 args.output.parent.mkdir(parents=True,exist_ok=True)
                 args.output.write_text(json.dumps(result,ensure_ascii=False,indent=2)+"\n",encoding="utf-8")

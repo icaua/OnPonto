@@ -3,7 +3,7 @@ from datetime import date, datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.competencias.service import exigir_competencia_editavel, sincronizar_status_competencia
 from app.database.models import Competencia, Funcionario, MarcacaoPonto
@@ -73,7 +73,7 @@ def listar_marcacoes(
     funcionario_id: int | None = Query(default=None),
     db: Session = Depends(get_db),
 ) -> list[MarcacaoPonto]:
-    query = db.query(MarcacaoPonto).filter(MarcacaoPonto.competencia_id == competencia_id)
+    query = db.query(MarcacaoPonto).options(joinedload(MarcacaoPonto.arquivo_origem)).filter(MarcacaoPonto.competencia_id == competencia_id)
     if funcionario_id:
         query = query.filter(MarcacaoPonto.funcionario_id == funcionario_id)
     return query.order_by(MarcacaoPonto.data.asc(), MarcacaoPonto.funcionario_id.asc()).all()
@@ -135,8 +135,9 @@ def validar_conferencia(db, marcacao):
     if not marcacao.conferido:
         return
     db.flush()
-    resultado = apurar_competencia(db, marcacao.competencia_id, incluir_banco=False)
-    dia = next((d for d in resultado["marcacoes"] if d["id"] == marcacao.id), None)
+    from app.apuracao.contexto import ContextoApuracao
+    contexto=ContextoApuracao(db,db.get(Competencia,marcacao.competencia_id),marcacao.funcionario_id)
+    dia = next((d for d in contexto.detalhes(marcacao.funcionario_id) if d["id"] == marcacao.id), None)
     if dia is None or dia["problema"]:
         db.rollback()
         raise HTTPException(409, detail={"codigo": "dia_com_problema", "mensagem": dia["pendencia_motivo"] if dia else "Registro fora do vínculo."})
@@ -151,8 +152,9 @@ def conferir_lote(payload: ConferenciaLote, db: Session = Depends(get_db), reque
         raise HTTPException(404, "Competência não encontrada.")
     db.refresh(competencia)
     exigir_competencia_editavel(competencia)
-    resultado = apurar_competencia(db, competencia.id, incluir_banco=False)
-    por_id = {d["id"]: d for d in resultado["marcacoes"]}
+    from app.apuracao.contexto import ContextoApuracao
+    contexto=ContextoApuracao(db,competencia)
+    por_id = {d["id"]: d for d in contexto.detalhes()}
     conferidos, problemas = [], []
     for id in dict.fromkeys(payload.marcacoes_ids):
         marcacao = db.get(MarcacaoPonto, id)

@@ -1,0 +1,19 @@
+# 0006 — Contexto compartilhado, ledger em lote e triagem incremental
+
+Status: implementado no pacote 05.
+
+`ContextoApuracao` reúne funcionários, calendário, regras versionadas, ocorrências, marcações e arquivos por operação. Apuração integral, validação de conferência e dias de uma pessoa usam a mesma interpretação diária e distribuição acumulada. Regras legadas são adaptadas uma vez por escala/operação. Resultados oficiais e snapshot não dependem do cache operacional.
+
+`LedgerEmMemoria` carrega lançamentos/compensações da seleção em lote. Cada consulta com corte aplica apenas compensações cujos dois lançamentos estão ativos e dentro desse corte. Ciclos, FIFO, vencimentos, saldos, estornos e ajustes permanecem iguais ao conjunto de referência. Reconciliação de fechamento/reabertura compartilha o carregamento, mas não reutiliza uma visão anterior à mutação. Histórico inicial de vínculo usa consultas agrupadas, com os mesmos limites inferidos anteriormente.
+
+Migração 17 acrescenta `cache_conferencia`, descartável, por competência/funcionário. Assinatura inclui conteúdo/revisões das marcações, vínculo, cadastro, regras, calendário, ocorrências e contexto empresarial. DSR inclui referências dos meses adjacentes. Só o funcionário com assinatura diferente precisa de avaliação operacional novamente; calendário/regra pode invalidar vários. Contadores usam a mesma classificação do motor. Cache é escrito somente dentro da mutação; GET não cria marcações, cache ou conferência humana. Não há cache compartilhado entre threads/processos.
+
+Status editável considera problemas, espera por conferência, conflitos/análise de importação e dias do vínculo sem registro. Diferença deliberada: conferir uma única linha não torna o mês `conferida` enquanto restarem dias sem registro. O teste do ciclo operacional passou a esperar `em_conferencia` nesse ponto; depois da inicialização e revisão do restante, espera `conferida` como antes. Reabertura mantém o estado operacional anterior de `em_conferencia`, preservando versões fechadas.
+
+Endpoints aditivos: `/apuracao/resumo` entrega os mesmos totais oficiais sem milhares de dias; `/apuracao/dias` entrega a pessoa selecionada, usando snapshot quando fechado; `/apuracao/triagem` entrega apenas contadores derivados, identificados como `apuracao_integral=false`. Triagem indica `validacao_integral_necessaria`, pois não aprova projeção financeira do ledger. A validação de fechamento recalcula integralmente sob `BEGIN IMMEDIATE` e ignora cache, inclusive se este contiver contadores adulterados. Uma apuração integral na mesma transação é suficiente; a segunda repetição redundante foi removida.
+
+Frontend de resumo usa o endpoint reduzido e não busca marcações/arquivos para desenhar o painel. Conferência ainda usa o contrato integral compatível nesta etapa; passa por cache próprio de detalhes, sem aceitar resumo compacto como apuração detalhada. Migração gradual para carregamento por pessoa pertence ao pacote 07. Timeout de resumo aumentado para 60 s sem sinalizar sucesso antecipado.
+
+Exportação Excel troca chamadas repetidas de `Worksheet.max_row` no laço de cada linha por contador explícito: a propriedade da biblioteca varria células já criadas. Valores, formatos, ordem de folhas e visual do relatório permanecem verificados pelo golden e testes de Excel.
+
+Rollback: cache pode ser descartado/reconstruído; não serve como histórico. Manter versões de escala/fechamento e evidências. Reversão de código exige banco compatível ou restauração isolada, conforme ADRs anteriores. Não houve migração em dados reais. Limites: cold start da triagem ainda avalia o mês; assinatura ainda lê dados em lote; payload da conferência completa permanece grande até a etapa 07. Medições de tracemalloc não equivalem a RSS ou percentis de produção.
