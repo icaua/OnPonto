@@ -1,0 +1,90 @@
+{
+  "python": "3.12.14",
+  "sqlite": "3.53.1",
+  "funcionarios": 1000,
+  "marcacoes": 61000,
+  "metodo": "7 SELECTs por consulta; mediana local sem tracing; dois índices adicionais, sem remover índices legados",
+  "antes": {
+    "mes": {
+      "planos": [
+        "SEARCH marcacoes_ponto USING INDEX ix_marcacoes_ponto_competencia_id (competencia_id=?)",
+        "USE TEMP B-TREE FOR ORDER BY"
+      ],
+      "mediana_ms": 106.2112,
+      "linhas": 30000
+    },
+    "pessoa": {
+      "planos": [
+        "SEARCH marcacoes_ponto USING INDEX sqlite_autoindex_marcacoes_ponto_1 (funcionario_id=?)"
+      ],
+      "mediana_ms": 0.18,
+      "linhas": 30
+    },
+    "arquivos": {
+      "planos": [
+        "SEARCH marcacoes_ponto USING INDEX ix_marcacoes_ponto_competencia_id (competencia_id=?)",
+        "USE TEMP B-TREE FOR DISTINCT"
+      ],
+      "mediana_ms": 10.3746,
+      "linhas": 25
+    },
+    "vinculo": {
+      "planos": [
+        "SEARCH historico_vinculo_escala USING INDEX ix_historico_vinculo_escala_funcionario_id (funcionario_id=?)",
+        "USE TEMP B-TREE FOR ORDER BY"
+      ],
+      "mediana_ms": 0.0535,
+      "linhas": 1
+    },
+    "ledger": {
+      "planos": [
+        "SEARCH lancamentos_banco_horas USING INDEX ix_lancamentos_banco_horas_funcionario_id (funcionario_id=?)",
+        "USE TEMP B-TREE FOR ORDER BY"
+      ],
+      "mediana_ms": 0.0535,
+      "linhas": 2
+    }
+  },
+  "depois": {
+    "mes": {
+      "planos": [
+        "SEARCH marcacoes_ponto USING INDEX ix_marcacoes_ponto_competencia_id (competencia_id=?)",
+        "USE TEMP B-TREE FOR ORDER BY"
+      ],
+      "mediana_ms": 107.0399,
+      "linhas": 30000
+    },
+    "pessoa": {
+      "planos": [
+        "SEARCH marcacoes_ponto USING INDEX sqlite_autoindex_marcacoes_ponto_1 (funcionario_id=?)"
+      ],
+      "mediana_ms": 0.1017,
+      "linhas": 30
+    },
+    "arquivos": {
+      "planos": [
+        "SEARCH marcacoes_ponto USING COVERING INDEX ix_marcacao_comp_arquivo (competencia_id=? AND arquivo_origem_id>?)"
+      ],
+      "mediana_ms": 0.054,
+      "linhas": 25
+    },
+    "vinculo": {
+      "planos": [
+        "SEARCH historico_vinculo_escala USING INDEX ix_vinculo_func_inicio_fim (funcionario_id=? AND vigente_desde<?)"
+      ],
+      "mediana_ms": 0.0436,
+      "linhas": 1
+    },
+    "ledger": {
+      "planos": [
+        "SEARCH lancamentos_banco_horas USING INDEX ix_lancamentos_banco_horas_funcionario_id (funcionario_id=?)",
+        "USE TEMP B-TREE FOR ORDER BY"
+      ],
+      "mediana_ms": 0.0577,
+      "linhas": 2
+    }
+  },
+  "db_bytes_antes": 135380992,
+  "db_bytes_depois": 136409088,
+  "criacao_indices_ms": 37.49
+}

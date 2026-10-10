@@ -1,6 +1,8 @@
-fastapi>=0.115,<1.0
-uvicorn[standard]>=0.32,<1.0
-SQLAlchemy>=2.0,<3.0
-openpyxl>=3.1,<4.0
-python-multipart>=0.0.9,<1.0
-tzdata>=2024.1,<2027.0
+# Versões diretas e transitivas sincronizadas com a distribuição offline.
+-c ../setup/constraints.txt
+fastapi==0.141.1
+uvicorn[standard]==0.52.3
+SQLAlchemy==2.0.52
+openpyxl==3.1.5
+python-multipart==0.0.32
+tzdata==2026.3

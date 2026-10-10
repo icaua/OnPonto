@@ -23,8 +23,8 @@ Não haverá merge automático. Somente dados fictícios/temporários são usado
 | 04 | validado | `efb9b78` | backend 395/395; Node 101/101; Playwright duas resoluções/duas janelas; golden/compileall/diff OK | intervalo e DSR explícitos; legenda neutra de feriado | `04-intervalos-dsr-50.json` | nenhum |
 | 05 | validado | `3bac476` | backend 402/402; Node 102/102; Playwright resumo/conferência; golden/compileall/diff OK | estado operacional inclui dias ausentes/análises | `05-final.json`, 3 portes completos | nenhum |
 | 06 | validado | `64d2526` | backend 412/412; Node 102/102; navegador/migração/compileall/diff OK | nenhuma trabalhista; reenvio idempotente | `06-importacao.json`, 3 portes | nenhum |
-| 07 | validado | commit deste checkpoint | backend 413/413; Node 108/108; navegador ciclo completo OK | módulos e conferência por funcionário | `07-frontend-50.json` | nenhum |
-| 08 | não iniciado | — | — | — | — | depende de 00–07 |
+| 07 | validado | `cbd5fd1` | backend 413/413; Node 108/108; navegador ciclo completo OK | módulos e conferência por funcionário | `07-frontend-50.json` | nenhum |
+| 08 | validado | commit deste checkpoint | backend 415/415; Node 108/108; restore ampliado 4/4 | recuperação/índices/distribuição | `08-indices.json`, `08-custo-indices.json`, `08-final-1000.json` | nenhum |
 | 09 | não iniciado | — | — | — | — | depende da integração estabilizada |
 
 ## Pacote 00
@@ -109,3 +109,15 @@ Rollback preserva tabelas/evidências novas; restauração em destino novo, sem 
 Onze módulos exportados, wrappers compatíveis e ADR 0008. Triagem/dias por funcionário substituem carregamento integral na conferência; registros/revisões e cálculo oficial chegam na mesma leitura. Grade reutiliza nós, preserva foco/rolagem, autosave/undo/atalhos e originais. Filas, sequências e revisão protegem respostas antigas; troca de contexto espera persistência e recusa nova edição durante flush. Cálculo online local não afirma minutos definitivos. Reabertura aguarda PATCH; mensagens locais distinguem edição de persistência. Demo explícito continua separado e OCR simulado só é aceito na demonstração.
 
 Backend 413 testes OK (59,214 s); Node 108 OK; compileall/diff OK. Playwright: 1366×768 (9 linhas), 1920×1080 (17), foco/nó/rolagem preservados, duas janelas/409, importação e conferência até fechamento, exportação Excel e reabertura em ambas, sem overflow/erro JS. Correções no roteiro aguardam bootstrap e limitam seletores ao diálogo; nenhum resultado esperado de cálculo foi alterado. Golden não regenerado. Benchmark 50: triagem 11 queries, pacote de uma pessoa 12 queries/52.522 bytes/56,99 ms; todas operações 200. Campo `registros` é aditivo, sem schema/migração. Rollback por revert, sem tocar DB. Pacote 08 liberado.
+
+## Pacote 08
+
+Schema 19: dois índices escolhidos por EXPLAIN e tempos locais, sem remover índices legados. Candidato de ordenação mensal rejeitado por regressão; ledger sem índice novo por falta de ganho. Timeout 10 s/FK explícitos e optimize limitado pós-migração. WAL testado em SQLite 3.53.1, com leitura concorrente, exclusão de escritores e backup consistente; journal padrão preservado. ADR 0009 e manual RECUPERACAO-DISTRIBUICAO registram limites.
+
+Conjunto v2 verifica DB/uploads/referências/hashes/FK/integridade antes de copiar; destino inexistente obrigatório. Restore remapeia apenas caminhos operacionais na cópia, mantém referências históricas através de mapa externo e registra hash final. Teste em outra pasta compara documentos/batidas/auditoria/versões/snapshot fechado/ledger/compensações byte a byte e repete migração; fonte permanece igual. Travessia adulterada é recusada antes de criar destino. Conjuntos v1 antigos devem ser regenerados como v2 para mudar caminhos.
+
+Dependências fixadas e reinstaladas offline da distribuição existente; pip check OK. SQLAlchemy efetivamente carregado agora 2.0.52, igual ao manifesto (antes o diretório tinha módulo 2.1.1 e metadata 2.0.52). Instalador mantém fallback offline→internet nas mesmas versões, sem atualização silenciosa para faixas. SHA256SUMS e testes do instalador passam; binários preservados. Windows validado; Linux não executado localmente, CI preparado.
+
+Backend 415 testes OK (59,331 s), Node 108 OK; restore ampliado 4 testes repetidos OK; compileall/diff OK; golden intacto. Índices: referências de 25 arquivos/30.000 linhas 10,375→0,054 ms, vínculo 0,0535→0,0436 ms; DB 135.380.992→136.409.088 bytes (+0,76%). Confirmação em 1.000 pessoas/um dia elegível mediana 1.453,807→1.468,710 ms (+1,0%); fechamento 440,769→440,493 ms. Análise varia 408,509→454,784 ms; sem promessa de ganho global. Não são percentis de produção. Resultado HTTP completo de 1.000 ainda em validação. Rollback conforme ADR; DB real não aberto/migrado.
+
+Checkpoint final: benchmark HTTP de 1.000 funcionários/61.000 marcações concluído, todas operações 200, com hash do código estável e dependências fixadas. Resultado integral em `08-final-1000.json`; não comparar sua latência diretamente ao runtime anterior sem considerar a diferença de versões. Pacote 09 liberado.

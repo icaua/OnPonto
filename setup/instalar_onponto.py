@@ -392,7 +392,8 @@ def tentativas_de_instalacao(projeto: Projeto, executavel: Path, usar_pacotes: b
                            base + travadas + ["--no-index", "--find-links", projeto.wheels]))
     if travadas:
         tentativas.append(("internet, nas mesmas versões testadas", base + travadas + rede))
-    tentativas.append(("internet, nas versões compatíveis mais recentes", base + rede))
+    if not travadas:
+        tentativas.append(("internet, nas versões fixadas nos requisitos", base + rede))
     return tentativas
 
 

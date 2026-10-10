@@ -15,12 +15,17 @@ from app.database.session import Base
 from app.database.models import Empresa, Escala, Funcionario, Competencia, BatidaOriginal, MarcacaoPonto
 from app.importadores import routes
 from app.importadores.schemas import ConfirmacaoImportacao
+from app.database.migrations import aplicar_migracoes_compativeis
 
-def medir(n):
+def medir(n,sem_indices=False,medir_fechamento=False):
     with TemporaryDirectory(prefix='onponto-bench-import-ficticio-') as pasta:
         raiz=Path(pasta); engine=create_engine(f"sqlite:///{raiz/'ficticio.db'}")
         try:
             Base.metadata.create_all(engine)
+            aplicar_migracoes_compativeis(engine)
+            if sem_indices:
+                with engine.begin() as conn:
+                    conn.exec_driver_sql('DROP INDEX ix_marcacao_comp_arquivo');conn.exec_driver_sql('DROP INDEX ix_vinculo_func_inicio_fim')
             with Session(engine) as db, patch.object(routes,'UPLOADS_DIR',raiz/'uploads'):
                 e=Empresa(nome='Empresa Fictícia Benchmark Importação');db.add(e);db.flush()
                 escala=Escala(empresa_id=e.id,nome='Fictícia',jornada_seg_sex_horas=8);db.add(escala);db.flush()
@@ -43,7 +48,15 @@ def medir(n):
                 repetir={'ms':round((perf_counter()-inicio)*1000,3),'sql':len(contagem)}
                 assert r['total_importados']==n and repetida['idempotente']
                 assert db.query(BatidaOriginal).count()==n*4 and db.query(MarcacaoPonto).count()==n
-                return {'funcionarios':n,'batidas':n*4,'analise':analise,'confirmacao':confirmar,'reenvio':repetir,
+                fechamento=None
+                if medir_fechamento:
+                    from app.competencias.routes import fechar_competencia
+                    from app.competencias.schemas import FechamentoCompetenciaRequest
+                    for m in db.query(MarcacaoPonto):m.conferido=True
+                    db.commit();contagem.clear();inicio=perf_counter()
+                    fechar_competencia(c.id,FechamentoCompetenciaRequest(),db)
+                    fechamento={'ms':round((perf_counter()-inicio)*1000,3),'sql':len(contagem)}
+                return {'funcionarios':n,'batidas':n*4,'analise':analise,'confirmacao':confirmar,'reenvio':repetir,'fechamento':fechamento,
                     'db_bytes':(raiz/'ficticio.db').stat().st_size}
         finally: engine.dispose()
 

@@ -1,0 +1,151 @@
+{
+  "metodo": "3 cenários novos por configuração; 1.000 funcionários com um dia elegível/quatro batidas; versões offline fixadas; índices criados antes dos dados; sem tracing. Resultados locais, sem percentis de produção.",
+  "sem_indices": [
+    {
+      "funcionarios": 1000,
+      "batidas": 4000,
+      "analise": {
+        "ms": 408.509,
+        "sql": 4028
+      },
+      "confirmacao": {
+        "ms": 1411.185,
+        "sql": 5035,
+        "select": 30
+      },
+      "reenvio": {
+        "ms": 62.147,
+        "sql": 12
+      },
+      "fechamento": {
+        "ms": 410.602,
+        "sql": 1033
+      },
+      "db_bytes": 10018816
+    },
+    {
+      "funcionarios": 1000,
+      "batidas": 4000,
+      "analise": {
+        "ms": 402.68,
+        "sql": 4028
+      },
+      "confirmacao": {
+        "ms": 1460.859,
+        "sql": 5035,
+        "select": 30
+      },
+      "reenvio": {
+        "ms": 24.599,
+        "sql": 12
+      },
+      "fechamento": {
+        "ms": 460.338,
+        "sql": 1033
+      },
+      "db_bytes": 10027008
+    },
+    {
+      "funcionarios": 1000,
+      "batidas": 4000,
+      "analise": {
+        "ms": 438.668,
+        "sql": 4028
+      },
+      "confirmacao": {
+        "ms": 1453.807,
+        "sql": 5035,
+        "select": 30
+      },
+      "reenvio": {
+        "ms": 67.147,
+        "sql": 12
+      },
+      "fechamento": {
+        "ms": 440.769,
+        "sql": 1033
+      },
+      "db_bytes": 10018816
+    }
+  ],
+  "com_indices": [
+    {
+      "funcionarios": 1000,
+      "batidas": 4000,
+      "analise": {
+        "ms": 454.784,
+        "sql": 4028
+      },
+      "confirmacao": {
+        "ms": 1454.948,
+        "sql": 5035,
+        "select": 30
+      },
+      "reenvio": {
+        "ms": 24.815,
+        "sql": 12
+      },
+      "fechamento": {
+        "ms": 426.672,
+        "sql": 1033
+      },
+      "db_bytes": 10076160
+    },
+    {
+      "funcionarios": 1000,
+      "batidas": 4000,
+      "analise": {
+        "ms": 430.368,
+        "sql": 4028
+      },
+      "confirmacao": {
+        "ms": 1528.717,
+        "sql": 5035,
+        "select": 30
+      },
+      "reenvio": {
+        "ms": 24.786,
+        "sql": 12
+      },
+      "fechamento": {
+        "ms": 447.525,
+        "sql": 1033
+      },
+      "db_bytes": 10076160
+    },
+    {
+      "funcionarios": 1000,
+      "batidas": 4000,
+      "analise": {
+        "ms": 487.537,
+        "sql": 4028
+      },
+      "confirmacao": {
+        "ms": 1468.71,
+        "sql": 5035,
+        "select": 30
+      },
+      "reenvio": {
+        "ms": 23.257,
+        "sql": 12
+      },
+      "fechamento": {
+        "ms": 440.493,
+        "sql": 1033
+      },
+      "db_bytes": 10072064
+    }
+  ],
+  "medianas": {
+    "sem_indices": {
+      "analise": 408.509,
+      "confirmacao": 1453.807,
+      "fechamento": 440.769
+    },
+    "com_indices": {
+      "analise": 454.784,
+      "confirmacao": 1468.71,
+      "fechamento": 440.493
+    }
+  }
+}

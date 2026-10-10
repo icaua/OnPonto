@@ -7,7 +7,7 @@ import logging
 from sqlalchemy import Connection, Engine, inspect
 
 
-SCHEMA_VERSION = 18
+SCHEMA_VERSION = 19
 logger = logging.getLogger(__name__)
 
 COLUNAS_EMPRESA_LEGADAS = (
@@ -630,6 +630,14 @@ def _aplicar_sqlite(conexao: Connection) -> dict[str, int]:
                 BEFORE {acao} ON dependencias_fechamento BEGIN SELECT RAISE(ABORT,'Dependencia historica imutavel'); END""")
     from app.database.evidencias_migracao import migrar
     migrar(conexao)
+    indices={
+        'marcacoes_ponto':('ix_marcacao_comp_arquivo',('competencia_id','arquivo_origem_id')),
+        'historico_vinculo_escala':('ix_vinculo_func_inicio_fim',('funcionario_id','vigente_desde DESC','id DESC','vigente_ate')),
+    }
+    atuais=set(inspect(conexao).get_table_names())
+    for tabela,(nome,colunas) in indices.items():
+        if tabela in atuais and {c.split()[0] for c in colunas}<=_nomes_colunas(conexao,tabela):
+            conexao.exec_driver_sql(f"CREATE INDEX IF NOT EXISTS {nome} ON {tabela}({','.join(colunas)})")
     if versao_atual < SCHEMA_VERSION:
         conexao.exec_driver_sql(f"PRAGMA user_version = {SCHEMA_VERSION}")
     return {"escalas_intervalo_convertidas": convertidas}
@@ -674,6 +682,10 @@ def aplicar_migracoes_compativeis(engine: Engine) -> dict[str, int] | None:
                 )
             if conexao.exec_driver_sql("PRAGMA integrity_check").scalar_one()!="ok":
                 raise RuntimeError("Migração falhou na verificação de integridade.")
+            conexao.commit()
+            # Otimização limitada, apenas depois da transação de migração.
+            conexao.exec_driver_sql("PRAGMA analysis_limit=400")
+            conexao.exec_driver_sql("PRAGMA optimize")
             conexao.commit()
             if resultado["escalas_intervalo_convertidas"]:
                 logger.warning("Schema 6: %s escala(s) com tolerância de intervalo zero histórico convertidas para NULL (seguir tolerância geral).",

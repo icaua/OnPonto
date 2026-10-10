@@ -230,15 +230,13 @@ class TentativasTest(unittest.TestCase):
         self.projeto.restricoes.write_text("fastapi==0.141.1\n", encoding="ascii")
         self.executavel = Path("python")
 
-    def test_ordem_offline_depois_internet_travada_depois_faixas(self):
+    def test_ordem_offline_depois_internet_travada_sem_faixas(self):
         tentativas = inst.tentativas_de_instalacao(self.projeto, self.executavel, usar_pacotes=True)
         self.assertEqual([d for d, _ in tentativas], ["pacotes incluídos no On Ponto, sem internet",
-                                                      "internet, nas mesmas versões testadas",
-                                                      "internet, nas versões compatíveis mais recentes"])
+                                                      "internet, nas mesmas versões testadas"])
         self.assertIn("--no-index", tentativas[0][1])
         self.assertNotIn("--no-index", tentativas[1][1])
         self.assertIn("-c", tentativas[1][1])
-        self.assertNotIn("-c", tentativas[2][1])
         sem_pacotes = inst.tentativas_de_instalacao(self.projeto, self.executavel, usar_pacotes=False)
         self.assertNotIn("--no-index", sem_pacotes[0][1])
 

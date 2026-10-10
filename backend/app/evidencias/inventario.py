@@ -2,24 +2,26 @@
 from pathlib import Path
 from app.database.models import ArquivoRecebido, DocumentoEvidencia, OcorrenciaFuncionario
 from app.importadores.propostas import hash_arquivo
+from app.evidencias.caminhos import resolver_referencia
 
 def verificar(db, uploads_dir, backend_dir):
     raiz=Path(uploads_dir).resolve()
     referencias={}
     def adicionar(caminho, sha, identificacao):
-        caminho=Path(caminho).resolve()
+        try:caminho=resolver_referencia(str(caminho),raiz,backend_dir)
+        except (ValueError,OSError):invalidas.append(identificacao);return
         if not caminho.is_relative_to(raiz):
             invalidas.append(identificacao); return
         referencias.setdefault(caminho,[]).append((sha,identificacao))
     invalidas=[]
     for arquivo in db.query(ArquivoRecebido):
         caminho=Path(arquivo.caminho_arquivo)
-        adicionar(caminho if caminho.is_absolute() else Path(backend_dir)/caminho,arquivo.sha256,{"arquivo_id":arquivo.id})
+        adicionar(arquivo.caminho_arquivo,arquivo.sha256,{"arquivo_id":arquivo.id})
     for doc in db.query(DocumentoEvidencia):
         if doc.caminho_relativo: adicionar(raiz/doc.caminho_relativo,doc.sha256,{"documento_id":doc.id})
         elif doc.referencia_legada:
             caminho=Path(doc.referencia_legada)
-            adicionar(caminho if caminho.is_absolute() else Path(backend_dir)/caminho,doc.sha256,{"documento_id":doc.id})
+            adicionar(doc.referencia_legada,doc.sha256,{"documento_id":doc.id})
     for ocorrencia in db.query(OcorrenciaFuncionario):
         if ocorrencia.anexo_caminho: adicionar(raiz/ocorrencia.anexo_caminho,None,{"ocorrencia_id":ocorrencia.id})
     ausentes=[]; alteradas=[]; desconhecidas=[]

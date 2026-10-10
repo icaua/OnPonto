@@ -1,0 +1,74 @@
+{
+  "python": "3.12.14",
+  "sqlite": "3.53.1",
+  "funcionarios": 1000,
+  "marcacoes": 61000,
+  "metodo": "7 SELECTs por consulta; mediana local sem tracing; três índices adicionais, sem remover índices legados",
+  "antes": {
+    "mes": {
+      "planos": [
+        "SEARCH marcacoes_ponto USING INDEX ix_marcacoes_ponto_competencia_id (competencia_id=?)",
+        "USE TEMP B-TREE FOR ORDER BY"
+      ],
+      "mediana_ms": 101.7051,
+      "linhas": 30000
+    },
+    "pessoa": {
+      "planos": [
+        "SEARCH marcacoes_ponto USING INDEX sqlite_autoindex_marcacoes_ponto_1 (funcionario_id=?)"
+      ],
+      "mediana_ms": 0.1052,
+      "linhas": 30
+    },
+    "vinculo": {
+      "planos": [
+        "SEARCH historico_vinculo_escala USING INDEX ix_historico_vinculo_escala_funcionario_id (funcionario_id=?)",
+        "USE TEMP B-TREE FOR ORDER BY"
+      ],
+      "mediana_ms": 0.0527,
+      "linhas": 1
+    },
+    "ledger": {
+      "planos": [
+        "SEARCH lancamentos_banco_horas USING INDEX ix_lancamentos_banco_horas_funcionario_id (funcionario_id=?)",
+        "USE TEMP B-TREE FOR ORDER BY"
+      ],
+      "mediana_ms": 0.0501,
+      "linhas": 2
+    }
+  },
+  "depois": {
+    "mes": {
+      "planos": [
+        "SEARCH marcacoes_ponto USING INDEX ix_marcacao_comp_data_func (competencia_id=?)"
+      ],
+      "mediana_ms": 147.2298,
+      "linhas": 30000
+    },
+    "pessoa": {
+      "planos": [
+        "SEARCH marcacoes_ponto USING INDEX sqlite_autoindex_marcacoes_ponto_1 (funcionario_id=?)"
+      ],
+      "mediana_ms": 0.1013,
+      "linhas": 30
+    },
+    "vinculo": {
+      "planos": [
+        "SEARCH historico_vinculo_escala USING INDEX ix_vinculo_func_inicio_fim (funcionario_id=? AND vigente_desde<?)",
+        "USE TEMP B-TREE FOR LAST TERM OF ORDER BY"
+      ],
+      "mediana_ms": 0.0496,
+      "linhas": 1
+    },
+    "ledger": {
+      "planos": [
+        "SEARCH lancamentos_banco_horas USING INDEX ix_ledger_func_data (funcionario_id=? AND data_referencia<?)"
+      ],
+      "mediana_ms": 0.0481,
+      "linhas": 2
+    }
+  },
+  "db_bytes_antes": 135344128,
+  "db_bytes_depois": 137154560,
+  "criacao_indices_ms": 54.194
+}
