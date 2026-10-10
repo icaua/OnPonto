@@ -85,9 +85,13 @@ def medir(quantidade):
                 rows=[]
                 for rep in range(3):
                     rows.append(dict(requisicao(base,"GET /apuracao","/apuracao?competencia_id=1"),repeticao=rep+1))
-                rows.append(requisicao(base,"PATCH marcação","/marcacoes/31","PATCH",{"entrada":"08:01"}))
+                with urlopen(base+"/marcacoes/31",timeout=300) as response:
+                    revisao=json.load(response)["revisao"]
+                rows.append(requisicao(base,"PATCH marcação","/marcacoes/31","PATCH",{"entrada":"08:01","revisao":revisao}))
+                with urlopen(base+"/marcacoes?competencia_id=2",timeout=300) as response:
+                    revisoes={m["id"]:m["revisao"] for m in json.load(response)}
                 rows.append(requisicao(base,"confirmar lote","/marcacoes/conferir-lote","POST",
-                    {"competencia_id":2,"marcacoes_ids":[31+i*61 for i in range(min(quantidade,1000))]}))
+                    {"competencia_id":2,"marcacoes_ids":[31+i*61 for i in range(min(quantidade,1000))],"revisoes":revisoes}))
                 rows.append(requisicao(base,"abrir conferência","/marcacoes?competencia_id=1"))
                 rows.append(requisicao(base,"fechar","/competencias/2/fechar","POST",{}))
                 rows.append(requisicao(base,"exportar Excel","/relatorios/excel?competencia_id=2"))

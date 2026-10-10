@@ -61,7 +61,22 @@ async function main(){
   await page.keyboard.press('Escape');await page.locator('.day-select-button').first().focus();await page.keyboard.press('Control+z');
   await page.waitForFunction(()=>document.querySelector('.autosave-indicator')?.textContent.includes('salvas'));
   rows=await(await fetch(base+'/marcacoes?competencia_id=1&funcionario_id=1')).json();day=rows.find(d=>d.data==='2026-09-08');assert.equal(day.entrada,null);
-  assert.deepEqual(errors,[]);console.log(JSON.stringify({out,measures,checks:'identity, original-code search, next problem, assisted assignment, autosave, persisted audit, undo, no browser errors'},null,2));
+  const page2=await browser.newPage();page2.on('pageerror',e=>errors.push(e.message));
+  await page2.addInitScript(apiBase=>localStorage.setItem('onponto.apiBase',apiBase),base);
+  await page2.goto(page.url());
+  await page2.locator('[data-action="assign-original-punch"][data-punch-index="0"]').waitFor();
+  await page2.locator('[data-action="assign-original-punch"][data-punch-index="0"]').selectOption('entry');
+  await page2.waitForFunction(()=>document.querySelector('.autosave-indicator')?.textContent.includes('salvas'));
+  const saved=await(await fetch(base+'/marcacoes/'+day.id)).json();
+  await page.locator('[data-action="assign-original-punch"][data-punch-index="0"]').selectOption('entry');
+  await page.getByText('Este dia foi alterado em outra janela',{exact:true}).waitFor();
+  assert.deepEqual(await(await fetch(base+'/marcacoes/'+day.id)).json(),saved);
+  await page.locator('#dialogField').selectOption('server');
+  await page.getByRole('button',{name:'Aplicar escolha',exact:true}).click();
+  await page.waitForFunction(()=>document.querySelector('.autosave-indicator')?.textContent.includes('salvas'));
+  assert.deepEqual(await(await fetch(base+'/marcacoes/'+day.id)).json(),saved);
+  await page2.close();
+  assert.deepEqual(errors,[]);console.log(JSON.stringify({out,measures,checks:'identity, original-code search, next problem, assisted assignment, autosave, persisted audit, undo, two windows and explicit 409 resolution, no browser errors'},null,2));
  }finally{if(browser)await browser.close();await new Promise(r=>server.close(r));api.kill();}
 }
 main().catch(e=>{console.error(e);process.exitCode=1;});

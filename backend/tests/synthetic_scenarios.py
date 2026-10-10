@@ -87,9 +87,9 @@ def criar_cenario(db, quantidade=10):
 
 
 def normalizar(valor):
-    """Apenas metadados voláteis; nunca remover resultados de cálculo."""
+    """Metadados de transporte/tempo (inclusive revisão); nunca remover cálculos."""
     if isinstance(valor,dict):
         return {k:normalizar(v) for k,v in valor.items() if k not in
-            {"gerado_em","created_at","updated_at","em","estornado_em","estornada_em","data_lancamento"}}
+            {"gerado_em","created_at","updated_at","em","estornado_em","estornada_em","data_lancamento","revisao"}}
     if isinstance(valor,list): return [normalizar(v) for v in valor]
     return valor

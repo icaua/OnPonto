@@ -121,6 +121,8 @@ class RelatorioExcelApiTest(unittest.TestCase):
         payload: dict | None = None,
         headers: dict[str, str] | None = None,
     ) -> tuple[int, dict[str, str], bytes]:
+        from http_revisoes import com_revisao
+        payload = com_revisao(self.base_url, metodo, caminho, payload)
         corpo = json.dumps(payload).encode("utf-8") if payload is not None else None
         cabecalhos = dict(headers or {})
         if corpo is not None:

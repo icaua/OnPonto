@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from app.apuracao.service import placeholder_calendario_intocado
 from app.competencias.service import exigir_competencia_editavel
 from app.ocorrencias.service import iniciar_escrita
+from app.database.transacoes import atomica
 from app.database.models import ArquivoRecebido, Competencia, Empresa, Funcionario, IdentificacaoIgnorada, MarcacaoPonto
 from app.database.session import BACKEND_DIR, UPLOADS_DIR, get_db
 from app.importadores.deteccao import (
@@ -215,7 +216,7 @@ def gerar_previa(db: Session, competencia: Competencia, registro: ArquivoRecebid
     return adaptador, resultado
 
 
-def analisar_arquivo_salvo(db: Session, competencia: Competencia, registro: ArquivoRecebido) -> dict:
+def analisar_arquivo_salvo(db: Session, competencia: Competencia, registro: ArquivoRecebido, *, commit=True) -> dict:
     adaptador, resultado = gerar_previa(db, competencia, registro)
     preview = resultado["registros"]
     confirmacoes_anteriores = (registro.observacoes or "").partition(" Confirmação:")[2]
@@ -237,7 +238,10 @@ def analisar_arquivo_salvo(db: Session, competencia: Competencia, registro: Arqu
     # Sem registro pendente não há o que confirmar (ex.: arquivo só com pessoas ignoradas).
     controle.update(estado="analisada" if pendencias else "confirmada", pendencias=pendencias)
     registro.controle_importacao_json = json.dumps(controle, ensure_ascii=False)
-    db.commit()
+    if commit:
+        db.commit()
+    else:
+        db.flush()
     for item in preview:
         item["origem"]["arquivo_id"] = registro.id
         if item["id"] in resolvidos:
@@ -289,6 +293,7 @@ def hora_interpretada(valor: str | None) -> time | None:
 
 
 @router.post("/{arquivo_id}/reanalisar")
+@atomica
 def reanalisar(arquivo_id: int, db: Session = Depends(get_db)):
     arquivo = db.get(ArquivoRecebido, arquivo_id)
     if not arquivo:
@@ -302,6 +307,7 @@ from app.importadores.schemas import DescartePendencias
 
 
 @router.post("/{arquivo_id}/descartar-pendencias")
+@atomica
 def descartar_pendencias(arquivo_id: int, payload: DescartePendencias, db: Session = Depends(get_db)):
     """Exclusão justificada de registros da apuração; preserva arquivo e trilha."""
     arquivo = db.get(ArquivoRecebido, arquivo_id)
@@ -363,6 +369,7 @@ def arquivos_editaveis(db: Session, empresa_id: int) -> list[ArquivoRecebido]:
 
 
 @router.post("/ignorados", status_code=status.HTTP_201_CREATED)
+@atomica
 def ignorar_identificacao(payload: IdentificacaoIgnoradaCreate, db: Session = Depends(get_db)):
     """Ignora uma pessoa do relógio nesta empresa e aplica a decisão às competências abertas."""
     iniciar_escrita(db)
@@ -396,6 +403,7 @@ def ignorar_identificacao(payload: IdentificacaoIgnoradaCreate, db: Session = De
 
 
 @router.delete("/ignorados/{regra_id}")
+@atomica
 def deixar_de_ignorar(regra_id: int, db: Session = Depends(get_db)):
     """Desativa a regra; registros excluídos por ela em competências abertas voltam a pendências."""
     iniciar_escrita(db)
@@ -428,6 +436,7 @@ def analisar_importacao(
     arquivo: UploadFile = File(...),
     db: Session = Depends(get_db),
 ) -> dict:
+    iniciar_escrita(db)
     _, competencia = validar_contexto_importacao(db, empresa_id, competencia_id)
     if competencia.mes != mes or competencia.ano != ano:
         raise HTTPException(status_code=400, detail="Mês/ano não correspondem à competência informada.")
@@ -445,6 +454,10 @@ def analisar_importacao(
         observacoes="Arquivo original preservado para análise de importação de ponto.",
     )
     try:
+        # O original já está preservado; a análise revalida sob novo lock.
+        iniciar_escrita(db)
+        db.refresh(competencia)
+        exigir_competencia_editavel(competencia)
         return analisar_arquivo_salvo(db, competencia, registro)
     except HTTPException as exc:
         registro.observacoes = f"Falha na análise do arquivo: {exc.detail}"
@@ -456,6 +469,7 @@ def analisar_importacao(
 
 
 @router.post("/confirmar", status_code=status.HTTP_201_CREATED)
+@atomica
 def confirmar_importacao(
     payload: ConfirmacaoImportacao,
     db: Session = Depends(get_db),
@@ -475,7 +489,9 @@ def confirmar_importacao(
             detail="Arquivo informado ainda não foi analisado por um adaptador reconhecido.",
         )
 
-    analise = analisar_arquivo_salvo(db, competencia, arquivo)
+    db.refresh(competencia)
+    exigir_competencia_editavel(competencia)
+    analise = analisar_arquivo_salvo(db, competencia, arquivo, commit=False)
     registros_por_id = {item["id"]: item for item in analise["preview"]}
     ids_selecionados = list(dict.fromkeys(payload.registros_ids))
     ids_invalidos = [registro_id for registro_id in ids_selecionados if registro_id not in registros_por_id]

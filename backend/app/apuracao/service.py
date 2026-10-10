@@ -252,6 +252,7 @@ def apurar_competencia(
         detalhe = motor.apurar_dia(adaptadores.funcionario(contexto),adaptadores.marcacoes(marcacao),
             ContextoCalendario(tuple(feriados.get(marcacao.data,[]))),
             adaptadores.ocorrencias(ocorrencias_por_funcionario.get(funcionario.id,[]))).para_api_legada()
+        detalhe["revisao"] = marcacao.revisao
         distribuir_dia(detalhe, escala_dia, marcacao, empresa, acumuladores_politica)
         classificar_dia(detalhe)
         detalhes.append(detalhe)

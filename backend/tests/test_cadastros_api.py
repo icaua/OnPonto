@@ -88,6 +88,8 @@ class CadastrosApiTest(unittest.TestCase):
         caminho: str,
         payload: dict | None = None,
     ) -> tuple[int, object]:
+        from http_revisoes import com_revisao
+        payload = com_revisao(self.base_url, metodo, caminho, payload)
         corpo = json.dumps(payload).encode("utf-8") if payload is not None else None
         headers = {"Content-Type": "application/json"} if corpo is not None else {}
         request = Request(self.base_url + caminho, data=corpo, headers=headers, method=metodo)

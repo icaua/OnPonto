@@ -111,6 +111,8 @@ class FechamentoCompetenciaApiTest(unittest.TestCase):
         caminho: str,
         payload: dict | None = None,
     ) -> tuple[int, object]:
+        from http_revisoes import com_revisao
+        payload = com_revisao(self.base_url, metodo, caminho, payload)
         corpo = json.dumps(payload).encode("utf-8") if payload is not None else None
         headers = {"Content-Type": "application/json"} if corpo is not None else {}
         status_http, _, conteudo = self.requisicao(metodo, caminho, corpo, headers)

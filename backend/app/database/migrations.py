@@ -7,7 +7,7 @@ import logging
 from sqlalchemy import Connection, Engine, inspect
 
 
-SCHEMA_VERSION = 14
+SCHEMA_VERSION = 15
 logger = logging.getLogger(__name__)
 
 COLUNAS_EMPRESA_LEGADAS = (
@@ -467,6 +467,32 @@ def _migrar_versoes_escalas(conexao,tabelas):
             BEGIN SELECT RAISE(ABORT,'Vigencias de escala sobrepostas'); END""")
 
 
+def _migrar_fechamentos_revisoes(conexao, tabelas):
+    from app.database.models import FechamentoVersao, ReaberturaFechamento
+    if "marcacoes_ponto" in tabelas and "revisao" not in _nomes_colunas(conexao, "marcacoes_ponto"):
+        conexao.exec_driver_sql("ALTER TABLE marcacoes_ponto ADD COLUMN revisao INTEGER NOT NULL DEFAULT 1")
+    if "competencias" not in tabelas:
+        return
+    FechamentoVersao.__table__.create(conexao, checkfirst=True)
+    ReaberturaFechamento.__table__.create(conexao, checkfirst=True)
+    divergente = conexao.exec_driver_sql("""SELECT c.id FROM competencias c JOIN fechamentos_versoes v
+        ON v.competencia_id=c.id AND v.numero=c.versao_fechamento
+        WHERE c.status='fechada' AND c.apuracao_fechada IS NOT v.snapshot LIMIT 1""").first()
+    if divergente:
+        raise RuntimeError("Snapshot corrente diverge da versão preservada; migração interrompida sem sobrescrita.")
+    # Guarda bytes originais, inclusive snapshots cujo contador legado era zero.
+    conexao.exec_driver_sql("""INSERT INTO fechamentos_versoes
+        (competencia_id,numero,snapshot,regras_json,origem,created_at)
+        SELECT c.id,c.versao_fechamento,c.apuracao_fechada,'[]',
+            CASE WHEN c.apuracao_fechada IS NULL THEN 'fechamento_legado_sem_snapshot' ELSE 'snapshot_corrente_legado' END,CURRENT_TIMESTAMP
+        FROM competencias c WHERE (c.apuracao_fechada IS NOT NULL OR c.status='fechada') AND NOT EXISTS
+        (SELECT 1 FROM fechamentos_versoes v WHERE v.competencia_id=c.id AND v.numero=c.versao_fechamento)""")
+    for tabela in ("fechamentos_versoes", "reaberturas_fechamento"):
+        for acao in ("UPDATE", "DELETE"):
+            conexao.exec_driver_sql(f"""CREATE TRIGGER IF NOT EXISTS {tabela}_imutavel_{acao.lower()}
+                BEFORE {acao} ON {tabela} BEGIN SELECT RAISE(ABORT,'Historico de fechamento imutavel'); END""")
+
+
 def _aplicar_sqlite(conexao: Connection) -> dict[str, int]:
     tabelas = {
         linha[0]
@@ -587,6 +613,7 @@ def _aplicar_sqlite(conexao: Connection) -> dict[str, int]:
                 if coluna not in existentes:
                     conexao.exec_driver_sql(f"ALTER TABLE {tabela} ADD COLUMN {coluna} {tipo}")
     _migrar_versoes_escalas(conexao,set(inspect(conexao).get_table_names()))
+    _migrar_fechamentos_revisoes(conexao,set(inspect(conexao).get_table_names()))
     if versao_atual < SCHEMA_VERSION:
         conexao.exec_driver_sql(f"PRAGMA user_version = {SCHEMA_VERSION}")
     return {"escalas_intervalo_convertidas": convertidas}

@@ -18,8 +18,8 @@ Não haverá merge automático. Somente dados fictícios/temporários são usado
 |--------|--------|------------------|--------|-----------------------|-----------|----------|
 | 00 | validado | `17c366c` | backend 350/350; Node 95/95; compileall/diff OK; Playwright OK nas duas resoluções | nenhuma | `docs/benchmarks/00-baseline.json`, 3 portes completos | nenhum |
 | 01 | validado | `2d9faa6` | backend 357/357; Node 95/95; golden sem regeneração; compileall/diff OK | nenhuma | `01-nucleo-50.json` | nenhum |
-| 02 | validado | commit identificado no próximo checkpoint | backend 363/363; Node 95/95; Playwright nas duas resoluções; golden/compileall/diff OK | regra histórica substitui edição retroativa | `02-versoes-50.json` | nenhum |
-| 03 | não iniciado | — | — | — | — | depende de 02 |
+| 02 | validado | `12b823e` | backend 363/363; Node 95/95; Playwright nas duas resoluções; golden/compileall/diff OK | regra histórica substitui edição retroativa | `02-versoes-50.json` | nenhum |
+| 03 | validado | commit identificado no próximo checkpoint | backend 375/375; Node 98/98; Playwright duas janelas; golden/compileall/diff OK | nenhuma trabalhista | `03-revisoes-50.json` | nenhum |
 | 04 | não iniciado | — | — | — | — | depende de 01–03 |
 | 05 | não iniciado | — | — | — | — | depende de 01–04 |
 | 06 | não iniciado | — | — | — | — | depende de 01–05 |
@@ -64,6 +64,12 @@ Medição 50: GET usa 341 queries, com 1.385/1.128/1.196 ms. Todas as operaçõe
 
 Checkpoint final: 363 testes backend OK (38,538 s), 95 Node OK, compilação e diff check OK. Vigências futuras sucessivas não reescrevem a configuração agendada. Pacote 03 liberado.
 
-## Definição de DSR pendente
+## Pacote 03
 
-Usuário definiu domingo e feriado como padrão, com dia de descanso configurável na escala. Pergunta complementar pendente: apenas identificar DSR ou calcular perda/desconto, e qual regra explícita se houver desconto. Pacote 04 não implementará desconto por suposição. Pacotes 02/03 podem prosseguir sem essa definição.
+Migração 15, fechamentos/reaberturas append-only, revisão otimista e unidades transacionais implementadas. Histórico consultável em `/competencias/{id}/fechamentos`. Nova revisão obrigatória para mutações HTTP de marcações; frontend envia token, suspende conflito e oferece comparação/escolha explícita. Confirmação de importação perdeu commit intermediário; original continua preservado. ADR 0004 documenta contratos e rollback. Golden não regenerado; apenas revisão de transporte excluída da comparação de cálculo.
+
+Checkpoint: 375 testes backend OK (47,284 s), 98 Node OK, compileall/diff OK. Playwright 1366×768 e 1920×1080 passou com duas janelas, 409 e escolha explícita de recarga sem nova escrita. HTTP concorrente confirmou um vencedor por revisão, PATCH tardio recusado, lote obsoleto integralmente recusado e exclusão entre fechamento e upload. Falhas simuladas em fechamento, reabertura, lote e confirmação preservaram todo o estado anterior. Migração repetida preservou bytes, marcou ausência de snapshot legado, FK vazio e integridade OK. Todas as operações do benchmark 50 deram 200; sem ganho de desempenho alegado. Pacote 04 liberado pelas dependências e política de DSR definida.
+
+## Definição de DSR recebida
+
+Usuário definiu domingo e feriado como padrão, com dia de descanso configurável na escala. Política confirmada: os seis dias anteriores ao descanso são a referência; uma ou várias faltas injustificadas descontam no máximo um descanso semanal; atestados, abonos, atrasos e faltas justificadas não causam perda; feriados do mesmo período também são descontados. Unidade: dias de descanso/feriado, sem conversão salarial inventada. Pacote 04 implementará configuração explícita versionada e fixtures de fronteira mensal; escala legada não receberá desconto silencioso.

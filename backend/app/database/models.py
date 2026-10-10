@@ -156,6 +156,28 @@ class Competencia(Base, TimestampMixin):
     marcacoes = relationship("MarcacaoPonto", back_populates="competencia", cascade="all, delete-orphan")
 
 
+class FechamentoVersao(Base):
+    __tablename__ = "fechamentos_versoes"
+    __table_args__ = (UniqueConstraint("competencia_id", "numero", name="uq_fechamento_versao"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    competencia_id: Mapped[int] = mapped_column(ForeignKey("competencias.id"), nullable=False, index=True)
+    numero: Mapped[int] = mapped_column(Integer, nullable=False)
+    snapshot: Mapped[str | None] = mapped_column(Text, nullable=True)
+    regras_json: Mapped[str] = mapped_column(Text, nullable=False)
+    origem: Mapped[str] = mapped_column(String(60), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class ReaberturaFechamento(Base):
+    __tablename__ = "reaberturas_fechamento"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    fechamento_id: Mapped[int] = mapped_column(ForeignKey("fechamentos_versoes.id"), nullable=False, unique=True)
+    origem: Mapped[str] = mapped_column(String(60), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 class ArquivoRecebido(Base):
     __tablename__ = "arquivos_recebidos"
 
@@ -204,6 +226,8 @@ class MarcacaoPonto(Base, TimestampMixin):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     competencia_id: Mapped[int] = mapped_column(ForeignKey("competencias.id"), nullable=False, index=True)
     funcionario_id: Mapped[int] = mapped_column(ForeignKey("funcionarios.id"), nullable=False, index=True)
+    revisao: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    __mapper_args__ = {"version_id_col": revisao}
     data: Mapped[date] = mapped_column(Date, nullable=False, index=True)
     entrada: Mapped[time | None] = mapped_column(Time, nullable=True)
     saida_almoco: Mapped[time | None] = mapped_column(Time, nullable=True)

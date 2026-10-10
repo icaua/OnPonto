@@ -252,6 +252,11 @@
     return /compet[eê]ncia[^.]*fechad|competencia_fechada/i.test(typeof detail === "string" ? detail : JSON.stringify(detail || {}));
   }
 
+  function isRevisionConflictError(error) {
+    var detail = error && error.payload && error.payload.detail;
+    return Boolean(error && error.status === 409 && detail && /^revisao_/.test(detail.codigo || ""));
+  }
+
   function apiRequest(path, options) {
     var settings = options || {};
     var controller = typeof AbortController === "function" ? new AbortController() : null;
@@ -1045,8 +1050,10 @@
     days().forEach(function (day) {
       if (!idsEqual(day.competenceId || day.competencia_id, competenceId)) return;
       if (typeof pendingDaySaves !== "undefined" && pendingDaySaves[String(day.id)]) return;
+      if (typeof activeDaySaves !== "undefined" && activeDaySaves[String(day.id)]) return;
       var detail = byId[String(day.id)];
       if (!detail) return;
+      if (detail.revisao !== undefined) day.revisao = detail.revisao;
       day.occurrences = detail.ocorrencias || [];
       day.occurrenceLabel = detail.ocorrencias_rotulo || "";
       day.calendarNote = detail.fora_vinculo ? "Fora do vínculo" : (detail.feriados || []).join(", ");
@@ -2618,6 +2625,7 @@
   }
 
   function updateDayFromMarking(day, marking) {
+    if (marking.revisao !== undefined) day.revisao = marking.revisao;
     day.batidas_desconsideradas = marking.batidas_desconsideradas || [];
     if (Array.isArray(marking.historico)) {
       day.history = marking.historico;
@@ -2658,7 +2666,7 @@
         validate: function (text) { return String(text || "").trim().length < 10 ? "Informe uma justificativa com ao menos dez caracteres." : ""; } }],
       onConfirm: function (values) {
         return originalPunchDecision(dayId, function () {
-          return apiRequest("/marcacoes/" + encodeURIComponent(day.id) + "/batidas-desconsideradas", { method: "POST", body: { indice: index, justificativa: String(values.justificativa).trim() } });
+          return apiRequest("/marcacoes/" + encodeURIComponent(day.id) + "/batidas-desconsideradas", { method: "POST", body: { indice: index, justificativa: String(values.justificativa).trim(), revisao: day.revisao } });
         }, "Batida desconsiderada.");
       },
     });
@@ -2669,7 +2677,7 @@
     var day = findDay(dayId);
     if (!day || dayIsConfirmed(day)) return showToast("Reabra a conferência antes de restaurar uma batida.", "warning");
     originalPunchDecision(dayId, function () {
-      return apiRequest("/marcacoes/" + encodeURIComponent(day.id) + "/batidas-desconsideradas/" + encodeURIComponent(index), { method: "DELETE" });
+      return apiRequest("/marcacoes/" + encodeURIComponent(day.id) + "/batidas-desconsideradas/" + encodeURIComponent(index) + "?revisao=" + encodeURIComponent(day.revisao), { method: "DELETE" });
     }, "Batida restaurada.").catch(function (error) {
       showToast("Não foi possível restaurar a batida.", "error", error && error.message);
     });
@@ -2922,6 +2930,7 @@
   function daySavePayload(day) {
     var slots = currentSlots(day);
     return {
+      revisao: day.revisao,
       entrada: slots.entry || null,
       saida_almoco: slots.breakStart || null,
       retorno_almoco: slots.breakEnd || null,
@@ -2930,6 +2939,44 @@
       conferido: dayIsConfirmed(day),
       observacoes: day.observation || day.observacao || day.current && (day.current.observation || day.current.observacao) || null,
     };
+  }
+
+  function resolveDaySaveConflict(entry) {
+    return apiRequest("/marcacoes/" + encodeURIComponent(entry.id)).then(function (server) {
+      var local = pendingDaySaves[String(entry.id)] || entry;
+      var fields = ["entrada", "saida_almoco", "retorno_almoco", "saida", "status_dia", "conferido", "observacoes"];
+      var labels = {entrada: "Entrada", saida_almoco: "Saída para almoço", retorno_almoco: "Retorno do almoço", saida: "Saída", status_dia: "Situação", conferido: "Conferido", observacoes: "Observação"};
+      var rows = fields.map(function (field) {
+        return "<tr><th>" + Utils.escapeHtml(labels[field]) + "</th><td>" + Utils.escapeHtml(String(server[field] == null ? "—" : server[field])) +
+          "</td><td>" + Utils.escapeHtml(String(local.payload[field] == null ? "—" : local.payload[field])) + "</td></tr>";
+      }).join("");
+      showDialog({title: "Este dia foi alterado em outra janela", confirmLabel: "Aplicar escolha", cancelLabel: "Continuar revisando",
+        description: "Sua edição está preservada e o envio foi suspenso. Compare os valores antes de continuar.",
+        html: "<table><thead><tr><th>Campo</th><th>Salvo no servidor</th><th>Sua edição</th></tr></thead><tbody>" + rows + "</tbody></table>",
+        field: {type: "select", label: "Como resolver", value: "server", options: [
+          {value: "server", label: "Usar os valores salvos no servidor"},
+          {value: "local", label: "Salvar minha edição após esta revisão"}]},
+        onConfirm: function (choice) {
+          var key = String(entry.id);
+          var current = pendingDaySaves[key] || local;
+          if (choice === "local") {
+            current.payload.revisao = server.revisao;
+            delete current.conflict;
+            pendingDaySaves[key] = current;
+            var day = findDay(entry.id);
+            if (day) day.revisao = server.revisao;
+            return flushPendingDaySaves().then(function (results) {
+              if (results.some(function (r) { return !r.ok; })) throw new Error("O salvamento ainda exige revisão.");
+            });
+          }
+          delete pendingDaySaves[key];
+          state.undoStack = (state.undoStack || []).filter(function (item) { return !idsEqual(item.dayId, entry.id); });
+          return refreshAffectedCompetence(entry.competenceId, {reloadAttendance: true}).then(function () {
+            state.autosaveStatus = Object.keys(pendingDaySaves).length ? "unsaved" : "saved";
+            render();
+          });
+        }});
+    }).catch(function (error) { showToast("Não foi possível carregar o dia para revisão.", "error", error.message); });
   }
 
   function flushPendingDaySaves() {
@@ -2955,6 +3002,7 @@
     autosaveFlushPromise = keys.reduce(function (chain, key) {
       return chain.then(function (results) {
         var entry = batch[key];
+        if (entry.conflict) return results.concat({ok: false, entry: entry, error: entry.conflict});
         return apiRequest("/marcacoes/" + encodeURIComponent(entry.id), {
           method: "PATCH",
           body: entry.payload,
@@ -2962,6 +3010,11 @@
           keepalive: true,
         }).then(function (response) {
           var day = findDay(entry.id);
+          if (response.revisao !== undefined) {
+            if (day && (day.revisao == null || day.revisao <= response.revisao)) day.revisao = response.revisao;
+            var newer = pendingDaySaves[key];
+            if (newer && newer.payload.revisao === entry.payload.revisao) newer.payload.revisao = response.revisao;
+          }
           if (day && Array.isArray(response.historico)) {
             day.history = response.historico;
             day.historico = response.historico;
@@ -2978,10 +3031,13 @@
       retryableFailures.forEach(function (result) {
         var key = String(result.entry.id);
         if (!pendingDaySaves[key]) pendingDaySaves[key] = result.entry;
+        if (isRevisionConflictError(result.error)) pendingDaySaves[key].conflict = result.error;
       });
       if (failed.length) {
         state.autosaveStatus = "error";
         updateAutosaveIndicator();
+        var conflict = failed.find(function (result) { return isRevisionConflictError(result.error); });
+        if (conflict) resolveDaySaveConflict(pendingDaySaves[String(conflict.entry.id)] || conflict.entry);
         if (closedFailures.length) {
           showToast("A competência foi fechada antes do salvamento.", "error", "As alterações recusadas não serão reenviadas automaticamente. Reabra a competência antes de editar.");
         } else {
@@ -3037,11 +3093,13 @@
     state.autosaveRevision += 1;
     var revision = state.autosaveRevision;
     if (state.apiMode === "online" && day && day.id !== null && day.id !== undefined) {
+      var existingConflict = pendingDaySaves[String(day.id)] && pendingDaySaves[String(day.id)].conflict;
       pendingDaySaves[String(day.id)] = {
         id: day.id,
         competenceId: day.competenceId || day.competencia_id || state.selectedCompetenceId,
         payload: daySavePayload(day),
         syncCompetence: true,
+        conflict: existingConflict,
       };
     }
     if (!state.settings.autosave && !force) {
@@ -3334,7 +3392,9 @@
   function confirmDaysOnServer(targets) {
     var competenceId = state.selectedCompetenceId;
     return ensureAutosaveFlushedForLifecycle().then(function () {
-      return apiRequest("/marcacoes/conferir-lote", {method: "POST", body: {competencia_id: competenceId, marcacoes_ids: targets.map(function(d){return d.id;})}});
+      var revisoes = {};
+      targets.forEach(function (d) { revisoes[d.id] = (findDay(d.id) || d).revisao; });
+      return apiRequest("/marcacoes/conferir-lote", {method: "POST", body: {competencia_id: competenceId, marcacoes_ids: targets.map(function(d){return d.id;}), revisoes: revisoes}});
     }).then(function (result) {
       return refreshAffectedCompetence(competenceId, {reloadAttendance: true}).then(function () {
         state.selectedDayIds = [];

@@ -98,6 +98,8 @@ class ImportacaoTxtFlowTest(unittest.TestCase):
             return exc.code, json.loads(conteudo) if conteudo else None
 
     def json_request(self, metodo: str, caminho: str, payload: dict) -> tuple[int, object]:
+        from http_revisoes import com_revisao
+        payload = com_revisao(self.base_url, metodo, caminho, payload)
         return self.requisicao(
             metodo,
             caminho,

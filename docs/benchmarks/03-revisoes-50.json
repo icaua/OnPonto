@@ -1,0 +1,135 @@
+{
+  "python": "3.12.14",
+  "sqlite": "3.53.1",
+  "sqlalchemy": "2.1.1",
+  "fastapi": "0.141.1",
+  "plataforma": "Windows-10-10.0.19045-SP0",
+  "cenario": "synthetic_scenarios.criar_cenario v1",
+  "metodo": "HTTP real em loopback; SQL via evento engine; pico incremental tracemalloc do handler; latência inclui transferência. GET repetido 3 vezes; mutações 1 vez. Tracing ativo em todas as fases.",
+  "cenarios": [
+    {
+      "funcionarios": 50,
+      "dias": [
+        30,
+        31
+      ],
+      "marcacoes": 3050,
+      "db_bytes": 6914048,
+      "medicoes": [
+        {
+          "operacao": "GET /apuracao",
+          "metodo": "GET",
+          "path": "/apuracao?competencia_id=1",
+          "status": 200,
+          "sql_queries": 341,
+          "latencia_ms": 1326.377,
+          "pico_python_incremental_bytes": 10240388,
+          "response_bytes": 2552211,
+          "repeticao": 1
+        },
+        {
+          "operacao": "GET /apuracao",
+          "metodo": "GET",
+          "path": "/apuracao?competencia_id=1",
+          "status": 200,
+          "sql_queries": 341,
+          "latencia_ms": 1136.814,
+          "pico_python_incremental_bytes": 8297529,
+          "response_bytes": 2552211,
+          "repeticao": 2
+        },
+        {
+          "operacao": "GET /apuracao",
+          "metodo": "GET",
+          "path": "/apuracao?competencia_id=1",
+          "status": 200,
+          "sql_queries": 341,
+          "latencia_ms": 1180.033,
+          "pico_python_incremental_bytes": 7511993,
+          "response_bytes": 2552211,
+          "repeticao": 3
+        },
+        {
+          "operacao": "PATCH marcação",
+          "metodo": "PATCH",
+          "path": "/marcacoes/31",
+          "status": 200,
+          "sql_queries": 360,
+          "latencia_ms": 1977.618,
+          "pico_python_incremental_bytes": 8858406,
+          "response_bytes": 762
+        },
+        {
+          "operacao": "confirmar lote",
+          "metodo": "POST",
+          "path": "/marcacoes/conferir-lote",
+          "status": 200,
+          "sql_queries": 503,
+          "latencia_ms": 2101.789,
+          "pico_python_incremental_bytes": 13519741,
+          "response_bytes": 305
+        },
+        {
+          "operacao": "abrir conferência",
+          "metodo": "GET",
+          "path": "/marcacoes?competencia_id=1",
+          "status": 200,
+          "sql_queries": 1,
+          "latencia_ms": 103.481,
+          "pico_python_incremental_bytes": 8331245,
+          "response_bytes": 720664
+        },
+        {
+          "operacao": "fechar",
+          "metodo": "POST",
+          "path": "/competencias/2/fechar",
+          "status": 200,
+          "sql_queries": 730,
+          "latencia_ms": 2537.78,
+          "pico_python_incremental_bytes": 16598795,
+          "response_bytes": 145
+        },
+        {
+          "operacao": "exportar Excel",
+          "metodo": "GET",
+          "path": "/relatorios/excel?competencia_id=2",
+          "status": 200,
+          "sql_queries": 1,
+          "latencia_ms": 2447.382,
+          "pico_python_incremental_bytes": 14106203,
+          "response_bytes": 84026
+        },
+        {
+          "operacao": "extrato",
+          "metodo": "GET",
+          "path": "/banco-horas/extrato?funcionario_id=2",
+          "status": 200,
+          "sql_queries": 8,
+          "latencia_ms": 65.015,
+          "pico_python_incremental_bytes": 241725,
+          "response_bytes": 1706
+        },
+        {
+          "operacao": "saldo",
+          "metodo": "GET",
+          "path": "/banco-horas/saldo?funcionario_id=2",
+          "status": 200,
+          "sql_queries": 3,
+          "latencia_ms": 6.383,
+          "pico_python_incremental_bytes": 59950,
+          "response_bytes": 58
+        },
+        {
+          "operacao": "reabrir",
+          "metodo": "POST",
+          "path": "/competencias/2/reabrir",
+          "status": 200,
+          "sql_queries": 482,
+          "latencia_ms": 1375.727,
+          "pico_python_incremental_bytes": 8672356,
+          "response_bytes": 145
+        }
+      ]
+    }
+  ]
+}

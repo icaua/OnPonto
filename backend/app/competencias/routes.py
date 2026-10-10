@@ -22,6 +22,8 @@ from app.competencias.service import (
 )
 from app.database.models import ArquivoRecebido, Competencia, Empresa, MarcacaoPonto
 from app.database.session import get_db
+from app.database.transacoes import atomica
+from app.competencias.versoes import guardar_fechamento, registrar_reabertura
 from app.apuracao.service import apurar_competencia, gerar_dias_faltantes
 from app.ocorrencias.service import iniciar_escrita
 from app.banco_horas.service import gerar_lancamentos, reconciliar, estornar_competencia, validar_cobertura_folgas, validar_saldos_permitidos, complementar_apuracao
@@ -67,6 +69,7 @@ def obter_competencia(competencia_id: int, db: Session = Depends(get_db)) -> Com
 
 
 @router.patch("/{competencia_id}", response_model=CompetenciaRead)
+@atomica
 def atualizar_competencia(
     competencia_id: int,
     payload: CompetenciaUpdate,
@@ -118,6 +121,7 @@ def atualizar_competencia(
 
 
 @router.post("/{competencia_id}/fechar", response_model=CompetenciaAcaoRead)
+@atomica
 def fechar_competencia(
     competencia_id: int,
     payload: FechamentoCompetenciaRequest,
@@ -155,6 +159,7 @@ def fechar_competencia(
         complementar_apuracao(db, competencia, resultado)
         resultado["snapshot_versao"] = 2
         competencia.apuracao_fechada = json.dumps(resultado, ensure_ascii=False)
+        guardar_fechamento(db, competencia)
         db.commit()
     except Exception:
         db.rollback()
@@ -185,6 +190,7 @@ def fechar_competencia(
 
 
 @router.post("/{competencia_id}/reabrir", response_model=CompetenciaAcaoRead)
+@atomica
 def reabrir_competencia(
     competencia_id: int,
     db: Session = Depends(get_db),
@@ -198,6 +204,7 @@ def reabrir_competencia(
         raise HTTPException(status_code=409, detail="A competência não está fechada.")
 
     try:
+        registrar_reabertura(db, competencia)
         estornar_competencia(db, competencia)
         competencia.status = "aberta"
         competencia.apuracao_fechada = None
@@ -224,6 +231,7 @@ def reabrir_competencia(
 
 
 @router.post("/{competencia_id}/inicializar-calendario")
+@atomica
 def inicializar_calendario(competencia_id: int, db: Session = Depends(get_db)):
     iniciar_escrita(db)
     competencia = db.get(Competencia, competencia_id)
@@ -234,3 +242,16 @@ def inicializar_calendario(competencia_id: int, db: Session = Depends(get_db)):
     sincronizar_status_competencia(db, competencia)
     db.commit()
     return {"criados": criados}
+
+
+@router.get("/{competencia_id}/fechamentos")
+def listar_fechamentos(competencia_id: int, db: Session = Depends(get_db)):
+    from app.database.models import FechamentoVersao, ReaberturaFechamento
+    competencia = obter_competencia(competencia_id, db)
+    reabertos = {r.fechamento_id for r in db.query(ReaberturaFechamento).join(FechamentoVersao)
+                .filter(FechamentoVersao.competencia_id == competencia_id)}
+    return [{"id": v.id, "numero": v.numero, "snapshot": json.loads(v.snapshot) if v.snapshot is not None else None,
+             "regras": json.loads(v.regras_json), "origem": v.origem, "created_at": v.created_at,
+             "reaberta": v.id in reabertos,
+             "ativa": competencia.status == "fechada" and v.numero == competencia.versao_fechamento}
+            for v in db.query(FechamentoVersao).filter_by(competencia_id=competencia_id).order_by(FechamentoVersao.numero)]
