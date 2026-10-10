@@ -7,7 +7,7 @@ import logging
 from sqlalchemy import Connection, Engine, inspect
 
 
-SCHEMA_VERSION = 17
+SCHEMA_VERSION = 18
 logger = logging.getLogger(__name__)
 
 COLUNAS_EMPRESA_LEGADAS = (
@@ -628,6 +628,8 @@ def _aplicar_sqlite(conexao: Connection) -> dict[str, int]:
         for acao in ("UPDATE", "DELETE"):
             conexao.exec_driver_sql(f"""CREATE TRIGGER IF NOT EXISTS dependencia_fechamento_{acao.lower()}
                 BEFORE {acao} ON dependencias_fechamento BEGIN SELECT RAISE(ABORT,'Dependencia historica imutavel'); END""")
+    from app.database.evidencias_migracao import migrar
+    migrar(conexao)
     if versao_atual < SCHEMA_VERSION:
         conexao.exec_driver_sql(f"PRAGMA user_version = {SCHEMA_VERSION}")
     return {"escalas_intervalo_convertidas": convertidas}

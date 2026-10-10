@@ -70,6 +70,12 @@ def auditar(ocorrencia, acao, antes):
     eventos.append({"id": str(uuid4()), "acao": acao, "at": datetime.now(timezone.utc).isoformat(),
                     "actor": "Operador local", "antes": antes, "depois": depois})
     ocorrencia.historico_json = json.dumps(eventos, ensure_ascii=False)
+    from sqlalchemy.orm import object_session
+    from app.database.models import EventoAuditoria
+    db = object_session(ocorrencia)
+    if db is not None:
+        db.add(EventoAuditoria(ocorrencia=ocorrencia, evento_uid=eventos[-1]["id"],
+            payload_json=json.dumps(eventos[-1], ensure_ascii=False), origem="operador_local"))
 
 
 def sincronizar_abertas(db, *periodos):

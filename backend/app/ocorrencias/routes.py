@@ -2,13 +2,14 @@ from calendar import monthrange
 from datetime import date, datetime, timezone
 from pathlib import Path
 from uuid import uuid4
+from hashlib import sha256
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
-from app.database.models import Competencia, OcorrenciaFuncionario
+from app.database.models import Competencia, OcorrenciaFuncionario, DocumentoEvidencia
 from app.database.session import UPLOADS_DIR, get_db
 from app.ocorrencias.schemas import OcorrenciaCreate, OcorrenciaRead, OcorrenciaUpdate
 from app.ocorrencias.service import auditar, consultar, estado, iniciar_escrita, sincronizar_abertas, validar_fechadas, validar_sobreposicao
@@ -119,17 +120,21 @@ def anexar(ocorrencia_id: int, arquivo: UploadFile = File(...), db: Session = De
         pasta.mkdir(parents=True, exist_ok=True)
         destino = pasta / (uuid4().hex + extensao)
         total = 0
-        with destino.open("wb") as buffer:
+        hash = sha256()
+        with destino.open("xb") as buffer:
             while trecho := arquivo.file.read(1024 * 1024):
                 total += len(trecho)
                 if total > 25 * 1024 * 1024:
                     raise HTTPException(413, "O anexo excede o limite de 25 MB.")
                 buffer.write(trecho)
+                hash.update(trecho)
         if not total:
             raise HTTPException(400, "O anexo está vazio.")
         antes = estado(registro)
         registro.anexo_caminho = destino.relative_to(UPLOADS_DIR).as_posix()
         registro.anexo_nome = nome[:255]
+        db.add(DocumentoEvidencia(ocorrencia_id=registro.id, caminho_relativo=registro.anexo_caminho,
+            nome_original=registro.anexo_nome,sha256=hash.hexdigest(),tamanho_bytes=total,origem="anexo_ocorrencia"))
         auditar(registro, "anexo", antes)
         db.commit()
     except Exception:

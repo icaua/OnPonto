@@ -43,3 +43,9 @@ def registrar_evento(marcacao, titulo: str, descricao: str, alteracoes: dict) ->
                       "actor": "Operador local", "description": descricao,
                       "title": titulo, "type": "manual", "alteracoes": alteracoes})
     marcacao.historico_json = json.dumps(historico, ensure_ascii=False)
+    from sqlalchemy.orm import object_session
+    from app.database.models import EventoAuditoria
+    db = object_session(marcacao)
+    if db is not None:
+        db.add(EventoAuditoria(marcacao=marcacao, evento_uid=historico[-1]["id"],
+            payload_json=json.dumps(historico[-1], ensure_ascii=False), origem="operador_local"))

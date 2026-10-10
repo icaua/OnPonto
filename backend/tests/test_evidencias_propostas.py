@@ -1,0 +1,149 @@
+import json
+import sys
+import unittest
+from datetime import date
+from io import BytesIO
+from pathlib import Path
+from unittest.mock import patch
+from fastapi import HTTPException, UploadFile
+from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+
+sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
+import test_confiabilidade_operacional as fixture
+from test_support import TemporaryDirectory
+from app.database.models import (ArquivoRecebido, BatidaOriginal, PreviaImportacao,
+    ConfirmacaoImportacaoEvento, EventoAuditoria, MarcacaoPonto, DocumentoEvidencia)
+from app.database.migrations import aplicar_migracoes_compativeis
+from app.importadores import routes, propostas
+from app.importadores.schemas import ConfirmacaoImportacao
+from app.evidencias.inventario import verificar
+from app.evidencias.ocr_contrato import PropostaDocumento
+
+class EvidenciasPropostasTest(unittest.TestCase):
+    def setUp(self):
+        fixture.ConfiabilidadeOperacionalTest.setUp(self)
+        self.f.codigo='001'; self.db.commit()
+        self.temp=TemporaryDirectory(prefix='onponto-evidencias-ficticias-'); self.addCleanup(self.temp.cleanup)
+        self.uploads=Path(self.temp.name)/'uploads'; self.uploads.mkdir()
+        self.mock=patch.object(routes,'UPLOADS_DIR',self.uploads); self.mock.start(); self.addCleanup(self.mock.stop)
+        self.conteudo=('ID\tNome\tTempo\n'+''.join(f'001\tPessoa Fictícia\t01/09/2026 {h}:00\n'
+            for h in ('08:00','12:00','13:00','13:00','17:00'))).encode()
+
+    def upload(self):
+        return routes.analisar_importacao(self.c.id,self.f.empresa_id,9,2026,
+            UploadFile(filename='ficticio.txt',file=BytesIO(self.conteudo)),self.db)
+
+    def payload(self, previa):
+        return ConfirmacaoImportacao(empresa_id=self.f.empresa_id,competencia_id=self.c.id,arquivo_id=previa['arquivo']['id'],
+            registros_ids=[r['id'] for r in previa['preview']],revisao_previa=previa['revisao_previa'])
+
+    def test_confirmacao_sem_parser_idempotente_e_duplicidade_preservada(self):
+        previa=self.upload(); payload=self.payload(previa)
+        with patch.object(routes.pipeline,'gerar_previa',side_effect=AssertionError('não reinterpretar')):
+            primeira=routes.confirmar_importacao(payload,self.db)
+            segunda=routes.confirmar_importacao(payload,self.db)
+        self.assertTrue(segunda['idempotente']); self.assertEqual(primeira['marcacoes_ids'],segunda['marcacoes_ids'])
+        self.assertEqual(self.db.query(ConfirmacaoImportacaoEvento).count(),1)
+        self.assertEqual(self.db.query(MarcacaoPonto).filter_by(arquivo_origem_id=payload.arquivo_id).count(),1)
+        brutas=self.db.query(BatidaOriginal).order_by(BatidaOriginal.indice).all()
+        self.assertEqual(len(brutas),5); self.assertEqual(brutas[2].valor_json,brutas[3].valor_json)
+        self.assertTrue(all(b.marcacao_id==primeira['marcacoes_ids'][0] for b in brutas))
+        self.assertEqual(len(list(self.uploads.rglob('*.txt'))),1)
+
+    def test_dois_uploads_reutilizam_original_sem_sobrescrever_decisao(self):
+        previa=self.upload(); resposta=routes.confirmar_importacao(self.payload(previa),self.db)
+        m=self.db.get(MarcacaoPonto,resposta['marcacoes_ids'][0]); m.observacoes='Decisão humana preservada'; self.db.commit()
+        segunda=self.upload()
+        self.assertEqual(previa['arquivo']['id'],segunda['arquivo']['id'])
+        r=routes.confirmar_importacao(self.payload(segunda),self.db)
+        self.assertEqual(r['total_importados'],0); self.assertEqual(self.db.query(ArquivoRecebido).count(),1)
+        self.assertEqual(self.db.query(BatidaOriginal).count(),5); self.assertEqual(m.observacoes,'Decisão humana preservada')
+        self.assertEqual(len(list(self.uploads.rglob('*.txt'))),1)
+
+    def test_revision_http_necessaria_e_antiga_recusada(self):
+        previa=self.upload(); payload=self.payload(previa)
+        payload.revisao_previa=None
+        with self.assertRaises(HTTPException) as erro: routes.confirmar_importacao(payload,self.db,request=object())
+        self.assertEqual(erro.exception.detail['codigo'],'revisao_previa_necessaria')
+        payload.revisao_previa=previa['revisao_previa']; self.upload()
+        with self.assertRaises(HTTPException) as erro: routes.confirmar_importacao(payload,self.db,request=object())
+        self.assertEqual(erro.exception.detail['codigo'],'previa_obsoleta')
+
+    def test_cadastro_regra_versao_adapter_e_hash_invalidam_sem_gravar(self):
+        previa=self.upload(); payload=self.payload(previa)
+        for campo,valor in [('nome','Outro nome fictício'),('codigo','002')]:
+            anterior=getattr(self.f,campo); setattr(self.f,campo,valor); self.db.commit()
+            with self.assertRaises(HTTPException): routes.confirmar_importacao(payload,self.db)
+            setattr(self.f,campo,anterior); self.db.commit()
+        adapter=previa['tipo_detectado']
+        with patch.dict(propostas.VERSOES_ADAPTADORES,{adapter:'2'}):
+            with self.assertRaises(HTTPException): routes.confirmar_importacao(payload,self.db)
+        arquivo=self.db.get(ArquivoRecebido,payload.arquivo_id); caminho=Path(arquivo.caminho_arquivo)
+        caminho.write_bytes(self.conteudo+b'alterado')
+        with self.assertRaises(HTTPException): routes.confirmar_importacao(payload,self.db)
+        self.assertEqual(self.db.query(ConfirmacaoImportacaoEvento).count(),0)
+        self.assertEqual(self.db.query(MarcacaoPonto).count(),0)
+
+    def test_falha_atomicamente_preserva_proposta_brutas_e_original(self):
+        previa=self.upload(); payload=self.payload(previa); arquivo=self.db.get(ArquivoRecebido,payload.arquivo_id)
+        controle=arquivo.controle_importacao_json
+        with patch.object(self.db,'commit',side_effect=SQLAlchemyError('falha fictícia')):
+            with self.assertRaises(HTTPException): routes.confirmar_importacao(payload,self.db)
+        self.assertEqual(arquivo.controle_importacao_json,controle)
+        self.assertEqual(self.db.query(MarcacaoPonto).count(),0)
+        self.assertEqual(self.db.query(ConfirmacaoImportacaoEvento).count(),0)
+        self.assertTrue(all(b.marcacao_id is None for b in self.db.query(BatidaOriginal)))
+        self.assertEqual(Path(arquivo.caminho_arquivo).read_bytes(),self.conteudo)
+
+    def test_migracao_repeat_preserva_json_indices_e_triggers(self):
+        m=fixture.ConfiabilidadeOperacionalTest.dia(self,batidas_originais='["08:00", "08:00", "17:00"]',
+            historico_json='[{"id":"legado","description":"Fictício"}]')
+        original=(m.batidas_originais,m.historico_json)
+        self.db.close()
+        aplicar_migracoes_compativeis(self.engine); aplicar_migracoes_compativeis(self.engine)
+        self.assertEqual(self.db.query(BatidaOriginal).count(),3)
+        self.assertEqual(self.db.query(EventoAuditoria).count(),1)
+        self.assertEqual((self.db.get(MarcacaoPonto,m.id).batidas_originais,self.db.get(MarcacaoPonto,m.id).historico_json),original)
+        for tabela,campo,valor in [('batidas_originais','valor_json','"09:00"'),('eventos_auditoria','payload_json','{}')]:
+            with self.assertRaises(IntegrityError): self.db.execute(text(f'UPDATE {tabela} SET {campo}=:valor'),{'valor':valor})
+            self.db.rollback()
+            with self.assertRaises(IntegrityError): self.db.execute(text(f'DELETE FROM {tabela}'))
+            self.db.rollback()
+        self.assertEqual(self.db.execute(text('PRAGMA integrity_check')).scalar(),'ok')
+        self.assertEqual(self.db.execute(text('PRAGMA foreign_key_check')).all(),[])
+
+    def test_inventario_orfao_adulterado_ausente_somente_leitura(self):
+        previa=self.upload(); (self.uploads/'orfao.txt').write_text('fictício')
+        r=verificar(self.db,self.uploads,routes.BACKEND_DIR)
+        self.assertEqual(r['orfaos'],['orfao.txt']); self.assertFalse(r['ausentes'])
+        arquivo=self.db.get(ArquivoRecebido,previa['arquivo']['id']); caminho=Path(arquivo.caminho_arquivo)
+        caminho.write_text('adulteração fictícia')
+        self.assertTrue(verificar(self.db,self.uploads,routes.BACKEND_DIR)['hash_divergente'])
+        caminho.unlink()
+        self.assertTrue(verificar(self.db,self.uploads,routes.BACKEND_DIR)['ausentes'])
+        self.assertTrue((self.uploads/'orfao.txt').exists())
+
+    def test_ocr_apenas_contrato_pagina_e_sugestao_pendente(self):
+        p=PropostaDocumento(documento_id=1,funcionario_id=1,competencia_id=1,pagina=2,
+            campos=[{'campo':'entrada','origem':'região ilegível','valor':None}])
+        self.assertEqual(p.campos[0].revisao_humana,'pendente'); self.assertIsNone(p.campos[0].valor)
+        self.assertFalse(any('ocr' in rota.path for rota in routes.router.routes))
+
+    def test_reanalise_associacao_nao_duplica_eventos_brutos(self):
+        self.f.codigo='002';self.f.nome='Sem associação';self.db.commit()
+        previa=self.upload();self.assertFalse(previa['preview'][0]['funcionario']['encontrado'])
+        self.f.codigo='001';self.f.nome='Pessoa Fictícia';self.db.commit()
+        segunda=routes.reanalisar(previa['arquivo']['id'],self.db)
+        self.assertNotEqual(previa['preview'][0]['id'],segunda['preview'][0]['id'])
+        routes.confirmar_importacao(self.payload(segunda),self.db)
+        self.assertEqual(self.db.query(BatidaOriginal).count(),5)
+
+    def test_limites_xlsx_antes_do_parser(self):
+        from zipfile import ZipFile, ZIP_DEFLATED
+        from app.importadores.seguranca_xlsx import validar
+        for nome,conteudo in [('xl/grande.xml',b'0'*(2*1024*1024)),('../escapar.xml',b'invalid')]:
+            caminho=self.uploads/'adversarial.xlsx'
+            with ZipFile(caminho,'w',ZIP_DEFLATED) as z:
+                z.writestr('[Content_Types].xml',b'x');z.writestr('xl/workbook.xml',b'x');z.writestr(nome,conteudo)
+            with self.assertRaises(HTTPException): validar(caminho)

@@ -325,7 +325,7 @@ def parse_xlsx_ponto_generico(
                         # como o dia estar fora da competência informada.
                         "fora_da_competencia": False,
                         "selecionado": encontrado,
-                        "origem": {"tipo": NOME_ADAPTER, "arquivo": nome_arquivo},
+                        "origem": {"tipo": NOME_ADAPTER, "arquivo": nome_arquivo,"aba":ws.title,"linha":linha_marcacoes,"coluna":col_idx},
                     }
                 )
 

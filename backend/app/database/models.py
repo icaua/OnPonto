@@ -219,6 +219,8 @@ class ArquivoRecebido(Base):
     competencia_id: Mapped[int] = mapped_column(ForeignKey("competencias.id"), nullable=False, index=True)
     nome_original: Mapped[str] = mapped_column(String(255), nullable=False)
     caminho_arquivo: Mapped[str] = mapped_column(String(500), nullable=False)
+    sha256: Mapped[str | None] = mapped_column(String(64),nullable=True,index=True)
+    tamanho_bytes: Mapped[int | None] = mapped_column(Integer,nullable=True)
     controle_importacao_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     tipo_arquivo: Mapped[str] = mapped_column(String(30), nullable=False)
     observacoes: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -231,6 +233,75 @@ class ArquivoRecebido(Base):
 
     competencia = relationship("Competencia", back_populates="arquivos")
     marcacoes = relationship("MarcacaoPonto", back_populates="arquivo_origem")
+
+
+class PreviaImportacao(Base):
+    __tablename__="previas_importacao"
+    __table_args__=(UniqueConstraint("arquivo_id","revisao",name="uq_previa_revisao"),)
+    id: Mapped[int]=mapped_column(Integer,primary_key=True)
+    arquivo_id: Mapped[int]=mapped_column(ForeignKey("arquivos_recebidos.id"),nullable=False,index=True)
+    revisao: Mapped[int]=mapped_column(Integer,nullable=False)
+    arquivo_sha256: Mapped[str]=mapped_column(String(64),nullable=False)
+    adaptador: Mapped[str]=mapped_column(String(80),nullable=False)
+    adaptador_versao: Mapped[str]=mapped_column(String(80),nullable=False)
+    contexto_sha256: Mapped[str]=mapped_column(String(64),nullable=False)
+    proposta_json: Mapped[str]=mapped_column(Text,nullable=False)
+    created_at: Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow)
+
+
+class ConfirmacaoImportacaoEvento(Base):
+    __tablename__="confirmacoes_importacao"
+    id: Mapped[int]=mapped_column(Integer,primary_key=True)
+    previa_id: Mapped[int]=mapped_column(ForeignKey("previas_importacao.id"),nullable=False,index=True)
+    chave: Mapped[str]=mapped_column(String(64),nullable=False,unique=True)
+    selecao_json: Mapped[str]=mapped_column(Text,nullable=False)
+    resposta_json: Mapped[str]=mapped_column(Text,nullable=False)
+    created_at: Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow)
+
+
+class DocumentoEvidencia(Base):
+    __tablename__="documentos_evidencia"
+    id: Mapped[int]=mapped_column(Integer,primary_key=True)
+    arquivo_id: Mapped[int | None]=mapped_column(ForeignKey("arquivos_recebidos.id"),nullable=True,index=True)
+    ocorrencia_id: Mapped[int | None]=mapped_column(ForeignKey("ocorrencias_funcionario.id"),nullable=True,index=True)
+    caminho_relativo: Mapped[str | None]=mapped_column(String(500),nullable=True)
+    referencia_legada: Mapped[str | None]=mapped_column(Text,nullable=True)
+    nome_original: Mapped[str]=mapped_column(String(255),nullable=False)
+    sha256: Mapped[str | None]=mapped_column(String(64),nullable=True)
+    tamanho_bytes: Mapped[int | None]=mapped_column(Integer,nullable=True)
+    origem: Mapped[str]=mapped_column(String(80),nullable=False)
+    created_at: Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow)
+
+
+class BatidaOriginal(Base):
+    __tablename__="batidas_originais"
+    __table_args__=(UniqueConstraint("fonte","indice",name="uq_batida_fonte_indice"),CheckConstraint("indice>=0"),)
+    id: Mapped[int]=mapped_column(Integer,primary_key=True)
+    arquivo_id: Mapped[int | None]=mapped_column(ForeignKey("arquivos_recebidos.id"),nullable=True,index=True)
+    marcacao_id: Mapped[int | None]=mapped_column(ForeignKey("marcacoes_ponto.id"),nullable=True,index=True)
+    fonte: Mapped[str]=mapped_column(String(255),nullable=False)
+    indice: Mapped[int]=mapped_column(Integer,nullable=False)
+    valor_json: Mapped[str]=mapped_column(Text,nullable=False)
+    origem_json: Mapped[str]=mapped_column(Text,nullable=False)
+    created_at: Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow)
+
+
+class EventoAuditoria(Base):
+    __tablename__="eventos_auditoria"
+    __table_args__=(UniqueConstraint("marcacao_id","evento_uid",name="uq_evento_marcacao"),
+        UniqueConstraint("ocorrencia_id","evento_uid",name="uq_evento_ocorrencia"),
+        UniqueConstraint("arquivo_id","evento_uid",name="uq_evento_arquivo"))
+    id: Mapped[int]=mapped_column(Integer,primary_key=True)
+    evento_uid: Mapped[str]=mapped_column(String(255),nullable=False)
+    marcacao_id: Mapped[int | None]=mapped_column(ForeignKey("marcacoes_ponto.id"),nullable=True,index=True)
+    ocorrencia_id: Mapped[int | None]=mapped_column(ForeignKey("ocorrencias_funcionario.id"),nullable=True,index=True)
+    arquivo_id: Mapped[int | None]=mapped_column(ForeignKey("arquivos_recebidos.id"),nullable=True,index=True)
+    payload_json: Mapped[str]=mapped_column(Text,nullable=False)
+    origem: Mapped[str]=mapped_column(String(80),nullable=False)
+    created_at: Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow)
+    marcacao=relationship("MarcacaoPonto")
+    ocorrencia=relationship("OcorrenciaFuncionario")
+    arquivo=relationship("ArquivoRecebido")
 
 
 class IdentificacaoIgnorada(Base, TimestampMixin):

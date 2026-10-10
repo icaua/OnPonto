@@ -10,6 +10,10 @@ from urllib.request import urlopen
 def com_revisao(base, metodo, caminho, payload):
     if payload is None or "revisao" in payload:
         return payload
+    if metodo == "POST" and caminho == "/importadores/confirmar" and "revisao_previa" not in payload:
+        with urlopen(base + "/importadores/" + str(payload["arquivo_id"]) + "/previa", timeout=10) as resposta:
+            atual=json.load(resposta)
+        return {**payload,"revisao_previa":atual["revisao_previa"]}
     match = re.fullmatch(r"/marcacoes/(\d+)", caminho)
     if metodo == "PATCH" and match:
         with urlopen(base + caminho, timeout=10) as resposta:

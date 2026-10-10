@@ -21,8 +21,8 @@ Não haverá merge automático. Somente dados fictícios/temporários são usado
 | 02 | validado | `12b823e` | backend 363/363; Node 95/95; Playwright nas duas resoluções; golden/compileall/diff OK | regra histórica substitui edição retroativa | `02-versoes-50.json` | nenhum |
 | 03 | validado | `ad3025c` | backend 375/375; Node 98/98; Playwright duas janelas; golden/compileall/diff OK | nenhuma trabalhista | `03-revisoes-50.json` | nenhum |
 | 04 | validado | `efb9b78` | backend 395/395; Node 101/101; Playwright duas resoluções/duas janelas; golden/compileall/diff OK | intervalo e DSR explícitos; legenda neutra de feriado | `04-intervalos-dsr-50.json` | nenhum |
-| 05 | validado | checkpoint deste commit | backend 402/402; Node 102/102; Playwright resumo/conferência; golden/compileall/diff OK | estado operacional inclui dias ausentes/análises | `05-final.json`, 3 portes completos | nenhum |
-| 06 | não iniciado | — | — | — | — | depende de 01–05 |
+| 05 | validado | `3bac476` | backend 402/402; Node 102/102; Playwright resumo/conferência; golden/compileall/diff OK | estado operacional inclui dias ausentes/análises | `05-final.json`, 3 portes completos | nenhum |
+| 06 | validado | checkpoint deste pacote | backend 412/412; Node 102/102; navegador/migração/compileall/diff OK | nenhuma trabalhista; reenvio idempotente | `06-importacao.json`, 3 portes | nenhum |
 | 07 | não iniciado | — | — | — | — | depende de 04–06 |
 | 08 | não iniciado | — | — | — | — | depende de 00–07 |
 | 09 | não iniciado | — | — | — | — | depende da integração estabilizada |
@@ -93,3 +93,13 @@ Validação final: 402 testes backend OK (48,153 s), Node 102 OK, compileall/dif
 Medição com código estabilizado (hash verificado entre portes): todas as operações HTTP 200 em 50/250/1.000 pessoas. GET 12 queries nos três portes (baseline 340/1.670/6.670); PATCH subsequente 30 queries; triagem aquecida 11; dias de uma pessoa 11. Em 1.000: GET mediano 19.621→14.443 ms; primeiro PATCH 31.744→16.259 ms; fechamento 41.169→22.615 ms; Excel 159.886→39.816 ms; reabertura 20.745→5.179 ms. Resumo sem dias reduz payload em 98,0%. Comparação e limites em `docs/benchmarks/05-comparacao.md`; execução intermediária preservada. Não são percentis de produção nem RSS.
 
 ADR 0006 registra contratos, invalidadores e rollback. Cache é descartável; cold start ainda avalia o mês, conferência integral permanece disponível até refatoração gradual do pacote 07. Dados reais, main e arquivos originais não foram manipulados. Pacote 06 liberado.
+
+## Pacote 06
+
+Schema aditivo 18 e ADR 0007: armazenamento/parser/proposta separados, revisão de prévia preservada, hash real, contexto e versão de adaptador. Confirmação não reinterpreta arquivo e exige revisão HTTP; cadastro/regras/conteúdo/adaptador alterados bloqueiam a proposta obsoleta. Reenvio retorna resultado preservado e upload igual reutiliza apenas original com hash verificado. Consultas de pessoas/marcações em lote. N eventos brutos guardam duplicidades e índices, com linha/ordem física nos TXT que as fornecem, aba/linha/coluna XLSX e informação desconhecida explicitamente ausente no legado. Auditoria e documentos append-only; anexos sucessivos preservados. Inventário somente leitura; contrato de OCR documentado sem endpoint/dependência funcional.
+
+Validação: 412 backend OK (56,856 s), 102 Node OK, Playwright 1366×768 e 1920×1080 OK; compileall e diff OK. Após acrescentar proteção SQL ao JSON original preenchido, 10 testes de evidência e 4 de migração repetidos com sucesso. Proposta sem parser, reenvio, arquivo duplicado, associação corrigida, revisão/cadastro/hash/adaptador obsoletos, rollback, duplicidade e triggers, backfill idempotente com FK/integridade, inventário e ZIP adversarial cobertos. Golden não regenerado. Três expectativas de reenvio foram alteradas deliberadamente: retorno do resultado preservado em vez de novos conflitos, sem nova escrita nem perda da edição humana.
+
+Medição local sintética de importação com 50/250/1.000 pessoas e quatro batidas: análise 62,6/113,9/379,7 ms; confirmação 127,1/338,3/1.355,9 ms, 30 SELECTs nos três portes; reenvio 4,8/8,6/22,1 ms e 12 comandos SQL. SQL total inclui INSERT/UPDATE das evidências; tempo sem tracing não é diretamente comparável ao benchmark HTTP anterior. Originais, eventos e contagens verificados ao final, apenas DB/uploads fictícios. Resultados em `docs/benchmarks/06-importacao.json`.
+
+Rollback preserva tabelas/evidências novas; restauração em destino novo, sem downgrade destrutivo. Endpoints GET `/importadores/{id}/previa` e confirmação com `revisao_previa` documentados no ADR. Main permanece sem merge e DB real intacto. Pacote 07 liberado pelas dependências.

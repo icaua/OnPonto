@@ -2452,6 +2452,7 @@
           empresa_id: confirmationCompanyId,
           competencia_id: confirmationCompetenceId,
           arquivo_id: confirmationFileId,
+          revisao_previa: analysis.revisao_previa,
           registros_ids: selectedIds,
         };
         var confirmationPersisted = false;

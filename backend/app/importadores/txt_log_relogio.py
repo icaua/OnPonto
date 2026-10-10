@@ -317,9 +317,11 @@ def parse_txt_log_relogio(
                 "nome": nome,
                 "data": data_hora.date(),
                 "batidas": [],
+                "eventos_originais": [],
             },
         )
         grupo["batidas"].append(data_hora)
+        grupo["eventos_originais"].append({"valor":data_hora.strftime("%H:%M:%S"),"linha":deslocamento})
         total_linhas_validas += 1
 
     if not total_linhas_validas:
@@ -366,6 +368,7 @@ def parse_txt_log_relogio(
                 },
                 "data": data_iso,
                 "batidas_originais": batidas,
+                "eventos_originais": grupo["eventos_originais"],
                 "interpretacao": interpretacao,
                 "status": status,
                 "pendencias": pendencias,

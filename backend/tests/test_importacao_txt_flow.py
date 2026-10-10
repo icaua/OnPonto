@@ -263,15 +263,10 @@ class ImportacaoTxtFlowTest(unittest.TestCase):
             "POST", "/importadores/confirmar", confirmacao_payload
         )
         self.assertEqual(status_http, 201)
-        self.assertEqual(repetida["total_importados"], 0)
-        self.assertEqual(repetida["total_conflitos"], 2)
-        conflito_duplicado = next(
-            item for item in repetida["conflitos"] if item["tipo"] == "marcacao_duplicada"
-        )
-        self.assertEqual(
-            conflito_duplicado["mensagem"],
-            "Já existe uma marcação para este funcionário nesta data.",
-        )
+        # Pacote 06: o reenvio da mesma seleção retorna o resultado preservado.
+        self.assertTrue(repetida["idempotente"])
+        self.assertEqual(repetida["total_importados"], confirmacao["total_importados"])
+        self.assertEqual(repetida["marcacoes_ids"], confirmacao["marcacoes_ids"])
 
     def test_importacao_nao_sobrescreve_placeholder_ja_decidido_por_usuario(self) -> None:
         status_http, empresa = self.json_request(

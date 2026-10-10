@@ -122,11 +122,13 @@ class RevisaoIntegridadeTest(unittest.TestCase):
             self.assertEqual(m.batidas_originais,originais)
             self.assertTrue(m.historico)
             resultado=routes.confirmar_importacao(payload,f.db)
-            self.assertEqual(resultado['total_importados'],0)
-            self.assertEqual(resultado['total_conflitos'],1)
+            # Reenvio idempotente: o resultado original não cria uma segunda gravação.
+            self.assertTrue(resultado['idempotente'])
+            self.assertEqual(resultado['total_importados'],1)
+            self.assertEqual(resultado['total_conflitos'],0)
             self.assertEqual(arquivo.read_bytes(),conteudo)
             self.assertIn('1 importados',registro.observacoes)
-            self.assertIn('0 importados',registro.observacoes)
+            self.assertEqual(registro.observacoes.count('1 importados'),1)
 
     def test_patch_nao_move_dia_para_fora_da_competencia(self):
         f=fixtures.EspelhoPontoTest();f.setUp();self.addCleanup(f.doCleanups)
