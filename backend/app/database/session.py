@@ -12,6 +12,7 @@ UPLOADS_DIR = Path(os.getenv("ONPONTO_UPLOADS_DIR", BACKEND_DIR / "uploads"))
 
 engine = create_engine(
     DATABASE_URL,
+    hide_parameters=True,
     connect_args={"check_same_thread": False,"timeout":10},
 )
 

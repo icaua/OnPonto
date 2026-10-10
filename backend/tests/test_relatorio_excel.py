@@ -12,7 +12,8 @@ from datetime import date, datetime, time as horario, timedelta
 from io import BytesIO
 from pathlib import Path
 from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
+from urllib.request import Request
+from http_sessao import urlopen
 
 from openpyxl import load_workbook
 

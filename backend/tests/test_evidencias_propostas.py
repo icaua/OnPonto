@@ -38,6 +38,42 @@ class EvidenciasPropostasTest(unittest.TestCase):
         return ConfirmacaoImportacao(empresa_id=self.f.empresa_id,competencia_id=self.c.id,arquivo_id=previa['arquivo']['id'],
             registros_ids=[r['id'] for r in previa['preview']],revisao_previa=previa['revisao_previa'])
 
+    def test_upload_generico_valida_conteudo_hash_download_e_caminho(self):
+        from app.arquivos.routes import enviar_arquivo,baixar_arquivo
+        with patch('app.arquivos.routes.UPLOADS_DIR',self.uploads):
+            with self.assertRaises(HTTPException):enviar_arquivo(self.c.id,None,UploadFile(filename='falso.pdf',file=BytesIO(b'<html>falso</html>')),self.db)
+            self.assertEqual(list(self.uploads.rglob('*.pdf')),[])
+            a=enviar_arquivo(self.c.id,None,UploadFile(filename='../../FICTICIO.txt',file=BytesIO(self.conteudo)),self.db)
+            resposta=baixar_arquivo(a.id,self.db);caminho=Path(resposta.path)
+            self.assertTrue(caminho.is_relative_to(self.uploads));self.assertEqual(caminho.read_bytes(),self.conteudo)
+            self.assertEqual(resposta.media_type,'application/octet-stream');self.assertEqual(a.nome_original,'FICTICIO.txt')
+            self.assertTrue(a.sha256);self.assertEqual(self.db.query(DocumentoEvidencia).filter_by(arquivo_id=a.id).count(),1)
+            caminho.write_bytes(b'ADULTERADO FICTICIO')
+            with self.assertRaises(HTTPException) as erro:baixar_arquivo(a.id,self.db)
+            self.assertEqual(erro.exception.status_code,409)
+            a.caminho_arquivo=str(Path(self.temp.name)/'fora.txt')
+            with self.assertRaises(HTTPException) as erro:baixar_arquivo(a.id,self.db)
+            self.assertEqual(erro.exception.status_code,400)
+
+    def test_colisao_de_nome_nunca_remove_original_existente(self):
+        from types import SimpleNamespace
+        from datetime import datetime
+        with patch('app.importadores.armazenamento.uuid4',return_value=SimpleNamespace(hex='f'*32)),patch('app.importadores.armazenamento.datetime') as relogio:
+            relogio.utcnow.return_value=datetime(2026,9,1,12)
+            primeira=self.upload();arquivo=self.db.get(ArquivoRecebido,primeira['arquivo']['id']);caminho=Path(arquivo.caminho_arquivo)
+            if not caminho.is_absolute():caminho=routes.BACKEND_DIR/caminho
+            with self.assertRaises(HTTPException):self.upload()
+            self.assertEqual(caminho.read_bytes(),self.conteudo)
+            self.assertEqual(self.db.query(ArquivoRecebido).count(),1)
+
+    def test_validacao_de_upload_preserva_utf16_com_e_sem_bom(self):
+        texto=self.conteudo.decode()
+        for codec in ('utf-16','utf-16-le','utf-16-be'):
+            with self.subTest(codec=codec):
+                previa=routes.analisar_importacao(self.c.id,self.f.empresa_id,9,2026,
+                    UploadFile(filename='FICTICIO-'+codec+'.txt',file=BytesIO(texto.encode(codec))),self.db)
+                self.assertEqual(len(previa['preview']),1)
+
     def test_confirmacao_sem_parser_idempotente_e_duplicidade_preservada(self):
         previa=self.upload(); payload=self.payload(previa)
         with patch.object(routes.pipeline,'gerar_previa',side_effect=AssertionError('não reinterpretar')):

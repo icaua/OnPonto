@@ -108,6 +108,7 @@ def excluir(ocorrencia_id: int, db: Session = Depends(get_db)):
 @router.post("/{ocorrencia_id}/anexo", response_model=OcorrenciaRead)
 def anexar(ocorrencia_id: int, arquivo: UploadFile = File(...), db: Session = Depends(get_db)):
     destino = None
+    criado=False
     try:
         iniciar_escrita(db)
         registro = obter(db, ocorrencia_id)
@@ -117,11 +118,13 @@ def anexar(ocorrencia_id: int, arquivo: UploadFile = File(...), db: Session = De
         if extensao not in {".pdf", ".png", ".jpg", ".jpeg"}:
             raise HTTPException(400, "Anexe PDF, PNG ou JPG.")
         pasta = UPLOADS_DIR / "ocorrencias" / str(registro.id)
+        if not pasta.resolve().is_relative_to(UPLOADS_DIR.resolve()):raise HTTPException(400,'Caminho de armazenamento inválido.')
         pasta.mkdir(parents=True, exist_ok=True)
         destino = pasta / (uuid4().hex + extensao)
         total = 0
         hash = sha256()
         with destino.open("xb") as buffer:
+            criado=True
             while trecho := arquivo.file.read(1024 * 1024):
                 total += len(trecho)
                 if total > 25 * 1024 * 1024:
@@ -130,6 +133,9 @@ def anexar(ocorrencia_id: int, arquivo: UploadFile = File(...), db: Session = De
                 hash.update(trecho)
         if not total:
             raise HTTPException(400, "O anexo está vazio.")
+        from app.seguranca.arquivos import validar_conteudo,nome_original
+        validar_conteudo(destino,extensao)
+        nome=nome_original(nome)
         antes = estado(registro)
         registro.anexo_caminho = destino.relative_to(UPLOADS_DIR).as_posix()
         registro.anexo_nome = nome[:255]
@@ -139,7 +145,7 @@ def anexar(ocorrencia_id: int, arquivo: UploadFile = File(...), db: Session = De
         db.commit()
     except Exception:
         db.rollback()
-        if destino:
+        if destino and criado:
             destino.unlink(missing_ok=True)
         raise
     finally:
@@ -158,4 +164,7 @@ def baixar_anexo(ocorrencia_id: int, db: Session = Depends(get_db)):
         raise HTTPException(400, "Referência de anexo inválida.")
     if not caminho.is_file():
         raise HTTPException(404, "Anexo não encontrado no armazenamento.")
-    return FileResponse(caminho, filename=registro.anexo_nome, media_type="application/octet-stream")
+    documento=db.query(DocumentoEvidencia).filter_by(ocorrencia_id=registro.id,caminho_relativo=registro.anexo_caminho).order_by(DocumentoEvidencia.id.desc()).first()
+    from app.seguranca.arquivos import verificar_hash
+    verificar_hash(caminho,documento.sha256 if documento else None)
+    return FileResponse(caminho, filename=registro.anexo_nome, media_type="application/octet-stream",headers={'X-Content-Type-Options':'nosniff','Cache-Control':'no-store'})

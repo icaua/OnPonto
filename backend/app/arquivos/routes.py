@@ -1,8 +1,5 @@
 import re
-import shutil
-from datetime import datetime
 from pathlib import Path
-from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import FileResponse
@@ -12,6 +9,8 @@ from app.arquivos.schemas import ArquivoRead
 from app.competencias.service import exigir_competencia_editavel
 from app.database.models import ArquivoRecebido, Competencia
 from app.database.session import BACKEND_DIR, UPLOADS_DIR, get_db
+from app.importadores.armazenamento import salvar_arquivo_original
+from app.seguranca.arquivos import verificar_hash
 
 
 router = APIRouter(prefix="/arquivos", tags=["Arquivos recebidos"])
@@ -54,33 +53,7 @@ def enviar_arquivo(
     if extensao not in EXTENSOES_PERMITIDAS:
         raise HTTPException(status_code=400, detail="Tipo de arquivo não permitido.")
 
-    pasta_destino = UPLOADS_DIR / f"empresa_{competencia.empresa_id}" / f"{competencia.ano}-{competencia.mes:02d}"
-    pasta_destino.mkdir(parents=True, exist_ok=True)
-
-    nome_final = f"{datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{uuid4().hex[:8]}_{original}"
-    destino = pasta_destino / nome_final
-
-    try:
-        with destino.open("wb") as buffer:
-            shutil.copyfileobj(arquivo.file, buffer)
-    finally:
-        arquivo.file.close()
-
-    try:
-        caminho_armazenado = destino.relative_to(BACKEND_DIR).as_posix()
-    except ValueError:
-        caminho_armazenado = destino.resolve().as_posix()
-    registro = ArquivoRecebido(
-        competencia_id=competencia_id,
-        nome_original=arquivo.filename or original,
-        caminho_arquivo=caminho_armazenado,
-        tipo_arquivo=extensao.lstrip("."),
-        observacoes=observacoes,
-    )
-    db.add(registro)
-    db.commit()
-    db.refresh(registro)
-    return registro
+    return salvar_arquivo_original(db,competencia,arquivo,extensoes_esperadas=tuple(EXTENSOES_PERMITIDAS),tipo_arquivo=extensao.lstrip('.'),observacoes=observacoes,uploads_dir=UPLOADS_DIR)
 
 
 @router.get("/{arquivo_id}/download")
@@ -98,4 +71,5 @@ def baixar_arquivo(arquivo_id: int, db: Session = Depends(get_db)) -> FileRespon
     if not caminho.is_file():
         raise HTTPException(status_code=404, detail="Arquivo físico não encontrado.")
 
-    return FileResponse(path=caminho, filename=registro.nome_original)
+    verificar_hash(caminho,registro.sha256)
+    return FileResponse(path=caminho, filename=registro.nome_original,media_type="application/octet-stream",headers={'X-Content-Type-Options':'nosniff','Cache-Control':'no-store'})

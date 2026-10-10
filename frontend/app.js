@@ -302,7 +302,11 @@
     } catch (error) {
       configured = "";
     }
-    return String(configured || DEFAULT_API_BASE).trim().replace(/\/+$/, "");
+    var base=String(configured || DEFAULT_API_BASE).trim().replace(/\/+$/, "");
+    if(root.location && /^(localhost|127\.0\.0\.1)$/.test(root.location.hostname || "")) {
+      base=base.replace(/^http:\/\/(localhost|127\.0\.0\.1)(?=:)/,"http://"+root.location.hostname);
+    }
+    return base;
   }
 
   function apiErrorMessage(payload, fallback) {
@@ -3451,7 +3455,7 @@
       headers: { Accept: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" },
     };
     if (controller) requestOptions.signal = controller.signal;
-    return root.fetch(configuredApiBase() + "/relatorios/excel?competencia_id=" + encodeURIComponent(competenceId), requestOptions).then(function (response) {
+    return apiFeature().authenticatedFetch("/relatorios/excel?competencia_id=" + encodeURIComponent(competenceId), requestOptions).then(function (response) {
       if (!response.ok) return exportResponseError(response);
       var filename = exportFilename(response, competence, company);
       return response.blob().then(function (blob) {

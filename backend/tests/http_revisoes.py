@@ -4,7 +4,7 @@ Testes de concorrência enviam os tokens capturados diretamente, sem este helper
 """
 import json
 import re
-from urllib.request import urlopen
+from http_sessao import urlopen
 
 
 def com_revisao(base, metodo, caminho, payload):

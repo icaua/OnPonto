@@ -2,7 +2,8 @@ from concurrent.futures import ThreadPoolExecutor
 import json
 from threading import Barrier
 from urllib.error import HTTPError
-from urllib.request import Request, urlopen
+from urllib.request import Request
+from http_sessao import urlopen
 import unittest
 
 import test_cadastros_api as suporte

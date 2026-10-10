@@ -9,13 +9,37 @@ const Relatorios=require('../js/features/relatorios.js');
 
 test('cliente exportado envia JSON e preserva detalhe e revisão em 409',async()=>{
  let options;
- const root={setTimeout,clearTimeout,fetch:async(url,o)=>{options=o;assert.equal(url,'http://127.0.0.1:8000/marcacoes/1');
+ const root={setTimeout,clearTimeout,fetch:async(url,o)=>{if(url.endsWith('/sessao/local'))return {ok:true,text:async()=>JSON.stringify({csrf:'FICTICIO-CSRF-APENAS-TESTE'})};options=o;assert.equal(url,'http://127.0.0.1:8000/marcacoes/1');
    return {ok:false,status:409,text:async()=>JSON.stringify({detail:{codigo:'revisao_conflitante',mensagem:'Revise a edição'}})};}};
  const api=Api.create({root,configuredApiBase:()=> 'http://127.0.0.1:8000'});
  await assert.rejects(api.apiRequest('/marcacoes/1',{method:'PATCH',body:{revisao:4}}),error=>{
   assert.equal(error.message,'Revise a edição');assert.equal(error.status,409);assert.ok(api.isRevisionConflictError(error));return true;
  });
  assert.deepEqual(JSON.parse(options.body),{revisao:4});assert.equal(options.headers['Content-Type'],'application/json');
+ assert.equal(options.credentials,'include');assert.equal(options.headers['X-OnPonto-CSRF'],'FICTICIO-CSRF-APENAS-TESTE');
+});
+
+test('sessão compartilhada entre clientes e 401 renova uma vez antes da operação',async()=>{
+ let sessions=0,requests=0;
+ const root={setTimeout,clearTimeout,fetch:async(url,options)=>{
+  if(url.endsWith('/sessao/local')){sessions++;return {ok:true,text:async()=>JSON.stringify({csrf:'FICTICIO-CSRF-SESSAO-'+sessions})};}
+  requests++;return {ok:requests>1,status:requests===1?401:200,text:async()=>'[]'};
+ }};
+ const deps={root,configuredApiBase:()=> 'http://127.0.0.1:8000'};
+ const primeiro=Api.create(deps),segundo=Api.create(deps);
+ await primeiro.apiRequest('/empresas');await segundo.apiRequest('/empresas');
+ assert.equal(sessions,2);assert.equal(requests,3);
+});
+
+test('duas respostas 401 compartilham renovação sem trocar cookie e CSRF em corrida',async()=>{
+ let sessions=0,requests=0;
+ const root={setTimeout,clearTimeout,fetch:async(url)=>{
+  if(url.endsWith('/sessao/local')){sessions++;return {ok:true,text:async()=>JSON.stringify({csrf:'FICTICIO-CSRF-RENOVACAO-'+sessions})};}
+  requests++;return {ok:requests>2,status:requests<=2?401:200,text:async()=>'[]'};
+ }};
+ const api=Api.create({root,configuredApiBase:()=> 'http://127.0.0.1:8000'});
+ await Promise.all([api.apiRequest('/empresas'),api.apiRequest('/funcionarios')]);
+ assert.equal(sessions,2);assert.equal(requests,4);
 });
 
 test('navegação exportada valida vínculo de competência e mantém URL existente',()=>{

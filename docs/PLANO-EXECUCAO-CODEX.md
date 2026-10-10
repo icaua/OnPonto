@@ -24,8 +24,8 @@ Não haverá merge automático. Somente dados fictícios/temporários são usado
 | 05 | validado | `3bac476` | backend 402/402; Node 102/102; Playwright resumo/conferência; golden/compileall/diff OK | estado operacional inclui dias ausentes/análises | `05-final.json`, 3 portes completos | nenhum |
 | 06 | validado | `64d2526` | backend 412/412; Node 102/102; navegador/migração/compileall/diff OK | nenhuma trabalhista; reenvio idempotente | `06-importacao.json`, 3 portes | nenhum |
 | 07 | validado | `cbd5fd1` | backend 413/413; Node 108/108; navegador ciclo completo OK | módulos e conferência por funcionário | `07-frontend-50.json` | nenhum |
-| 08 | validado | commit deste checkpoint | backend 415/415; Node 108/108; restore ampliado 4/4 | recuperação/índices/distribuição | `08-indices.json`, `08-custo-indices.json`, `08-final-1000.json` | nenhum |
-| 09 | não iniciado | — | — | — | — | depende da integração estabilizada |
+| 08 | validado | `7e838ec` | backend 415/415; Node 108/108; restore ampliado 4/4 | recuperação/índices/distribuição | `08-indices.json`, `08-custo-indices.json`, `08-final-1000.json` | nenhum |
+| 09 | validado | commit deste checkpoint | backend 425/425; Node 110/110; navegador completo OK | sessão/origens/arquivos; nenhuma regra trabalhista | `09-seguranca-50.json`; OSV 25 pacotes/0 advisories | nenhum local; CI Linux pendente |
 
 ## Pacote 00
 
@@ -118,6 +118,24 @@ Conjunto v2 verifica DB/uploads/referências/hashes/FK/integridade antes de copi
 
 Dependências fixadas e reinstaladas offline da distribuição existente; pip check OK. SQLAlchemy efetivamente carregado agora 2.0.52, igual ao manifesto (antes o diretório tinha módulo 2.1.1 e metadata 2.0.52). Instalador mantém fallback offline→internet nas mesmas versões, sem atualização silenciosa para faixas. SHA256SUMS e testes do instalador passam; binários preservados. Windows validado; Linux não executado localmente, CI preparado.
 
-Backend 415 testes OK (59,331 s), Node 108 OK; restore ampliado 4 testes repetidos OK; compileall/diff OK; golden intacto. Índices: referências de 25 arquivos/30.000 linhas 10,375→0,054 ms, vínculo 0,0535→0,0436 ms; DB 135.380.992→136.409.088 bytes (+0,76%). Confirmação em 1.000 pessoas/um dia elegível mediana 1.453,807→1.468,710 ms (+1,0%); fechamento 440,769→440,493 ms. Análise varia 408,509→454,784 ms; sem promessa de ganho global. Não são percentis de produção. Resultado HTTP completo de 1.000 ainda em validação. Rollback conforme ADR; DB real não aberto/migrado.
+Backend 415 testes OK (59,331 s), Node 108 OK; restore ampliado 4 testes repetidos OK; compileall/diff OK; golden intacto. Índices: referências de 25 arquivos/30.000 linhas 10,375→0,054 ms, vínculo 0,0535→0,0436 ms; DB 135.380.992→136.409.088 bytes (+0,76%). Confirmação em 1.000 pessoas/um dia elegível mediana 1.453,807→1.468,710 ms (+1,0%); fechamento 440,769→440,493 ms. Análise varia 408,509→454,784 ms; sem promessa de ganho global. Não são percentis de produção. Rollback conforme ADR; DB real não aberto/migrado.
 
 Checkpoint final: benchmark HTTP de 1.000 funcionários/61.000 marcações concluído, todas operações 200, com hash do código estável e dependências fixadas. Resultado integral em `08-final-1000.json`; não comparar sua latência diretamente ao runtime anterior sem considerar a diferença de versões. Pacote 09 liberado.
+
+## Pacote 09
+
+Sessão local/origem/Host/loopback, cookie HttpOnly/SameSite Strict, CSRF por sessão e renovação deduplicada. CORS fechado às origens explícitas; root/health do instalador preservado. Domínio, anexos, arquivos e relatórios exigem sessão. Cliente de integração usa a sessão real; testes negativos usam urllib sem autenticação automática. Frontend e exportação usam credentials, sem token em URL/localStorage. Segurança e limites em ADR 0010/SEGURANCA-LOCAL.md.
+
+Upload genérico compartilha armazenamento/evidência/hash da importação; 25 MiB por arquivo/26 MiB de corpo, assinatura/conteúdo/dimensões, caminhos contidos e nomes sanitizados. ZIP com bombas/duplicidades/DTD/entidades/compressão não homologada é recusado antes do parser. PDF tem validação e descompressão limitada, sem OCR/texto/renderização. Hash conhecido adulterado impede download; legado sem hash continua identificado. Colisão de nome não pode remover o original: teste específico passou. TXT UTF-16 com/sem BOM preservado após detectar e corrigir rejeição inicial na revisão de compatibilidade. Novos controles recusam conteúdo inseguro explicitamente; não alteram bytes dos originais aceitos.
+
+Privacidade: no-store/nosniff/frame/referrer/CSP, SQL sem parâmetros em mensagens de erro e falhas inesperadas com classe somente no log. Retenção herdada de backups auditada/documentada; não se criou exclusão de originais/anexos/snapshots. Levantamento OSV de 2026-10-10 (nomes/versões apenas): 25 pacotes/zero advisories retornados, JSON preservado. Não há certificação de segurança ou alegação de auditoria do SO/binário Python.
+
+Validação final: backend 425 testes OK (63,440 s), Node 110 OK, compileall/pip check/diff OK. Golden completo não regenerado. HTTP negativo cobre sessão/origem/Host/preflight/CSRF/expiração/limite pré-parser, upload adversarial e recuperação preservada. Playwright com sessão real: ambas resoluções, 9/17 linhas, nó/foco/rolagem, autosave/undo, duas janelas/409, importação/conferência/fechamento/Excel/reabertura sem overflow ou erros JS. Capturas fictícias inspecionadas; CSS original preservado.
+
+Benchmark 50 com código final estável: todas operações 200; GET 12 queries, dias por pessoa 12/53,63 ms, PATCH aquecido 31/228,23 ms, fechamento 136/1.197,68 ms, Excel uma consulta/2.232,42 ms. Segurança não introduz consultas SQL por sessão. Números locais com tracing, sem promessa de percentis. Sem nova migração além do schema 19 do pacote 08. Rollback conjunto frontend/backend, preservando novas evidências; manter loopback.
+
+## Encerramento local e pendências externas
+
+Pacotes 00–09 implementados e validados na ordem, com checkpoints independentes. Main local permanece `65d5059afb2d24867435129baad7a6482cf1816d`; sem merge/push, PR ou migração sobre DB/uploads reais. OCR funcional não implementado; somente contratos. A branch contém motor/versões/revisões/evidências/triagem/frontend/recuperação/segurança e documentação de decisões/rollback.
+
+Pendência externa: executar CI em Linux e revisão da branch antes de integração/publicação ampliada; não há credenciais ou pedido de publicação nesta tarefa. Homologação local Windows concluída, sem regressão não resolvida ou bloqueio de dados. Avaliar implantação somente após backup completo e restauração verificada da instalação específica, sem usar dados reais nos testes automatizados.

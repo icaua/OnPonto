@@ -4,6 +4,7 @@
   root.OnPontoApi=api;
 })(typeof window !== "undefined" ? window : globalThis,function(){
   "use strict";
+  var sessions=new WeakMap();
   function create(deps){
     deps=deps || {};
     var configuredApiBase=deps.configuredApiBase;
@@ -28,6 +29,37 @@
     var detail = error && error.payload && error.payload.detail;
     return Boolean(error && error.status === 409 && detail && /^revisao_/.test(detail.codigo || ""));
   }
+  function localSession(force,signal,expiredCsrf) {
+    var base=configuredApiBase(),byBase=sessions.get(root);
+    if(!byBase){byBase=Object.create(null);sessions.set(root,byBase);}
+    if(force && byBase[base] && byBase[base].csrf===expiredCsrf) delete byBase[base];
+    if(!byBase[base]) {
+      var pending=root.fetch(base+"/sessao/local",{credentials:"include",headers:{Accept:"application/json"},signal:signal}).then(function(response){
+        return response.text().then(function(body){
+          var payload;try{payload=JSON.parse(body);}catch(e){throw new Error("Resposta de sessão local inválida.");}
+          if(!response.ok || typeof payload.csrf!=="string" || payload.csrf.length<20) throw new Error(apiErrorMessage(payload,"Não foi possível iniciar a sessão local."));
+          pending.csrf=payload.csrf;
+          return payload.csrf;
+        });
+      }).catch(function(error){if(byBase[base]===pending)delete byBase[base];throw error;});
+      byBase[base]=pending;
+    }
+    return byBase[base];
+  }
+  function authenticatedFetch(path,options,retry) {
+    var settings=Object.assign({},options || {});
+    var usedCsrf;
+    return localSession(false,settings.signal).then(function(csrf){
+      usedCsrf=csrf;
+      settings.credentials="include";
+      settings.headers=Object.assign({},settings.headers || {});
+      if(!/^(GET|HEAD)$/i.test(settings.method || "GET")) settings.headers["X-OnPonto-CSRF"]=csrf;
+      return root.fetch(configuredApiBase()+path,settings);
+    }).then(function(response){
+      if(response.status===401 && !retry) return localSession(true,settings.signal,usedCsrf).then(function(){return authenticatedFetch(path,options,true);});
+      return response;
+    });
+  }
   function apiRequest(path, options) {
     var settings = options || {};
     var controller = typeof AbortController === "function" ? new AbortController() : null;
@@ -45,7 +77,7 @@
       requestOptions.body = JSON.stringify(requestOptions.body);
     }
 
-    return root.fetch(configuredApiBase() + path, requestOptions).then(function (response) {
+    return authenticatedFetch(path, requestOptions).then(function (response) {
       return response.text().then(function (textValue) {
         var payload = null;
         if (textValue) {
@@ -76,7 +108,7 @@
     if (Array.isArray(source.items)) return source.items;
     return [];
   }
-    return Object.freeze({apiErrorMessage:apiErrorMessage,isClosedCompetenceError:isClosedCompetenceError,isRevisionConflictError:isRevisionConflictError,apiRequest:apiRequest,apiCollection:apiCollection});
+    return Object.freeze({authenticatedFetch:authenticatedFetch,apiErrorMessage:apiErrorMessage,isClosedCompetenceError:isClosedCompetenceError,isRevisionConflictError:isRevisionConflictError,apiRequest:apiRequest,apiCollection:apiCollection});
   }
   return Object.freeze({create:create});
 });

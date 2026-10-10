@@ -18,6 +18,7 @@ from app.competencias.preservacao import preservar_fechamentos_legados
 from app.ocorrencias.routes import router as ocorrencias_router
 from app.calendario.routes import router as calendario_router
 from app.banco_horas.routes import router as banco_horas_router
+from app.seguranca.sessao import ORIGENS,ProtecaoLocal,router as sessao_router
 
 
 app = FastAPI(
@@ -28,11 +29,14 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=sorted(ORIGENS),
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
     expose_headers=["Content-Disposition"],
 )
+app.add_middleware(ProtecaoLocal)
+app.include_router(sessao_router)
 
 
 @app.on_event("startup")

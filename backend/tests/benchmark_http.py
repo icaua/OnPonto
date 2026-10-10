@@ -16,7 +16,8 @@ import sys
 import tempfile
 import time
 import tracemalloc
-from urllib.request import Request,urlopen
+from urllib.request import Request
+from http_sessao import urlopen
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0,str(Path(__file__).resolve().parent))

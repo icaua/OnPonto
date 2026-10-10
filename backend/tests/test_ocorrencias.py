@@ -287,9 +287,9 @@ class OcorrenciasTest(unittest.TestCase):
     def test_anexo_download_auditoria_e_bloqueio_fechada(self):
         o=self.registrar()
         with patch("app.ocorrencias.routes.UPLOADS_DIR",Path(self.temp.name)/"uploads"):
-            anexar(o.id,UploadFile(filename="teste.pdf",file=BytesIO(b"%PDF-1.4 ficticio")),self.db)
+            anexar(o.id,UploadFile(filename="teste.pdf",file=BytesIO(b"%PDF-1.4 ficticio\n%%EOF")),self.db)
             resposta=baixar_anexo(o.id,self.db)
-            self.assertEqual(Path(resposta.path).read_bytes(),b"%PDF-1.4 ficticio")
+            self.assertEqual(Path(resposta.path).read_bytes(),b"%PDF-1.4 ficticio\n%%EOF")
             self.assertEqual(o.historico[-1]["acao"],"anexo")
             self.fechar()
             with self.assertRaises(HTTPException): anexar(o.id,UploadFile(filename="outro.pdf",file=BytesIO(b"teste")),self.db)

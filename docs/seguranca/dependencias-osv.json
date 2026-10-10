@@ -1,0 +1,133 @@
+{
+  "consultado_em_utc": "2026-10-10T14:29:52.358711+00:00",
+  "fonte": "https://api.osv.dev/v1/querybatch",
+  "escopo": "25 dependências fixadas em setup/constraints.txt; ausência de advisory não certifica segurança. Nenhum arquivo/nome de empregado enviado.",
+  "pacotes": [
+    {
+      "pacote": "annotated-doc",
+      "versao": "0.0.5",
+      "advisories": []
+    },
+    {
+      "pacote": "annotated-types",
+      "versao": "0.8.0",
+      "advisories": []
+    },
+    {
+      "pacote": "anyio",
+      "versao": "4.14.2",
+      "advisories": []
+    },
+    {
+      "pacote": "click",
+      "versao": "8.4.2",
+      "advisories": []
+    },
+    {
+      "pacote": "colorama",
+      "versao": "0.4.6",
+      "advisories": []
+    },
+    {
+      "pacote": "et-xmlfile",
+      "versao": "2.0.0",
+      "advisories": []
+    },
+    {
+      "pacote": "fastapi",
+      "versao": "0.141.1",
+      "advisories": []
+    },
+    {
+      "pacote": "greenlet",
+      "versao": "3.5.5",
+      "advisories": []
+    },
+    {
+      "pacote": "h11",
+      "versao": "0.16.0",
+      "advisories": []
+    },
+    {
+      "pacote": "httptools",
+      "versao": "0.8.0",
+      "advisories": []
+    },
+    {
+      "pacote": "idna",
+      "versao": "3.18",
+      "advisories": []
+    },
+    {
+      "pacote": "openpyxl",
+      "versao": "3.1.5",
+      "advisories": []
+    },
+    {
+      "pacote": "pydantic",
+      "versao": "2.13.4",
+      "advisories": []
+    },
+    {
+      "pacote": "pydantic-core",
+      "versao": "2.46.4",
+      "advisories": []
+    },
+    {
+      "pacote": "python-dotenv",
+      "versao": "1.2.2",
+      "advisories": []
+    },
+    {
+      "pacote": "python-multipart",
+      "versao": "0.0.32",
+      "advisories": []
+    },
+    {
+      "pacote": "pyyaml",
+      "versao": "6.0.3",
+      "advisories": []
+    },
+    {
+      "pacote": "sqlalchemy",
+      "versao": "2.0.52",
+      "advisories": []
+    },
+    {
+      "pacote": "starlette",
+      "versao": "1.6.0",
+      "advisories": []
+    },
+    {
+      "pacote": "typing-extensions",
+      "versao": "4.16.0",
+      "advisories": []
+    },
+    {
+      "pacote": "typing-inspection",
+      "versao": "0.4.4",
+      "advisories": []
+    },
+    {
+      "pacote": "tzdata",
+      "versao": "2026.3",
+      "advisories": []
+    },
+    {
+      "pacote": "uvicorn",
+      "versao": "0.52.3",
+      "advisories": []
+    },
+    {
+      "pacote": "watchfiles",
+      "versao": "1.2.0",
+      "advisories": []
+    },
+    {
+      "pacote": "websockets",
+      "versao": "17.0.1",
+      "advisories": []
+    }
+  ],
+  "advisories": {}
+}

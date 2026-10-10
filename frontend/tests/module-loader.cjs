@@ -1,5 +1,12 @@
 const vm=require('node:vm'),fs=require('node:fs'),path=require('node:path');
 function context(value){
+ for(const target of new Set([value,value.root,value.window].filter(v=>v && typeof v==='object'))){
+  let fetch=target.fetch;
+  Object.defineProperty(target,'fetch',{configurable:true,get(){return function(url,options){
+   if(String(url).endsWith('/sessao/local'))return Promise.resolve({ok:true,status:200,text:async()=>JSON.stringify({csrf:'FICTICIO-CSRF-APENAS-TESTES-UNITARIOS'})});
+   return fetch.call(this,url,options);
+  };},set(fn){fetch=fn;}});
+ }
  const ctx=vm.createContext(value);
  for(const f of fs.readdirSync(path.join(__dirname,'../js/features')).filter(f=>f.endsWith('.js')))
   vm.runInContext(fs.readFileSync(path.join(__dirname,'../js/features',f),'utf8'),ctx);

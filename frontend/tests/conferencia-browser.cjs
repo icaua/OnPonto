@@ -28,13 +28,20 @@ async function main(){
  const seeded=spawnSync(python,['-c',seed],{cwd:path.join(root,'backend'),env,encoding:'utf8',windowsHide:true});
  assert.equal(seeded.status,0,seeded.stderr);
  const reserve=http.createServer();await new Promise(r=>reserve.listen(0,'127.0.0.1',r));const port=reserve.address().port;await new Promise(r=>reserve.close(r));
- const api=spawn(python,['-m','uvicorn','app.main:app','--host','127.0.0.1','--port',String(port),'--log-level','warning'],{cwd:path.join(root,'backend'),env,windowsHide:true,stdio:'ignore'});
+ let api;
  const base='http://127.0.0.1:'+port;
  const server=http.createServer((req,res)=>{const url=new URL(req.url,'http://localhost');const target=path.resolve(root,'frontend','.'+url.pathname);if(!target.startsWith(path.join(root,'frontend')+path.sep)){res.writeHead(403).end();return;}fs.readFile(target,(err,data)=>{if(err){res.writeHead(404).end();return;}res.setHeader('Content-Type',target.endsWith('.js')?'text/javascript':target.endsWith('.css')?'text/css':target.endsWith('.svg')?'image/svg+xml':'text/html');res.end(data);});});
+ await new Promise(r=>server.listen(0,'127.0.0.1',r));
+ api=spawn(python,['-m','uvicorn','app.main:app','--host','127.0.0.1','--port',String(port),'--log-level','warning'],{cwd:path.join(root,'backend'),env:{...env,ONPONTO_FRONTEND_ORIGINS:'http://127.0.0.1:'+server.address().port},windowsHide:true,stdio:'ignore'});
+ let nodeSession;
+ async function apiFetch(endpoint,options={}){
+  if(!nodeSession)nodeSession=fetch(base+'/sessao/local').then(async r=>({cookie:r.headers.get('set-cookie').split(';')[0],csrf:(await r.json()).csrf}));
+  const session=await nodeSession;
+  return fetch(base+endpoint,{...options,headers:{...options.headers,Cookie:session.cookie,'X-OnPonto-CSRF':session.csrf}});
+ }
  let browser;
  try{
   for(let i=0;i<100;i++){try{if((await fetch(base)).ok)break;}catch{}await new Promise(r=>setTimeout(r,100));}
-  await new Promise(r=>server.listen(0,'127.0.0.1',r));
   browser=await chromium.launch({headless:true, channel:process.env.ONPONTO_BROWSER_CHANNEL || (process.platform==='win32' ? 'chrome' : undefined)});const page=await browser.newPage();const errors=[];page.on('pageerror',e=>errors.push(e.message));
   await page.addInitScript(apiBase=>localStorage.setItem('onponto.apiBase',apiBase),base);
   const reviewRequests=[];page.on('request',r=>{if(r.url().startsWith(base))reviewRequests.push(r.url());});
@@ -69,25 +76,25 @@ async function main(){
   await page.locator('[data-action="select-review-employee"]').selectOption('1');
   await page.locator('[data-action="assign-original-punch"][data-punch-index="0"]').selectOption('entry');
   await page.waitForFunction(()=>document.querySelector('.autosave-indicator')?.textContent.includes('salvas'));
-  let rows=await(await fetch(base+'/marcacoes?competencia_id=1&funcionario_id=1')).json();let day=rows.find(d=>d.data==='2026-09-08');
+  let rows=await(await apiFetch('/marcacoes?competencia_id=1&funcionario_id=1')).json();let day=rows.find(d=>d.data==='2026-09-08');
   assert.equal(day.entrada,'08:00:00');assert.deepEqual(day.batidas_originais,['08:00:00','12:00:00','17:00:00']);assert.ok(day.historico.length);
   await page.keyboard.press('Escape');await page.locator('.day-select-button').first().focus();await page.keyboard.press('Control+z');
   await page.waitForFunction(()=>document.querySelector('.autosave-indicator')?.textContent.includes('salvas'));
-  rows=await(await fetch(base+'/marcacoes?competencia_id=1&funcionario_id=1')).json();day=rows.find(d=>d.data==='2026-09-08');assert.equal(day.entrada,null);
+  rows=await(await apiFetch('/marcacoes?competencia_id=1&funcionario_id=1')).json();day=rows.find(d=>d.data==='2026-09-08');assert.equal(day.entrada,null);
   const page2=await browser.newPage();page2.on('pageerror',e=>errors.push(e.message));
   await page2.addInitScript(apiBase=>localStorage.setItem('onponto.apiBase',apiBase),base);
   await page2.goto(page.url());
   await page2.locator('[data-action="assign-original-punch"][data-punch-index="0"]').waitFor();
   await page2.locator('[data-action="assign-original-punch"][data-punch-index="0"]').selectOption('entry');
   await page2.waitForFunction(()=>document.querySelector('.autosave-indicator')?.textContent.includes('salvas'));
-  const saved=await(await fetch(base+'/marcacoes/'+day.id)).json();
+  const saved=await(await apiFetch('/marcacoes/'+day.id)).json();
   await page.locator('[data-action="assign-original-punch"][data-punch-index="0"]').selectOption('entry');
   await page.getByText('Este dia foi alterado em outra janela',{exact:true}).waitFor();
-  assert.deepEqual(await(await fetch(base+'/marcacoes/'+day.id)).json(),saved);
+  assert.deepEqual(await(await apiFetch('/marcacoes/'+day.id)).json(),saved);
   await page.locator('#dialogField').selectOption('server');
   await page.getByRole('button',{name:'Aplicar escolha',exact:true}).click();
   await page.waitForFunction(()=>document.querySelector('.autosave-indicator')?.textContent.includes('salvas'));
-  assert.deepEqual(await(await fetch(base+'/marcacoes/'+day.id)).json(),saved);
+  assert.deepEqual(await(await apiFetch('/marcacoes/'+day.id)).json(),saved);
   await page2.close();
   const summaryRequests=[];page.on('request',r=>{if(r.url().startsWith(base))summaryRequests.push(r.url());});
   await page.evaluate(()=>window.OnPontoApp.navigate('competency-summary'));
@@ -100,7 +107,7 @@ async function main(){
    await page.screenshot({path:path.join(out,`resumo-${width}x${height}.png`)});
   }
   const cycles=[];
-  async function post(endpoint,payload){const response=await fetch(base+endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});assert.ok(response.ok,await response.clone().text());return response.json();}
+  async function post(endpoint,payload){const response=await apiFetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});assert.ok(response.ok,await response.clone().text());return response.json();}
   for(const [width,height] of [[1366,768],[1920,1080]]){
    const company=await post('/empresas',{nome:'Empresa Fictícia Ciclo '+width});
    const scale=await post('/escalas',{empresa_id:company.id,nome:'Escala Fictícia Ciclo',jornada_seg_sex_horas:8});
@@ -127,7 +134,7 @@ async function main(){
    await page.getByRole('button',{name:'Fechar competência',exact:true}).click();
    await page.locator('#dialogRoot').getByRole('button',{name:'Fechar competência',exact:true}).click();
    await page.getByRole('button',{name:'Reabrir competência',exact:true}).waitFor();
-   assert.equal((await(await fetch(base+'/competencias/'+competence.id)).json()).status,'fechada');
+   assert.equal((await(await apiFetch('/competencias/'+competence.id)).json()).status,'fechada');
    await page.evaluate(()=>window.OnPontoApp.navigate('competency-exports'));
    const downloadPromise=page.waitForEvent('download');
    await page.getByRole('button',{name:'Exportar Excel',exact:true}).click();
@@ -136,8 +143,8 @@ async function main(){
    await page.getByRole('button',{name:'Reabrir competência',exact:true}).click();
    await page.locator('#dialogRoot').getByRole('button',{name:'Reabrir competência',exact:true}).click();
    await page.getByRole('button',{name:'Fechar competência',exact:true}).waitFor();
-   assert.notEqual((await(await fetch(base+'/competencias/'+competence.id)).json()).status,'fechada');
-   const history=await(await fetch(base+'/competencias/'+competence.id+'/fechamentos')).json();assert.ok(history.length);
+   assert.notEqual((await(await apiFetch('/competencias/'+competence.id)).json()).status,'fechada');
+   const history=await(await apiFetch('/competencias/'+competence.id+'/fechamentos')).json();assert.ok(history.length);
    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
    await page.screenshot({path:path.join(out,'ciclo-'+width+'.png')});cycles.push({width,height,companyId:company.id,competenceId:competence.id,employeeId:employee.id});
   }

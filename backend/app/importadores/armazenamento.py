@@ -13,8 +13,8 @@ from app.importadores.propostas import auditar_arquivo, hash_arquivo
 LIMITE_ARQUIVO_BYTES = 25 * 1024 * 1024
 
 def nome_seguro(nome: str) -> str:
-    base = Path(nome).name.strip() or "arquivo.xlsx"
-    return re.sub(r"[^A-Za-z0-9._-]+", "_", base)
+    base = Path(nome.replace('\\','/')).name.strip() or "arquivo.xlsx"
+    return re.sub(r"[^A-Za-z0-9._-]+", "_", base)[:180]
 
 
 def salvar_arquivo_original(
@@ -33,16 +33,19 @@ def salvar_arquivo_original(
         raise HTTPException(status_code=400, detail=f"Envie um arquivo {' ou '.join(extensoes_esperadas)}.")
 
     pasta_destino = uploads_dir / f"empresa_{competencia.empresa_id}" / f"{competencia.ano}-{competencia.mes:02d}"
+    if not pasta_destino.resolve().is_relative_to(uploads_dir.resolve()):
+        raise HTTPException(400,'Caminho de armazenamento inválido.')
     try:
         pasta_destino.mkdir(parents=True, exist_ok=True)
     except OSError as exc:
         raise HTTPException(status_code=500, detail="Não foi possível preparar o armazenamento do arquivo.") from exc
     nome_final = f"{datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{uuid4().hex[:8]}_{original}"
     destino = pasta_destino / nome_final
-
+    criado=False
     try:
         try:
             with destino.open("xb") as buffer:
+                criado=True
                 total_bytes = 0
                 hash = sha256()
                 while trecho := arquivo.file.read(1024 * 1024):
@@ -57,10 +60,10 @@ def salvar_arquivo_original(
         finally:
             arquivo.file.close()
     except HTTPException:
-        destino.unlink(missing_ok=True)
+        if criado:destino.unlink(missing_ok=True)
         raise
     except OSError as exc:
-        destino.unlink(missing_ok=True)
+        if criado:destino.unlink(missing_ok=True)
         raise HTTPException(status_code=500, detail="Não foi possível salvar o arquivo enviado.") from exc
 
     try:
@@ -72,6 +75,10 @@ def salvar_arquivo_original(
         destino.unlink(missing_ok=True)
         raise HTTPException(400, "O arquivo está vazio.")
     digest = hash.hexdigest()
+    from app.seguranca.arquivos import validar_conteudo,nome_original
+    try:validar_conteudo(destino,Path(original).suffix.lower())
+    except HTTPException:
+        destino.unlink(missing_ok=True);raise
     anteriores = db.query(ArquivoRecebido).filter_by(competencia_id=competencia.id,sha256=digest).all()
     for anterior in anteriores:
         caminho = Path(anterior.caminho_arquivo)
@@ -85,7 +92,7 @@ def salvar_arquivo_original(
     registro = ArquivoRecebido(
         competencia_id=competencia.id,
         sha256=digest, tamanho_bytes=total_bytes,
-        nome_original=arquivo.filename or original,
+        nome_original=nome_original(arquivo.filename or original),
         caminho_arquivo=caminho_armazenado,
         tipo_arquivo=tipo_arquivo,
         observacoes=observacoes,

@@ -12,7 +12,8 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
+from urllib.request import Request
+from http_sessao import urlopen
 
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]

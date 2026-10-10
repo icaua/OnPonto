@@ -123,6 +123,7 @@ test('cliques durante a reconexao compartilham a tentativa em andamento', async 
   t.responder(() => espera.then(() => ({ok: true, text: async () => '[]'})));
   const primeira = t.clicar(), segunda = t.clicar();
   assert.equal(primeira, segunda);
+  await concluir();
   assert.equal(t.requests.length, 6);
   assert.equal(t.app.getState().apiMode, 'indisponivel');
   assert.doesNotMatch(t.nodes.mainContent.innerHTML, /Modo demonstração/);
