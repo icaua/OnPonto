@@ -64,6 +64,9 @@ def criar_funcionario(payload: FuncionarioCreate, db: Session = Depends(get_db))
     try:
         db.flush()
         registrar_vinculo_inicial(db, funcionario)
+        if funcionario.escala_id is not None:
+            from app.escalas.versoes import garantir_inicial
+            garantir_inicial(db,db.get(Escala,funcionario.escala_id))
         db.commit()
     except IntegrityError as exc:
         db.rollback()
@@ -115,6 +118,9 @@ def atualizar_funcionario(
     )
 
     if escala_id != funcionario.escala_id:
+        if escala_id is not None:
+            from app.escalas.versoes import garantir_inicial
+            garantir_inicial(db,db.get(Escala,escala_id))
         trocar_vinculo(db, funcionario, escala_id)
     for campo, valor in dados.items():
         setattr(funcionario, campo, valor)

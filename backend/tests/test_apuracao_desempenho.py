@@ -53,7 +53,7 @@ class ApuracaoDesempenhoTest(unittest.TestCase):
             funcionarios = db.query(Funcionario).all()
             consultas.clear()
             resolvedor = ResolvedorEscalas(db, 1)
-            self.assertEqual(len(consultas), 2)
+            self.assertEqual(len(consultas), 3)  # vínculos, escalas e versões em lotes
             consultas.clear()
             for funcionario in funcionarios:
                 for dia in range(1, 31):

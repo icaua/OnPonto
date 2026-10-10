@@ -82,6 +82,9 @@ def jornada_prevista_minutos(funcionario: FuncionarioDoDia, data_referencia: dat
     if dia_semana == 5 and escala.regime_sabado != "trabalha":
         return 0
 
+    if getattr(escala,"jornada_dia_minutos",None) is not None:
+        return escala.jornada_dia_minutos
+
     if escala.modo_apuracao == "horario_fixo":
         return jornada_horario_fixo_minutos(escala)
 
@@ -363,6 +366,9 @@ def placeholder_calendario_intocado(marcacao: MarcacoesDoDia) -> bool:
 def apurar_dia(funcionario: FuncionarioDoDia,marcacoes: MarcacoesDoDia,
         calendario: ContextoCalendario=ContextoCalendario(),
         ocorrencias: OcorrenciasDoDia=OcorrenciasDoDia()) -> ResultadoDia:
+    from dataclasses import replace
+    if funcionario.escala:
+        funcionario=replace(funcionario,escala=funcionario.escala.para_dia(marcacoes.data))
     dados=detalhe_marcacao(funcionario,marcacoes,{marcacoes.data:list(calendario.feriados)})
     if not dados["fora_vinculo"]:
         aplicar_ocorrencias(dados,funcionario,marcacoes,ocorrencias.itens)

@@ -23,6 +23,17 @@ class RegraVigente:
     tolerancia_intervalo_minutos: int | None = None
     usa_banco_horas: bool = False
     politica_horas: dict | None = None
+    jornadas_semana: dict | None = None
+    jornada_dia_minutos: int | None = None
+    versao_id: int | None = None
+
+    def para_dia(self,dia):
+        from dataclasses import replace
+        dados=(self.jornadas_semana or {}).get(str(dia.weekday()))
+        if dados is None: return self
+        horarios={campo:time.fromisoformat(dados[campo]) if dados.get(campo) else None for campo in
+            ("horario_entrada_prevista","horario_saida_almoco_prevista","horario_retorno_almoco_prevista","horario_saida_prevista")}
+        return replace(self,jornada_dia_minutos=dados["jornada_minutos"],**horarios)
 
 
 @dataclass(frozen=True)

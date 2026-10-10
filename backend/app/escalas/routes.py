@@ -2,7 +2,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
-from app.database.models import Empresa, Escala, Funcionario, HistoricoVinculoEscala, LancamentoBancoHoras
+from app.database.models import Empresa, Escala, EscalaVersao, Funcionario, HistoricoVinculoEscala, LancamentoBancoHoras
+from app.escalas.versoes import garantir_inicial,nova_versao
 from app.banco_horas.politica import validar_prazo
 from app.banco_horas.service import situacao_lancamentos
 from app.ocorrencias.service import iniciar_escrita
@@ -42,8 +43,10 @@ def criar_escala(payload: EscalaCreate, db: Session = Depends(get_db)) -> Escala
     validar_empresa(db, payload.empresa_id)
     if payload.usa_banco_horas and payload.politica_horas is None:
         validar_prazo(db.get(Empresa, payload.empresa_id))
-    escala = Escala(**payload.model_dump())
+    escala = Escala(**payload.model_dump(exclude={"vigente_desde"}))
     db.add(escala)
+    db.flush()
+    if payload.vigente_desde is not None: garantir_inicial(db,escala,payload.vigente_desde)
     db.commit()
     db.refresh(escala)
     return escala
@@ -54,7 +57,7 @@ def obter_escala(escala_id: int, db: Session = Depends(get_db)) -> Escala:
     return obter_escala_ou_404(db, escala_id)
 
 
-def atualizar(
+def _atualizar(
     escala_id: int,
     payload: EscalaUpdate,
     db: Session,
@@ -62,6 +65,7 @@ def atualizar(
     iniciar_escrita(db)
     escala = obter_escala_ou_404(db, escala_id)
     dados = payload.model_dump(exclude_unset=True)
+    desde=dados.pop("vigente_desde",None)
     if (escala.politica_horas and "politica_horas" not in dados and "usa_banco_horas" in dados
             and dados["usa_banco_horas"] != escala.usa_banco_horas):
         raise HTTPException(422, "Esta escala usa uma política explícita. Altere a política para mudar o destino das horas extras.")
@@ -92,11 +96,20 @@ def atualizar(
             status_code=400,
             detail="Não é possível mover uma escala que possui funcionários vinculados.",
         )
+    nova_versao(db,escala,validados.model_dump(mode="json"),desde)
     for campo, valor in validados.model_dump().items():
         setattr(escala, campo, valor)
     db.commit()
     db.refresh(escala)
     return escala
+
+
+def atualizar(escala_id,payload,db):
+    try:
+        return _atualizar(escala_id,payload,db)
+    except Exception:
+        db.rollback()
+        raise
 
 
 @router.put("/{escala_id}", response_model=EscalaRead)
@@ -126,9 +139,19 @@ def excluir_escala(escala_id: int, db: Session = Depends(get_db)) -> Response:
     )
     tem_historico = db.query(HistoricoVinculoEscala.id).filter_by(escala_id=escala.id).first()
     tem_banco = db.query(LancamentoBancoHoras.id).filter_by(escala_origem_id=escala.id).first()
-    if vinculados or tem_historico or tem_banco:
+    tem_versoes=db.query(EscalaVersao.id).filter_by(escala_id=escala.id).first()
+    if vinculados or tem_historico or tem_banco or tem_versoes:
         escala.ativa = False
     else:
         db.delete(escala)
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/{escala_id}/versoes")
+def listar_versoes(escala_id:int,db:Session=Depends(get_db)):
+    obter_escala_ou_404(db,escala_id)
+    import json
+    return [{"id":v.id,"numero":v.numero,"vigente_desde":v.vigente_desde,"vigente_ate":v.vigente_ate,
+        "origem":v.origem,"configuracao":json.loads(v.configuracao_json)} for v in
+        db.query(EscalaVersao).filter_by(escala_id=escala_id).order_by(EscalaVersao.numero)]

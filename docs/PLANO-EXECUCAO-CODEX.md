@@ -17,8 +17,8 @@ Não haverá merge automático. Somente dados fictícios/temporários são usado
 | Pacote | Estado | Branch/commit/PR | Testes | Diferenças de cálculo | Benchmark | Bloqueios |
 |--------|--------|------------------|--------|-----------------------|-----------|----------|
 | 00 | validado | `17c366c` | backend 350/350; Node 95/95; compileall/diff OK; Playwright OK nas duas resoluções | nenhuma | `docs/benchmarks/00-baseline.json`, 3 portes completos | nenhum |
-| 01 | validado | commit identificado no próximo checkpoint | backend 357/357; Node 95/95; golden sem regeneração; compileall/diff OK | nenhuma | `01-nucleo-50.json` | nenhum |
-| 02 | não iniciado | — | — | — | — | depende de 01 |
+| 01 | validado | `2d9faa6` | backend 357/357; Node 95/95; golden sem regeneração; compileall/diff OK | nenhuma | `01-nucleo-50.json` | nenhum |
+| 02 | validado | commit identificado no próximo checkpoint | backend 363/363; Node 95/95; Playwright nas duas resoluções; golden/compileall/diff OK | regra histórica substitui edição retroativa | `02-versoes-50.json` | nenhum |
 | 03 | não iniciado | — | — | — | — | depende de 02 |
 | 04 | não iniciado | — | — | — | — | depende de 01–03 |
 | 05 | não iniciado | — | — | — | — | depende de 01–04 |
@@ -53,3 +53,17 @@ Rollback: reverter os commits da iniciativa; não manipular DB/uploads reais. OC
 Núcleo puro extraído, dataclasses e adaptadores adicionados, classificação do dia compartilhada. Motor importa com `python -S`, sem FastAPI, SQLAlchemy ou banco. Resultado incompleto/indisponível usa `None` no domínio; API legada preserva campos e números existentes acompanhados de pendências. Nenhuma mudança de schema/endpoints/frontend.
 
 Backend: 357 testes OK (36,564 s); Node: 95 OK; compileall e diff check OK. Golden master completo passa sem regeneração. Tabela de tolerâncias, falta/atestado, cronologia, feriado, ocorrência parcial sem referência e ausência de escala testados. Benchmark HTTP 50 executado com o mesmo harness e runtime; consultas mantidas em 340 para GET /apuracao. Nenhum ganho de performance alegado. ADR 0002 registra limites e rollback. Pacote 02 liberado pela dependência.
+
+## Pacote 02
+
+Migração aditiva 14: `escala_versoes`, configuração JSON imutável, limites de validade, origem de vigência desconhecida, índices/triggers contra sobreposição e exclusão; `escalas.jornadas_semana_json`. Resolvedor por data aplicado à apuração, calendário e banco. PUT/PATCH de escala cria versão, aceita `vigente_desde`, invalida conferência dos dias abertos afetados e recusa vigência sobre fechamento. GET `/escalas/{id}/versoes` expõe histórico. Formulário preserva visual e informa vigência futura; jornadas detalhadas por dia disponíveis na API.
+
+Diferença deliberada: edição posterior deixa de recalcular meses antigos com a configuração corrente. Regra desconhecida antes da migração permanece explicitamente desconhecida; não se inventaram versões anteriores. Testes de setembro/outubro, sábado 240 minutos, precedência de feriado/domingo, preservação byte a byte de snapshot, conflito, idempotência e integridade passam. Golden existente não foi regenerado. Fixtures de banco que configuram ORM diretamente passaram a criar cadastro legado sem versão, preservando seus resultados esperados; API e temporalidade são cobertas por testes próprios. Nome esperado de backup usa SCHEMA_VERSION; consulta em lote passou de 2 para 3 devido ao carregamento de versões, sem consulta por dia.
+
+Medição 50: GET usa 341 queries, com 1.385/1.128/1.196 ms. Todas as operações HTTP medidas deram 200. Não há ganho alegado: otimização cabe ao pacote 05. Playwright nas duas resoluções passou, incluindo autosave, undo e auditoria. ADR 0003 contém decisão e limites de rollback. Nenhuma migração foi aplicada ao DB real.
+
+Checkpoint final: 363 testes backend OK (38,538 s), 95 Node OK, compilação e diff check OK. Vigências futuras sucessivas não reescrevem a configuração agendada. Pacote 03 liberado.
+
+## Definição de DSR pendente
+
+Usuário definiu domingo e feriado como padrão, com dia de descanso configurável na escala. Pergunta complementar pendente: apenas identificar DSR ou calcular perda/desconto, e qual regra explícita se houver desconto. Pacote 04 não implementará desconto por suposição. Pacotes 02/03 podem prosseguir sem essa definição.

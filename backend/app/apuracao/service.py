@@ -45,11 +45,15 @@ def configuracao_calendario(funcionario: Funcionario, data_referencia: date) -> 
     if dia_semana == 6:
         if escala.regime_domingo == "nao_trabalha":
             return "domingo", True
+        if getattr(escala,"jornada_dia_minutos",None)==0: return "sem_expediente",True
         return "normal", False
     if dia_semana == 5:
         if escala.regime_sabado in {"compensado", "nao_trabalha"}:
             return "sem_expediente", True
+        if getattr(escala,"jornada_dia_minutos",None)==0: return "sem_expediente",True
         return "normal", False
+    if getattr(escala,"jornada_dia_minutos",None)==0:
+        return "sem_expediente",True
     return "normal", False
 
 
@@ -107,11 +111,13 @@ def gerar_dias_faltantes(db: Session, competencia: Competencia) -> int:
         )
     }
     ultimo_dia = monthrange(competencia.ano, competencia.mes)[1]
+    resolvedor=ResolvedorEscalas(db,competencia.empresa_id)
     criadas = 0
     for funcionario in funcionarios:
         for dia in range(1, ultimo_dia + 1):
             data_marcacao = date(competencia.ano, competencia.mes, dia)
             chave = (funcionario.id, data_marcacao)
+            contexto=SimpleNamespace(escala=resolvedor.regra_no_dia(funcionario,data_marcacao))
             existente = existentes.get(chave)
             if not dentro_vinculo(funcionario, data_marcacao):
                 if existente is not None and placeholder_calendario_intocado(existente):
@@ -123,13 +129,13 @@ def gerar_dias_faltantes(db: Session, competencia: Competencia) -> int:
                 # são reinterpretadas aqui.
                 if placeholder_calendario_intocado(existente):
                     status_dia, conferido = configuracao_calendario(
-                        funcionario,
+                        contexto,
                         data_marcacao,
                     )
                     existente.status_dia = status_dia
                     existente.conferido = conferido
                 continue
-            status_dia, conferido = configuracao_calendario(funcionario, data_marcacao)
+            status_dia, conferido = configuracao_calendario(contexto, data_marcacao)
             nova_marcacao = MarcacaoPonto(
                 competencia_id=competencia.id,
                 funcionario_id=funcionario.id,
@@ -239,11 +245,8 @@ def apurar_competencia(
 
         if not dentro_vinculo(funcionario, marcacao.data) and placeholder_calendario_intocado(marcacao):
             continue
-        escala_dia = resolvedor_escalas.escala_no_dia(funcionario, marcacao.data)
-        # Regras legadas continuam com a jornada vigente, como antes da política.
-        # Políticas explícitas usam a mesma escala histórica na jornada e no banco.
-        escala_apuracao = escala_dia if (escala_dia and escala_dia.politica_horas
-            or funcionario.escala and funcionario.escala.politica_horas) else funcionario.escala
+        escala_dia = resolvedor_escalas.regra_no_dia(funcionario, marcacao.data)
+        escala_apuracao = escala_dia
         contexto = SimpleNamespace(**{c.name: getattr(funcionario, c.name) for c in Funcionario.__table__.columns},
                                    escala=escala_apuracao, empresa=funcionario.empresa)
         detalhe = motor.apurar_dia(adaptadores.funcionario(contexto),adaptadores.marcacoes(marcacao),

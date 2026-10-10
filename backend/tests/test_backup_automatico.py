@@ -42,7 +42,7 @@ class BackupAutomaticoTest(unittest.TestCase):
         self.criar_banco(12)
         with self.assertLogs("app.database.backup", level="INFO") as logs:
             self.subir()
-        copia, = (self.pasta / "backups").glob("onponto-v12-antes-da-v13-*.db")
+        copia, = (self.pasta / "backups").glob(f"onponto-v12-antes-da-v{SCHEMA_VERSION}-*.db")
         self.assertIn(str(copia), "\n".join(logs.output))
         with closing(sqlite3.connect(copia)) as db:
             self.assertEqual(db.execute("PRAGMA user_version").fetchone()[0], 12)

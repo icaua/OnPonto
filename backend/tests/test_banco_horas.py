@@ -44,8 +44,13 @@ class BancoFixture:
             horario_entrada_prevista=time(8), horario_saida_almoco_prevista=time(12),
             horario_retorno_almoco_prevista=time(13), horario_saida_prevista=time(17), usa_banco_horas=True)
         self.db.add(self.escala); self.db.commit()
-        self.funcionario = criar_funcionario(FuncionarioCreate(empresa_id=self.empresa.id, nome="Pessoa teste",
-            escala_id=self.escala.id, data_admissao=date(2026, 1, 1)), self.db)
+        # Fixture legada sem versões: os casos abaixo configuram a escala por
+        # ORM para isolar as regras do ledger. A API versionada tem suite própria.
+        self.funcionario = Funcionario(empresa_id=self.empresa.id,nome="Pessoa teste",
+            escala_id=self.escala.id,data_admissao=date(2026,1,1))
+        self.db.add(self.funcionario);self.db.flush()
+        from app.funcionarios.historico_escalas import registrar_vinculo_inicial
+        registrar_vinculo_inicial(self.db,self.funcionario);self.db.commit()
         self.competencia = Competencia(empresa_id=self.empresa.id, mes=9, ano=2026)
         self.db.add(self.competencia); self.db.commit()
 

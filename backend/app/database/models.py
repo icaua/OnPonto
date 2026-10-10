@@ -61,6 +61,17 @@ class Escala(Base, TimestampMixin):
     usa_banco_horas: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
 
     politica_horas_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    jornadas_semana_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    @property
+    def jornadas_semana(self):
+        import json
+        return json.loads(self.jornadas_semana_json) if self.jornadas_semana_json else None
+
+    @jornadas_semana.setter
+    def jornadas_semana(self,valor):
+        import json
+        self.jornadas_semana_json=json.dumps(valor,ensure_ascii=False,default=lambda v:v.isoformat()) if valor is not None else None
 
     @property
     def politica_horas(self):
@@ -267,6 +278,22 @@ class HistoricoVinculoEscala(Base, TimestampMixin):
     vigente_ate: Mapped[date | None] = mapped_column(Date, nullable=True)
     funcionario = relationship("Funcionario")
     escala = relationship("Escala")
+
+
+class EscalaVersao(Base):
+    __tablename__ = "escala_versoes"
+    __table_args__ = (
+        UniqueConstraint("escala_id","numero",name="uq_escala_versao_numero"),
+        CheckConstraint("vigente_ate IS NULL OR vigente_desde IS NULL OR vigente_ate >= vigente_desde"),
+    )
+    id: Mapped[int] = mapped_column(Integer,primary_key=True)
+    escala_id: Mapped[int] = mapped_column(ForeignKey("escalas.id"),nullable=False,index=True)
+    numero: Mapped[int] = mapped_column(Integer,nullable=False)
+    vigente_desde: Mapped[date | None] = mapped_column(Date,nullable=True)
+    vigente_ate: Mapped[date | None] = mapped_column(Date,nullable=True)
+    configuracao_json: Mapped[str] = mapped_column(Text,nullable=False)
+    origem: Mapped[str] = mapped_column(String(80),nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime,default=datetime.utcnow)
 
 
 class LancamentoBancoHoras(Base, TimestampMixin):

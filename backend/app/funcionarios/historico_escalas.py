@@ -2,13 +2,17 @@ from sqlalchemy import or_
 from sqlalchemy.orm import joinedload
 
 from app.banco_horas.politica import hoje_local
-from app.database.models import Escala, Funcionario, HistoricoVinculoEscala, MarcacaoPonto
+from app.database.models import Escala, EscalaVersao, Funcionario, HistoricoVinculoEscala, MarcacaoPonto
 
 
 class ResolvedorEscalas:
     """Histórico da empresa válido apenas durante a operação atual."""
 
     def __init__(self, db, empresa_id):
+        self.versoes={}
+        self.regras={}
+        for versao in db.query(EscalaVersao).join(Escala).filter(Escala.empresa_id==empresa_id).order_by(EscalaVersao.numero.desc()):
+            self.versoes.setdefault(versao.escala_id,[]).append(versao)
         self.vinculos = {}
         for vinculo in (db.query(HistoricoVinculoEscala)
                 .join(Funcionario, Funcionario.id == HistoricoVinculoEscala.funcionario_id)
@@ -29,6 +33,18 @@ class ResolvedorEscalas:
         if primeiro and dia < primeiro.vigente_desde:
             return primeiro.escala
         return funcionario.escala if not primeiro else None
+
+    def regra_no_dia(self,funcionario,dia):
+        from app.escalas.versoes import regra_da_versao
+        from app.apuracao.adaptadores import regra
+        escala=self.escala_no_dia(funcionario,dia)
+        if escala is None: return None
+        versoes=self.versoes.get(escala.id,[])
+        for versao in versoes:
+            if (versao.vigente_desde is None or versao.vigente_desde<=dia) and (versao.vigente_ate is None or versao.vigente_ate>=dia):
+                if versao.id not in self.regras: self.regras[versao.id]=regra_da_versao(versao)
+                return self.regras[versao.id].para_dia(dia)
+        return None if versoes else regra(escala).para_dia(dia)
 
 
 def registrar_vinculo_inicial(db, funcionario):

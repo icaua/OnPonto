@@ -1,4 +1,4 @@
-from datetime import datetime, time
+from datetime import date,datetime,time
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -49,10 +49,16 @@ class EscalaBase(BaseModel):
     ativa: bool = True
     usa_banco_horas: bool = False
     politica_horas: PoliticaHoras | None = None
+    jornadas_semana: dict[str,"JornadaDia"] | None = None
 
     @model_validator(mode="after")
     def validar_configuracao(self) -> "EscalaBase":
         _validar_horarios(self)
+        for dia,jornada in (self.jornadas_semana or {}).items():
+            if dia not in {str(n) for n in range(7)}:
+                raise ValueError("Dias da semana: 0=segunda até 6=domingo.")
+            if self.modo_apuracao=="horario_fixo" and jornada.jornada_minutos and not jornada.horario_entrada_prevista:
+                raise ValueError("Jornada diária de horário fixo exige horários próprios.")
         if self.politica_horas is not None:
             self.usa_banco_horas = self.politica_horas.percentual_banco > 0
         if self.modo_apuracao == "carga_horaria" and self.jornada_seg_sex_horas is None:
@@ -70,8 +76,29 @@ class EscalaBase(BaseModel):
         return self
 
 
+class JornadaDia(BaseModel):
+    model_config=ConfigDict(extra="forbid")
+    jornada_minutos: int = Field(ge=0,le=1440)
+    horario_entrada_prevista: time | None = None
+    horario_saida_almoco_prevista: time | None = None
+    horario_retorno_almoco_prevista: time | None = None
+    horario_saida_prevista: time | None = None
+
+    @model_validator(mode="after")
+    def validar(self):
+        _validar_horarios(self)
+        if self.horario_entrada_prevista is not None:
+            def minuto(t): return t.hour*60+t.minute
+            duracao=minuto(self.horario_saida_prevista)-minuto(self.horario_entrada_prevista)
+            if self.horario_saida_almoco_prevista:
+                duracao-=minuto(self.horario_retorno_almoco_prevista)-minuto(self.horario_saida_almoco_prevista)
+            if duracao!=self.jornada_minutos:
+                raise ValueError("Horários próprios devem corresponder à jornada diária em minutos.")
+        return self
+
+
 class EscalaCreate(EscalaBase):
-    pass
+    vigente_desde: date | None = None
 
 
 class EscalaUpdate(BaseModel):
@@ -92,6 +119,8 @@ class EscalaUpdate(BaseModel):
     ativa: bool | None = None
     usa_banco_horas: bool | None = None
     politica_horas: PoliticaHoras | None = None
+    jornadas_semana: dict[str,JornadaDia] | None = None
+    vigente_desde: date | None = None
 
 
 class EscalaRead(EscalaBase):

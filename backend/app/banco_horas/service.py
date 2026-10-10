@@ -20,7 +20,7 @@ def gerar_lancamentos(db, competencia, resultado):
     for dia in sorted(resultado["marcacoes"], key=lambda d: (d["data"], d["funcionario_id"])):
         funcionario = funcionarios[dia["funcionario_id"]]
         referencia = date.fromisoformat(dia["data"])
-        escala = resolvedor_escalas.escala_no_dia(funcionario, referencia)
+        escala = resolvedor_escalas.regra_no_dia(funcionario, referencia)
         if dia.get("minutos_folga_compensatoria", 0) and (not escala or not escala.usa_banco_horas):
             raise HTTPException(409, "A folga compensatória exige banco de horas habilitado na escala de origem. Revise a ocorrência antes de fechar.")
         if not escala or not escala.usa_banco_horas or dia.get("fora_vinculo"):
@@ -146,7 +146,7 @@ def ajustar(db, payload):
     funcionario = obter_funcionario(db, payload.funcionario_id)
     if payload.data_referencia > hoje_local():
         raise HTTPException(422, "Ajustes manuais não podem ter data de referência futura.")
-    escala = escala_no_dia(db, funcionario, payload.data_referencia) or funcionario.escala
+    escala = ResolvedorEscalas(db,funcionario.empresa_id).regra_no_dia(funcionario,payload.data_referencia)
     politica = politica_da_escala(escala)
     inicio, fim = ciclo(politica, payload.data_referencia) if politica else (None, None)
     regra_json = json.dumps({"escala_id": escala.id, "politica": politica.model_dump(mode="json")}) if politica else None
@@ -272,7 +272,7 @@ def complementar_apuracao(db, competencia, resultado, *, resolvedor_escalas=None
         if competencia.status == "fechada":
             habilitado = any(d.get("banco_horas_regra") for d in dias)
         else:
-            vinculos = [resolvedor_escalas.escala_no_dia(funcionario, date.fromisoformat(d["data"])) for d in dias]
+            vinculos = [resolvedor_escalas.regra_no_dia(funcionario, date.fromisoformat(d["data"])) for d in dias]
             habilitado = any(e and e.usa_banco_horas for e in vinculos) or bool(funcionario.escala and funcionario.escala.usa_banco_horas)
         if not habilitado:
             continue

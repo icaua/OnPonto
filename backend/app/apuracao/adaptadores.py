@@ -1,5 +1,5 @@
 """Conversão explícita do armazenamento para valores do domínio."""
-from dataclasses import fields
+from dataclasses import fields,MISSING
 from copy import deepcopy
 
 from app.dominio.contratos import FuncionarioDoDia,MarcacoesDoDia,RegraVigente,Ocorrencia,OcorrenciasDoDia
@@ -7,7 +7,7 @@ from app.dominio.contratos import FuncionarioDoDia,MarcacoesDoDia,RegraVigente,O
 
 def regra(escala):
     if escala is None: return None
-    return RegraVigente(**{f.name:deepcopy(getattr(escala,f.name)) for f in fields(RegraVigente)})
+    return RegraVigente(**{f.name:deepcopy(getattr(escala,f.name,f.default if f.default is not MISSING else None)) for f in fields(RegraVigente)})
 
 
 def funcionario(funcionario):

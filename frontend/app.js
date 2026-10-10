@@ -4060,6 +4060,7 @@
       fieldLayout: "grid",
       fields: [
         { name: "nome", type: "text", label: "Nome da escala", value: entity ? entity.name || entity.nome : "", required: true, maxlength: 120, fullWidth: true },
+        { name: "vigente_desde", type: "date", label: "Início da vigência da regra", value: "", fullWidth: true, help: entity ? "Informe a data da nova regra. Em branco, usa a próxima vigência futura disponível. Dias abertos afetados precisam de nova conferência." : "Se a vigência histórica for desconhecida, deixe em branco; essa limitação será preservada." },
         { name: "modo_apuracao", type: "select", label: "Modo de apuração", value: mode, required: true, fullWidth: true, options: [{ value: "carga_horaria", label: "Carga horária" }, { value: "horario_fixo", label: "Horário fixo" }] },
         { name: "jornada_seg_sex_horas", type: "number", label: "Jornada de segunda a sexta (horas)", value: entity && entity.jornada_seg_sex_horas !== null && entity.jornada_seg_sex_horas !== undefined ? entity.jornada_seg_sex_horas : "8", required: true, min: 0, max: 24, step: 0.01, visibleWhen: isWorkload },
         { name: "jornada_sabado_horas", type: "number", label: "Jornada de sábado (horas)", value: entity && entity.jornada_sabado_horas !== null && entity.jornada_sabado_horas !== undefined ? entity.jornada_sabado_horas : "", min: 0, max: 24, step: 0.01, visibleWhen: isWorkload },
@@ -4119,6 +4120,7 @@
           usa_banco_horas: values.politica_modo === "legado" ? values.usa_banco_horas === "true" : values.politica_modo !== "folha",
           ativa: values.ativa === "true",
         };
+        if (values.vigente_desde) payload.vigente_desde = values.vigente_desde;
         if (online) {
           var endpoint = "/escalas" + (entity ? "/" + encodeURIComponent(entity.id) : "");
           return apiRequest(endpoint, { method: entity ? "PUT" : "POST", body: payload }).then(function (response) {
