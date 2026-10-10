@@ -35,6 +35,13 @@ def obter_resumo(competencia_id: int = Query(...),db: Session = Depends(get_db))
 
 @router.get("/dias")
 def obter_dias(competencia_id: int = Query(...),funcionario_id: int = Query(...),db: Session = Depends(get_db)):
+    from sqlalchemy import text
+    from sqlalchemy.orm import joinedload
+    from app.database.models import MarcacaoPonto
+    from app.marcacoes.schemas import MarcacaoRead
+    if db.get_bind().dialect.name == "sqlite":
+        conexao=db.connection()
+        if not conexao.connection.driver_connection.in_transaction: db.execute(text("BEGIN"))
     from app.database.models import Competencia, Funcionario
     from app.apuracao.contexto import ContextoApuracao
     c=db.get(Competencia,competencia_id)
@@ -42,9 +49,13 @@ def obter_dias(competencia_id: int = Query(...),funcionario_id: int = Query(...)
     if c is None or f is None or f.empresa_id!=c.empresa_id: raise HTTPException(404,"Competência/funcionário não encontrado.")
     if c.status=="fechada":
         resultado=obter_apuracao(competencia_id,db)
-        return {"competencia":resultado["competencia"],"marcacoes":[d for d in resultado["marcacoes"] if d["funcionario_id"]==funcionario_id]}
+        registros=db.query(MarcacaoPonto).options(joinedload(MarcacaoPonto.arquivo_origem)).filter_by(
+            competencia_id=c.id,funcionario_id=funcionario_id).order_by(MarcacaoPonto.data).all()
+        return {"competencia":resultado["competencia"],"marcacoes":[d for d in resultado["marcacoes"] if d["funcionario_id"]==funcionario_id],
+            "registros":[MarcacaoRead.model_validate(m).model_dump(mode="json") for m in registros]}
     contexto=ContextoApuracao(db,c,funcionario_id)
-    return {"competencia":{"id":c.id,"status":c.status},"marcacoes":contexto.detalhes(funcionario_id)}
+    return {"competencia":{"id":c.id,"status":c.status},"marcacoes":contexto.detalhes(funcionario_id),
+        "registros":[MarcacaoRead.model_validate(m).model_dump(mode="json") for m in contexto.marcacoes]}
 
 
 @router.get("/{competencia_id}")

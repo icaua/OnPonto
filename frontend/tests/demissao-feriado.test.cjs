@@ -5,7 +5,7 @@ const path=require('node:path');
 const vm=require('node:vm');
 const app=fs.readFileSync(path.join(__dirname,'../app.js'),'utf8');
 function extract(name){const start=app.indexOf('  function '+name+'(');assert.ok(start>=0);return app.slice(start,app.indexOf('\n  function ',start+1));}
-function modules(){const ctx={};ctx.window=ctx;vm.createContext(ctx);for(const f of ['utils','components','screens'])vm.runInContext(fs.readFileSync(path.join(__dirname,'../js/'+f+'.js'),'utf8'),ctx);return ctx;}
+function modules(){const ctx={};ctx.window=ctx;require('./module-loader.cjs').context(ctx);for(const f of ['utils','components','screens'])vm.runInContext(fs.readFileSync(path.join(__dirname,'../js/'+f+'.js'),'utf8'),ctx);return ctx;}
 test('demissao opcional no formulario valida intervalo e envia null ao limpar',async()=>{
   let dialog,request;
   const person={id:3,companyId:1,name:'Pessoa',data_admissao:'2026-06-10',data_demissao:'2026-06-15'};
@@ -14,7 +14,7 @@ test('demissao opcional no formulario valida intervalo e envia null ao limpar',a
     idsEqual:(a,b)=>a===b,asId:x=>x||null,showDialog:d=>dialog=d,UF_OPTIONS:[],
     apiRequest:async(url,config)=>{request=config;return config.body;},upsertEntity(){},normalizeEmployee:x=>x,
     compareEntityNames(){},invalidateCompanyCompetenceData(){},render(){},showToast(){}};
-  vm.createContext(ctx);vm.runInContext(extract('openSimpleEntityDialog'),ctx);ctx.openSimpleEntityDialog('employee',3);
+  require('./module-loader.cjs').context(ctx);vm.runInContext(extract('openSimpleEntityDialog'),ctx);ctx.openSimpleEntityDialog('employee',3);
   const field=dialog.fields.find(f=>f.name==='data_demissao');assert.equal(field.value,'2026-06-15');assert.equal(field.type,'date');assert.ok(!field.required);
   assert.equal(dialog.validate({data_admissao:'2026-06-10',data_demissao:'2026-06-09'}).field,'data_demissao');
   await dialog.onConfirm({nome:'Pessoa',codigo:'1',ativo:'true',data_admissao:'2026-06-10',data_demissao:'2026-06-15'});
@@ -24,7 +24,7 @@ test('demissao opcional no formulario valida intervalo e envia null ao limpar',a
 test('resumo mantém ausência em snapshots antigos e preserva feriado indisponivel',()=>{
   const ctx={apiCollection:(obj,keys)=>keys.map(k=>obj[k]).find(Array.isArray)||[],
     valueFromAliases:(obj,keys)=>keys.map(k=>obj?.[k]).find(v=>v!==undefined&&v!==null)??null};
-  vm.createContext(ctx);vm.runInContext(extract('normalizeCompetenceSummary'),ctx);
+  require('./module-loader.cjs').context(ctx);vm.runInContext(extract('normalizeCompetenceSummary'),ctx);
   for(const [record,expected] of [[{},null],[{horas_feriado_minutos:240},240],[{horas_feriado_minutos:null},null]]) {
     assert.equal(ctx.normalizeCompetenceSummary({resumo:[record]}).rows[0].holidayMinutes,expected);
   }

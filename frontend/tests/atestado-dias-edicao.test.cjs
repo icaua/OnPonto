@@ -6,7 +6,7 @@ const vm = require('node:vm');
 
 function ocorrencias() {
   const c={URLSearchParams}; c.window=c;
-  vm.createContext(c);
+  require('./module-loader.cjs').context(c);
   for (const file of ['utils','ocorrencias']) vm.runInContext(fs.readFileSync(path.join(__dirname,'../js/'+file+'.js'),'utf8'),c);
   const dialogs=[],requests=[];
   c.OnPontoOcorrencias.configure({state:()=>({selectedCompanyId:1,apiMode:'online'}),
@@ -56,7 +56,7 @@ test('salvamento em segundo plano espera a edicao e devolve o foco a celula',()=
   const renders=[];
   const c={editSession:{},deferredRender:false,render:options=>renders.push(options),
     document:{activeElement:{closest:()=>({dataset:{dayId:'5',field:'breakStart'}})}}};
-  vm.createContext(c);vm.runInContext(extract('renderInBackground'),c);
+  require('./module-loader.cjs').context(c);vm.runInContext(extract('renderInBackground'),c);
   c.renderInBackground();
   assert.equal(renders.length,0); assert.equal(c.deferredRender,true);
   c.editSession=null; c.renderInBackground();
@@ -70,11 +70,11 @@ test('descartar horario invalido retoma salvamento agendado em vez de manter err
     state:{autosaveStatus:'error'},restoreCell(){},competencyIsClosed:()=>false,updateAutosaveIndicator(){},
     queueAutosave:d=>agendados.push(d),render(){}});
   const pendente=Object.assign(base(),{pendingDaySaves:{5:{id:5}}});
-  vm.createContext(pendente);vm.runInContext(extract('cancelEditing'),pendente);
+  require('./module-loader.cjs').context(pendente);vm.runInContext(extract('cancelEditing'),pendente);
   pendente.cancelEditing();
   assert.deepEqual(agendados,[null]);
   const vazio=Object.assign(base(),{pendingDaySaves:{}});
-  vm.createContext(vazio);vm.runInContext(extract('cancelEditing'),vazio);
+  require('./module-loader.cjs').context(vazio);vm.runInContext(extract('cancelEditing'),vazio);
   vazio.cancelEditing();
   assert.equal(vazio.state.autosaveStatus,'saved'); assert.equal(agendados.length,1);
 });
@@ -84,7 +84,7 @@ test('campo removido por redesenho nao grava horario digitado pela metade',()=>{
   const input={isConnected:false};
   const c={editSession:{input},finishEditing:o=>finished.push(o),document:{activeElement:null},
     root:{setTimeout:fn=>fn()}};
-  vm.createContext(c);vm.runInContext(extract('handleBlur'),c);
+  require('./module-loader.cjs').context(c);vm.runInContext(extract('handleBlur'),c);
   c.handleBlur({target:input});
   assert.equal(finished.length,0); assert.equal(c.editSession,null);
   const conectado={isConnected:true}; c.editSession={input:conectado};

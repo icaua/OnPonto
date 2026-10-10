@@ -22,8 +22,8 @@ Não haverá merge automático. Somente dados fictícios/temporários são usado
 | 03 | validado | `ad3025c` | backend 375/375; Node 98/98; Playwright duas janelas; golden/compileall/diff OK | nenhuma trabalhista | `03-revisoes-50.json` | nenhum |
 | 04 | validado | `efb9b78` | backend 395/395; Node 101/101; Playwright duas resoluções/duas janelas; golden/compileall/diff OK | intervalo e DSR explícitos; legenda neutra de feriado | `04-intervalos-dsr-50.json` | nenhum |
 | 05 | validado | `3bac476` | backend 402/402; Node 102/102; Playwright resumo/conferência; golden/compileall/diff OK | estado operacional inclui dias ausentes/análises | `05-final.json`, 3 portes completos | nenhum |
-| 06 | validado | checkpoint deste pacote | backend 412/412; Node 102/102; navegador/migração/compileall/diff OK | nenhuma trabalhista; reenvio idempotente | `06-importacao.json`, 3 portes | nenhum |
-| 07 | não iniciado | — | — | — | — | depende de 04–06 |
+| 06 | validado | `64d2526` | backend 412/412; Node 102/102; navegador/migração/compileall/diff OK | nenhuma trabalhista; reenvio idempotente | `06-importacao.json`, 3 portes | nenhum |
+| 07 | validado | commit deste checkpoint | backend 413/413; Node 108/108; navegador ciclo completo OK | módulos e conferência por funcionário | `07-frontend-50.json` | nenhum |
 | 08 | não iniciado | — | — | — | — | depende de 00–07 |
 | 09 | não iniciado | — | — | — | — | depende da integração estabilizada |
 
@@ -103,3 +103,9 @@ Validação: 412 backend OK (56,856 s), 102 Node OK, Playwright 1366×768 e 1920
 Medição local sintética de importação com 50/250/1.000 pessoas e quatro batidas: análise 62,6/113,9/379,7 ms; confirmação 127,1/338,3/1.355,9 ms, 30 SELECTs nos três portes; reenvio 4,8/8,6/22,1 ms e 12 comandos SQL. SQL total inclui INSERT/UPDATE das evidências; tempo sem tracing não é diretamente comparável ao benchmark HTTP anterior. Originais, eventos e contagens verificados ao final, apenas DB/uploads fictícios. Resultados em `docs/benchmarks/06-importacao.json`.
 
 Rollback preserva tabelas/evidências novas; restauração em destino novo, sem downgrade destrutivo. Endpoints GET `/importadores/{id}/previa` e confirmação com `revisao_previa` documentados no ADR. Main permanece sem merge e DB real intacto. Pacote 07 liberado pelas dependências.
+
+## Pacote 07
+
+Onze módulos exportados, wrappers compatíveis e ADR 0008. Triagem/dias por funcionário substituem carregamento integral na conferência; registros/revisões e cálculo oficial chegam na mesma leitura. Grade reutiliza nós, preserva foco/rolagem, autosave/undo/atalhos e originais. Filas, sequências e revisão protegem respostas antigas; troca de contexto espera persistência e recusa nova edição durante flush. Cálculo online local não afirma minutos definitivos. Reabertura aguarda PATCH; mensagens locais distinguem edição de persistência. Demo explícito continua separado e OCR simulado só é aceito na demonstração.
+
+Backend 413 testes OK (59,214 s); Node 108 OK; compileall/diff OK. Playwright: 1366×768 (9 linhas), 1920×1080 (17), foco/nó/rolagem preservados, duas janelas/409, importação e conferência até fechamento, exportação Excel e reabertura em ambas, sem overflow/erro JS. Correções no roteiro aguardam bootstrap e limitam seletores ao diálogo; nenhum resultado esperado de cálculo foi alterado. Golden não regenerado. Benchmark 50: triagem 11 queries, pacote de uma pessoa 12 queries/52.522 bytes/56,99 ms; todas operações 200. Campo `registros` é aditivo, sem schema/migração. Rollback por revert, sem tocar DB. Pacote 08 liberado.

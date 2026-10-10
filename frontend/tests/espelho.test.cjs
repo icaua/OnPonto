@@ -22,7 +22,7 @@ function printing(overrides = {}) {
       click() { clicked.push({ href: this.href, target: this.target, rel: this.rel }); }, remove() {},
     }) }, ...overrides,
   };
-  vm.createContext(context);
+  require('./module-loader.cjs').context(context);
   vm.runInContext(extract('openCompetencePrintReport'), context);
   return { context, clicked, messages };
 }
@@ -57,7 +57,7 @@ function apuration(detail) {
     firstValue: (...values) => values.find(v => v !== null && v !== undefined) ?? null,
     statusFromBackend: x => x, statusLabel: x => x, DAY_STATUS_LABELS: { normal: 'Normal' },
   };
-  vm.createContext(context); vm.runInContext(extract('applyApurationDetails'), context);
+  require('./module-loader.cjs').context(context); vm.runInContext(extract('applyApurationDetails'), context);
   context.applyApurationDetails(7, [{ id: 1, status_dia: 'normal', jornada_prevista_minutos: 480,
     horas_trabalhadas_minutos: 480, atraso_minutos: 30, extra_minutos: 0, conferido: true,
     pendente_calculo: false, ...detail }]);
@@ -76,7 +76,7 @@ test('edicao de horario agenda atualizacao da apuracao depois de salvar', () => 
     pendingDaySaves: {}, competencyIsClosed: () => false, daySavePayload: () => ({ entrada: '08:30' }),
     updateAutosaveIndicator() {},
   };
-  vm.createContext(context); vm.runInContext(extract('queueAutosave'), context);
+  require('./module-loader.cjs').context(context); vm.runInContext(extract('queueAutosave'), context);
   context.queueAutosave({ id: 1, competenceId: 7 });
   assert.equal(context.pendingDaySaves[1].syncCompetence, true);
 });
@@ -84,7 +84,7 @@ test('edicao local online nao inventa saldo antes da apuracao', () => {
   const context = { state: { apiMode: 'online' }, currentSlots: () => ({}),
     Utils: { calculateJourney: () => ({ workedMinutes: 480, expectedMinutes: 480, balanceMinutes: 0 }) },
   };
-  vm.createContext(context); vm.runInContext(extract('recalculateDay'), context);
+  require('./module-loader.cjs').context(context); vm.runInContext(extract('recalculateDay'), context);
   const day = { expectedMinutes: 480, current: {} };
   context.recalculateDay(day);
   assert.equal(day.balanceMinutes, null);

@@ -9,7 +9,7 @@ function extract(name) {
   assert.ok(start>=0,name); return source.slice(start,end);
 }
 function modules() {
-  const ctx={URLSearchParams}; ctx.window=ctx; vm.createContext(ctx);
+  const ctx={URLSearchParams}; ctx.window=ctx; require('./module-loader.cjs').context(ctx);
   for (const file of ['utils','components','screens','calendario']) vm.runInContext(fs.readFileSync(path.join(__dirname,'../js/'+file+'.js'),'utf8'),ctx);
   return ctx;
 }
@@ -31,7 +31,7 @@ test('resumo estrutura nome/codigo, aviso fechado, badge unico e indisponivel di
 test('rota calendario e global mesmo sem empresa cadastrada',()=>{
   const ctx={VIEWS:['companies','calendar'],COMPANY_VIEWS:[],COMPETENCY_VIEWS:[],emptyRoute:()=>({view:'companies',companyId:null,competenceId:null}),
     companies:()=>[],competencies:()=>[],asId:x=>x,safeDecode:decodeURIComponent};
-  vm.createContext(ctx);
+  require('./module-loader.cjs').context(ctx);
   for(const name of ['parseHashRoute','validateRoute','routeHash']) vm.runInContext(extract(name),ctx);
   const route=ctx.validateRoute(ctx.parseHashRoute('#/calendario'));
   assert.equal(route.view,'calendar'); assert.equal(route.companyId,null); assert.equal(route.competenceId,null);
@@ -45,7 +45,7 @@ test('cadastro e edicao enviam admissao opcional e permitem limpar',async()=>{
       idsEqual:(a,b)=>a===b,asId:x=>x||null,showDialog:d=>dialog=d,UF_OPTIONS:[],
       apiRequest:async(url,config)=>{request={url,...config};return config.body;},upsertEntity(){},normalizeEmployee:x=>x,
       compareEntityNames(){},invalidateCompanyCompetenceData(){},render(){},showToast(){}};
-    vm.createContext(ctx);vm.runInContext(extract('openSimpleEntityDialog'),ctx);
+    require('./module-loader.cjs').context(ctx);vm.runInContext(extract('openSimpleEntityDialog'),ctx);
     ctx.openSimpleEntityDialog('employee',item?.id);
     const field=dialog.fields.find(f=>f.name==='data_admissao');
     assert.equal(field.value,item?.data_admissao||''); assert.equal(field.type,'date'); assert.ok(!field.required);
@@ -78,7 +78,7 @@ test('efeito calendario e admissao nao sobrescrevem status manual editavel',()=>
     const day={id:1,competenceId:2,status:'normal',current:{status:'normal'}};
     const ctx={days:()=>[day],idsEqual:(a,b)=>a===b,firstValue:(...xs)=>xs.find(x=>x!=null)??null,
       statusFromBackend:x=>x,statusLabel:x=>x,DAY_STATUS_LABELS:{normal:'Normal',feriado:'Feriado'}};
-    vm.createContext(ctx);vm.runInContext(extract('applyApurationDetails'),ctx);
+    require('./module-loader.cjs').context(ctx);vm.runInContext(extract('applyApurationDetails'),ctx);
     ctx.applyApurationDetails(2,[{id:1,status_original:'normal',jornada_prevista_minutos:0,horas_trabalhadas_minutos:0,
       atraso_minutos:0,extra_minutos:0,conferido:false,pendente_calculo:false,...detail}]);
     assert.equal(day.status,'normal');assert.equal(day.current.status,'normal');

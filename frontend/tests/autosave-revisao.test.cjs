@@ -11,7 +11,7 @@ function setup(extra={}){
     state:{apiMode:'online',settings:{autosave:true}},updateAutosaveIndicator(){},findDay(){return null;},
     isClosedCompetenceError:()=>false,isRevisionConflictError:()=>false,resolveDaySaveConflict(){},showToast(){},refreshAffectedCompetence:async()=>{},render(){},
     idsEqual:(a,b)=>String(a)===String(b),...extra};
-  vm.createContext(c);vm.runInContext(extract('flushPendingDaySaves'),c);return c;
+  require('./module-loader.cjs').context(c);vm.runInContext(extract('flushPendingDaySaves'),c);return c;
 }
 test('salva sequencialmente e so indica salvo apos todas as respostas',async()=>{
   const callbacks=[],calls=[];

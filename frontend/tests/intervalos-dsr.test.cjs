@@ -10,7 +10,7 @@ function dialogFor(entity){
   nullableDialogNumber:x=>x==null||x===''?null:Number(x),dialogTimeMinutes:x=>Number(x.slice(0,2))*60+Number(x.slice(3,5)),
   apiRequest:async(url,config)=>{request=config.body;return config.body;},upsertEntity(){},scales:()=>[],normalizeScale:x=>x,
   compareEntityNames(){},invalidateCompanyCompetenceData(){},render(){},showToast(){}};
- vm.createContext(ctx);vm.runInContext(extract('openScaleDialog'),ctx);ctx.openScaleDialog(entity?.id);
+ require('./module-loader.cjs').context(ctx);vm.runInContext(extract('openScaleDialog'),ctx);ctx.openScaleDialog(entity?.id);
  return {dialog,request:()=>request};
 }
 test('edição preserva intervalo, DSR e jornada diária sem converter sábado salvo',async()=>{
@@ -30,7 +30,7 @@ test('escala legada não recebe intervalo ou desconto DSR ao salvar',async()=>{
  assert.equal(a.request().tipo_intervalo,null);assert.equal(a.request().politica_dsr,null);
 });
 test('resumo DSR preserva desconto pendente e renderiza dias disponíveis',()=>{
- const c={URLSearchParams,localStorage:{getItem:()=>null}};c.window=c;vm.createContext(c);
+ const c={URLSearchParams,localStorage:{getItem:()=>null}};c.window=c;require('./module-loader.cjs').context(c);
  for(const f of ['mocks','utils','components','screens','banco-horas'])vm.runInContext(fs.readFileSync(path.join(__dirname,'../js/'+f+'.js'),'utf8'),c);
  vm.runInContext(source.replace('\n  init();','\n root.testApi={normalizeCompetenceSummary};'),c);
  const summary=c.testApi.normalizeCompetenceSummary({resumo:[{funcionario_id:1,funcionario:'FICTÍCIO',dsr_dias:5,dsr_desconto_dias:null}]});

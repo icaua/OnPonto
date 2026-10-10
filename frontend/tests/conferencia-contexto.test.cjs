@@ -11,7 +11,7 @@ function extract(name, text = source) {
   return text.slice(start, end < 0 ? undefined : end);
 }
 function context(values, names) {
-  const c = vm.createContext(values);
+  const c = require('./module-loader.cjs').context(values);
   for (const name of names) vm.runInContext(extract(name), c);
   return c;
 }
@@ -49,7 +49,7 @@ test('preserva rolagem vertical e horizontal da tabela e do contexto apos recria
 function occurrences(api = async()=>({id:7})) {
   const calls=[], events=[]; let dialog;
   const window={OnPontoUtils:{escapeHtml:String}};
-  const c=vm.createContext({window,URLSearchParams,Promise});
+  const c=require('./module-loader.cjs').context({window,URLSearchParams,Promise});
   vm.runInContext(fs.readFileSync(path.join(__dirname,'../js/ocorrencias.js'),'utf8'),c);
   const module=window.OnPontoOcorrencias;
   module.configure({state:()=>({selectedCompanyId:1,apiMode:'online'}),data:()=>({employees:[{id:5,companyId:1,name:'João'}]}),
@@ -126,14 +126,17 @@ test('painel e fallback oferecem atestado com batidas e preservam bloqueio de di
     ['components.js','defaultDayActions',{reviewState:d=>d.confirmed?'confirmed':'normal',resolveStatus:v=>({key:v}),dayStatus:()=> 'normal',array:v=>v||[]}],
     ['screens.js','contextActions',{originalPunchValues:()=>['09:00','12:00'],normalizeStatus:v=>v,dayStatus:()=> 'normal',dayConfirmed:d=>d.confirmed}]
   ]){
-    const c=vm.createContext(extra);vm.runInContext(extract(name,fs.readFileSync(path.join(__dirname,'../js',file),'utf8')),c);
+    const c=require('./module-loader.cjs').context(extra);
+    if(file==='screens.js') {
+      c[name]=require('../js/features/screen-conferencia.js').create({...extra,statusKey:String,valueOf:(o,keys,f)=>keys.reduce((r,k)=>r===undefined?o[k]:r,undefined) ?? f})[name];
+    } else vm.runInContext(extract(name,fs.readFileSync(path.join(__dirname,'../js',file),'utf8')),c);
     assert.ok(c[name]({},['09:00','12:00']).some(a=>a.action==='set-day-certificate'));
     assert.ok(!c[name]({confirmed:true},['09:00','12:00']).some(a=>a.action==='set-day-certificate'));
   }
 });
 
 test('painel mostra abono retornado pela API e oculta acoes em competencia fechada',()=>{
-  const c=vm.createContext({window:{},Intl,Date});
+  const c=require('./module-loader.cjs').context({window:{},Intl,Date});
   for(const file of ['utils.js','components.js']) vm.runInContext(fs.readFileSync(path.join(__dirname,'../js',file),'utf8'),c);
   const html=c.window.OnPontoComponents.DayDetailsPanel({readonly:true,
     day:{id:22,date:'2026-09-22',status:'normal',occurrenceLabel:'ATESTADO',excusedMinutes:300,originalPunches:['09:00','12:00']}});

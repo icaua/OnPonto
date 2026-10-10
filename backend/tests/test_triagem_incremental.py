@@ -84,6 +84,20 @@ class TriagemIncrementalTest(unittest.TestCase):
                 dias=obter_dias(c,f,self.db)["marcacoes"]
                 self.assertEqual(normalizar(dias),normalizar([d for d in completo["marcacoes"] if d["funcionario_id"]==f]))
 
+    def test_pacote_de_dias_preserva_revisao_e_originais_sem_escrever(self):
+        c=self.ids["aberta"]
+        pacote=obter_dias(c,2,self.db)
+        registros=pacote["registros"]
+        self.assertEqual(len(registros),30)
+        self.assertTrue(all(r["funcionario_id"]==2 and r["competencia_id"]==c for r in registros))
+        por_id={r["id"]:r for r in registros}
+        for dia in pacote["marcacoes"]:
+            if dia.get("id") in por_id:
+                self.assertEqual(dia["revisao"],por_id[dia["id"]]["revisao"])
+        bruto=self.db.get(MarcacaoPonto,registros[0]["id"]).batidas_originais
+        self.assertEqual(registros[0]["batidas_originais"],json.loads(bruto) if bruto else [])
+        self.assertFalse(self.db.new);self.assertFalse(self.db.dirty)
+
     def test_consultas_em_lote_nao_crescem_por_funcionario_do_banco(self):
         sql=[]
         def contar(conn,cursor,statement,parameters,context,executemany): sql.append(statement)

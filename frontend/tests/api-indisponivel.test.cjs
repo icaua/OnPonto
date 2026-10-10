@@ -29,7 +29,7 @@ function preparar({search = '', hash = '#/empresas', semLocation = false} = {}) 
     c.history = {replaceState(_a, _b, rota) { c.location.hash = rota; }};
   }
   c.window = c;
-  vm.createContext(c);
+  require('./module-loader.cjs').context(c);
   for (const file of ['mocks', 'utils', 'components', 'screens', 'calendario', 'ocorrencias', 'banco-horas']) {
     vm.runInContext(fs.readFileSync(path.join(__dirname, '../js/' + file + '.js'), 'utf8'), c);
   }

@@ -3,6 +3,125 @@
 
   var utils = root.OnPontoUtils || {};
 
+  function screenEscalasFeature() {
+    return globalThis.OnPontoScreenEscalas.create({
+      companyBreadcrumbs:typeof companyBreadcrumbs === "undefined" ? undefined : companyBreadcrumbs,
+      companyName:typeof companyName === "undefined" ? undefined : companyName,
+      demoBanner:typeof demoBanner === "undefined" ? undefined : demoBanner,
+      emptyState:typeof emptyState === "undefined" ? undefined : emptyState,
+      escapeHtml:typeof escapeHtml === "undefined" ? undefined : escapeHtml,
+      idOf:typeof idOf === "undefined" ? undefined : idOf,
+      missingContextScreen:typeof missingContextScreen === "undefined" ? undefined : missingContextScreen,
+      normalizeArgs:typeof normalizeArgs === "undefined" ? undefined : normalizeArgs,
+      pageHeader:typeof pageHeader === "undefined" ? undefined : pageHeader,
+      scaleName:typeof scaleName === "undefined" ? undefined : scaleName,
+      selectedEntities:typeof selectedEntities === "undefined" ? undefined : selectedEntities,
+      statusChip:typeof statusChip === "undefined" ? undefined : statusChip,
+      valueOf:typeof valueOf === "undefined" ? undefined : valueOf
+    });
+  }
+
+  function screenImportacaoFeature() {
+    return globalThis.OnPontoScreenImportacao.create({
+      asArray:typeof asArray === "undefined" ? undefined : asArray,
+      closedCompetenceNotice:typeof closedCompetenceNotice === "undefined" ? undefined : closedCompetenceNotice,
+      collection:typeof collection === "undefined" ? undefined : collection,
+      companyName:typeof companyName === "undefined" ? undefined : companyName,
+      competenceBreadcrumbs:typeof competenceBreadcrumbs === "undefined" ? undefined : competenceBreadcrumbs,
+      competenceIsClosed:typeof competenceIsClosed === "undefined" ? undefined : competenceIsClosed,
+      competencyAreaNavigation:typeof competencyAreaNavigation === "undefined" ? undefined : competencyAreaNavigation,
+      component:typeof component === "undefined" ? undefined : component,
+      demoBanner:typeof demoBanner === "undefined" ? undefined : demoBanner,
+      employeeName:typeof employeeName === "undefined" ? undefined : employeeName,
+      emptyState:typeof emptyState === "undefined" ? undefined : emptyState,
+      escapeHtml:typeof escapeHtml === "undefined" ? undefined : escapeHtml,
+      filesForCompetence:typeof filesForCompetence === "undefined" ? undefined : filesForCompetence,
+      filterButton:typeof filterButton === "undefined" ? undefined : filterButton,
+      formatCompetence:typeof formatCompetence === "undefined" ? undefined : formatCompetence,
+      formatDate:typeof formatDate === "undefined" ? undefined : formatDate,
+      idOf:typeof idOf === "undefined" ? undefined : idOf,
+      idsEqual:typeof idsEqual === "undefined" ? undefined : idsEqual,
+      missingContextScreen:typeof missingContextScreen === "undefined" ? undefined : missingContextScreen,
+      normalizeArgs:typeof normalizeArgs === "undefined" ? undefined : normalizeArgs,
+      pageHeader:typeof pageHeader === "undefined" ? undefined : pageHeader,
+      selectOptions:typeof selectOptions === "undefined" ? undefined : selectOptions,
+      selectedEntities:typeof selectedEntities === "undefined" ? undefined : selectedEntities,
+      statusChip:typeof statusChip === "undefined" ? undefined : statusChip,
+      statusKey:typeof statusKey === "undefined" ? undefined : statusKey,
+      valueOf:typeof valueOf === "undefined" ? undefined : valueOf
+    });
+  }
+
+  function screenConferenciaFeature() {
+    return globalThis.OnPontoScreenConferencia.create({
+      actionButton:typeof actionButton === "undefined" ? undefined : actionButton,
+      activityTimeline:typeof activityTimeline === "undefined" ? undefined : activityTimeline,
+      asArray:typeof asArray === "undefined" ? undefined : asArray,
+      closedCompetenceNotice:typeof closedCompetenceNotice === "undefined" ? undefined : closedCompetenceNotice,
+      collection:typeof collection === "undefined" ? undefined : collection,
+      companyName:typeof companyName === "undefined" ? undefined : companyName,
+      competenceBreadcrumbs:typeof competenceBreadcrumbs === "undefined" ? undefined : competenceBreadcrumbs,
+      competenceIsClosed:typeof competenceIsClosed === "undefined" ? undefined : competenceIsClosed,
+      competenceSummaryFor:typeof competenceSummaryFor === "undefined" ? undefined : competenceSummaryFor,
+      competencyAreaNavigation:typeof competencyAreaNavigation === "undefined" ? undefined : competencyAreaNavigation,
+      component:typeof component === "undefined" ? undefined : component,
+      demoBanner:typeof demoBanner === "undefined" ? undefined : demoBanner,
+      employeeName:typeof employeeName === "undefined" ? undefined : employeeName,
+      emptyState:typeof emptyState === "undefined" ? undefined : emptyState,
+      escapeHtml:typeof escapeHtml === "undefined" ? undefined : escapeHtml,
+      filterButton:typeof filterButton === "undefined" ? undefined : filterButton,
+      findById:typeof findById === "undefined" ? undefined : findById,
+      formatBalance:typeof formatBalance === "undefined" ? undefined : formatBalance,
+      formatCompetence:typeof formatCompetence === "undefined" ? undefined : formatCompetence,
+      formatDate:typeof formatDate === "undefined" ? undefined : formatDate,
+      formatDateTime:typeof formatDateTime === "undefined" ? undefined : formatDateTime,
+      formatDuration:typeof formatDuration === "undefined" ? undefined : formatDuration,
+      idOf:typeof idOf === "undefined" ? undefined : idOf,
+      idsEqual:typeof idsEqual === "undefined" ? undefined : idsEqual,
+      missingContextScreen:typeof missingContextScreen === "undefined" ? undefined : missingContextScreen,
+      normalizeArgs:typeof normalizeArgs === "undefined" ? undefined : normalizeArgs,
+      normalizeStatus:typeof normalizeStatus === "undefined" ? undefined : normalizeStatus,
+      originalPunchValues:typeof originalPunchValues === "undefined" ? undefined : originalPunchValues,
+      pageHeader:typeof pageHeader === "undefined" ? undefined : pageHeader,
+      progressIndicator:typeof progressIndicator === "undefined" ? undefined : progressIndicator,
+      selectOptions:typeof selectOptions === "undefined" ? undefined : selectOptions,
+      selectedEntities:typeof selectedEntities === "undefined" ? undefined : selectedEntities,
+      statusChip:typeof statusChip === "undefined" ? undefined : statusChip,
+      statusKey:typeof statusKey === "undefined" ? undefined : statusKey,
+      summaryItem:typeof summaryItem === "undefined" ? undefined : summaryItem,
+      utils:typeof utils === "undefined" ? undefined : utils,
+      valueOf:typeof valueOf === "undefined" ? undefined : valueOf
+    });
+  }
+
+  function screenRelatoriosFeature() {
+    return globalThis.OnPontoScreenRelatorios.create({
+      asArray:typeof asArray === "undefined" ? undefined : asArray,
+      availableSummaryValue:typeof availableSummaryValue === "undefined" ? undefined : availableSummaryValue,
+      companyBreadcrumbs:typeof companyBreadcrumbs === "undefined" ? undefined : companyBreadcrumbs,
+      companyName:typeof companyName === "undefined" ? undefined : companyName,
+      competenceBreadcrumbs:typeof competenceBreadcrumbs === "undefined" ? undefined : competenceBreadcrumbs,
+      competenceSummaryFor:typeof competenceSummaryFor === "undefined" ? undefined : competenceSummaryFor,
+      competenciesForCompany:typeof competenciesForCompany === "undefined" ? undefined : competenciesForCompany,
+      competencyAreaNavigation:typeof competencyAreaNavigation === "undefined" ? undefined : competencyAreaNavigation,
+      demoBanner:typeof demoBanner === "undefined" ? undefined : demoBanner,
+      emptyState:typeof emptyState === "undefined" ? undefined : emptyState,
+      escapeHtml:typeof escapeHtml === "undefined" ? undefined : escapeHtml,
+      formatCompetence:typeof formatCompetence === "undefined" ? undefined : formatCompetence,
+      formatDateTime:typeof formatDateTime === "undefined" ? undefined : formatDateTime,
+      idOf:typeof idOf === "undefined" ? undefined : idOf,
+      missingContextScreen:typeof missingContextScreen === "undefined" ? undefined : missingContextScreen,
+      normalizeArgs:typeof normalizeArgs === "undefined" ? undefined : normalizeArgs,
+      normalizeStatus:typeof normalizeStatus === "undefined" ? undefined : normalizeStatus,
+      pageHeader:typeof pageHeader === "undefined" ? undefined : pageHeader,
+      selectedEntities:typeof selectedEntities === "undefined" ? undefined : selectedEntities,
+      statusChip:typeof statusChip === "undefined" ? undefined : statusChip,
+      statusKey:typeof statusKey === "undefined" ? undefined : statusKey,
+      summaryItem:typeof summaryItem === "undefined" ? undefined : summaryItem,
+      valueOf:typeof valueOf === "undefined" ? undefined : valueOf
+    });
+  }
+
   function escapeHtml(value) {
     if (typeof utils.escapeHtml === "function") return utils.escapeHtml(value);
     return String(value == null ? "" : value).replace(/[&<>"']/g, function (character) {
@@ -487,56 +606,19 @@
   }
 
   function scaleTime(value) {
-    return value ? String(value).slice(0, 5) : "—";
+    return screenEscalasFeature().scaleTime(value);
   }
 
   function scaleRegimeLabel(value) {
-    return {
-      trabalha: "Trabalha",
-      compensado: "Compensado",
-      nao_trabalha: "Não trabalha",
-    }[value] || value || "—";
+    return screenEscalasFeature().scaleRegimeLabel(value);
   }
 
   function scaleScheduleLabel(scale) {
-    var mode = valueOf(scale, ["modo_apuracao", "mode"], "carga_horaria");
-    if (mode === "horario_fixo") {
-      var first = scaleTime(valueOf(scale, ["horario_entrada_prevista"], null));
-      var last = scaleTime(valueOf(scale, ["horario_saida_prevista"], null));
-      var lunchOut = scaleTime(valueOf(scale, ["horario_saida_almoco_prevista"], null));
-      var lunchReturn = scaleTime(valueOf(scale, ["horario_retorno_almoco_prevista"], null));
-      return first + "–" + last + (lunchOut !== "—" ? " · intervalo " + lunchOut + "–" + lunchReturn : "");
-    }
-    var weekday = valueOf(scale, ["jornada_seg_sex_horas"], null);
-    var saturday = valueOf(scale, ["jornada_sabado_horas"], null);
-    return (weekday == null ? "—" : weekday + " h seg–sex") + (saturday == null ? "" : " · " + saturday + " h sábado");
+    return screenEscalasFeature().scaleScheduleLabel(scale);
   }
 
   function renderCompanyScales(state, data, components) {
-    var context = normalizeArgs(state, data, components);
-    var entities = selectedEntities(context);
-    var company = entities.company;
-    if (!company) return missingContextScreen(context, "Escalas", "Abra uma empresa para visualizar suas escalas.", false);
-    var loading = valueOf(context.state, ["scalesLoading"], false) === true;
-    var error = valueOf(context.state, ["scalesError"], "");
-    var rows = entities.companyScales.map(function (scale) {
-      var active = valueOf(scale, ["active", "ativa"], true) !== false;
-      var mode = valueOf(scale, ["modo_apuracao", "mode"], "carga_horaria");
-      var tolerances = [
-        valueOf(scale, ["tolerancia_atraso_minutos"], 0) + " min atraso",
-        valueOf(scale, ["tolerancia_extra_minutos"], 0) + " min extra",
-        valueOf(scale, ["tolerancia_intervalo_minutos"], 0) + " min intervalo",
-      ].join(" · ");
-      return '<tr><td><strong>' + escapeHtml(scaleName(scale)) + '</strong></td><td>' + escapeHtml(mode === "horario_fixo" ? "Horário fixo" : "Carga horária") + '<small>' + escapeHtml(scaleScheduleLabel(scale)) + '</small></td><td>' + escapeHtml(scaleRegimeLabel(valueOf(scale, ["regime_sabado"], null))) + '</td><td>' + escapeHtml(scaleRegimeLabel(valueOf(scale, ["regime_domingo"], null))) + '</td><td><small>' + escapeHtml(tolerances) + '</small></td><td>' + statusChip(context.components, active ? "normal" : "sem_expediente", active ? "Ativa" : "Inativa") + '</td><td><div class="table-actions"><button class="table-link" type="button" data-action="edit-scale" data-scale-id="' + escapeHtml(idOf(scale)) + '">Editar</button><button class="table-link table-link--danger" type="button" data-action="deactivate-scale" data-scale-id="' + escapeHtml(idOf(scale)) + '">' + (active ? "Desativar" : "Remover") + '</button></div></td></tr>';
-    }).join("");
-    return [
-      '<section class="screen screen--company-scales" data-screen="company-scales">', demoBanner(),
-      pageHeader(context.components, { title: "Escalas", subtitle: companyName(company), breadcrumbs: companyBreadcrumbs(company, "Escalas"), actions: [{ label: "Nova escala", variant: "button--primary", action: "new-scale" }] }),
-      error ? '<div class="inline-feedback inline-feedback--error" role="alert">' + escapeHtml(error) + '</div>' : "",
-      '<section class="work-card"' + (loading ? ' aria-busy="true"' : "") + '>',
-      rows ? '<div class="table-frame"><table class="data-table"><thead><tr><th>Escala</th><th>Apuração e jornada</th><th>Sábado</th><th>Domingo</th><th>Tolerâncias</th><th>Status</th><th><span class="sr-only">Ações</span></th></tr></thead><tbody>' + rows + '</tbody></table></div>' : loading ? '<div class="empty-state"><p>Carregando escalas…</p></div>' : emptyState(context.components, "Nenhuma escala cadastrada", "Cadastre uma escala antes de vincular funcionários.", { label: "Cadastrar escala", action: "new-scale" }),
-      '</section></section>',
-    ].join("");
+    return screenEscalasFeature().renderCompanyScales(state,data,components);
   }
 
   function renderCompanyCompetencies(state, data, components) {
@@ -634,252 +716,43 @@
   }
 
   function importAnalysisCard(context, analysis) {
-    if (!analysis) return "";
-    var online = valueOf(context.state, ["apiMode"], "offline") === "online";
-    return [
-      '<section class="import-preview import-analysis-result" aria-labelledby="analysisTitle">',
-      '<div class="section-heading"><div><span class="eyebrow">' + (online ? "Análise concluída" : "Análise de demonstração concluída") + '</span><h2 id="analysisTitle">' + escapeHtml(valueOf(analysis, ["fileName", "nomeArquivo"], "Arquivo de ponto")) + "</h2></div>" + statusChip(context.components, "analisado", "Pronto para prévia") + "</div>",
-      '<dl class="summary-grid">',
-      summaryItem("Formato detectado", valueOf(analysis, ["detectedFormat", "formatoDetectado"], "—")),
-      summaryItem("Linhas válidas", valueOf(analysis, ["validLineCount", "totalLinhasValidas"], valueOf(analysis, ["recordCount"], 0))),
-      summaryItem("Funcionários", valueOf(analysis, ["employeeCount", "totalFuncionarios"], 0)),
-      summaryItem("Batidas", valueOf(analysis, ["punchCount", "totalBatidas"], 0)),
-      summaryItem("Dias", valueOf(analysis, ["dayCount", "totalDias"], 0)),
-      summaryItem("Pendências", valueOf(analysis, ["pendingCount", "totalPendencias"], 0)),
-      "</dl>",
-      '<div class="button-row"><button class="button button--primary" type="button" data-route="import-preview" data-action="open-import-preview">Ver prévia</button><button class="button button--ghost" type="button" data-action="discard-import">Descartar</button></div>',
-      "</section>",
-    ].join("");
+    return screenImportacaoFeature().importAnalysisCard(context,analysis);
   }
 
   function summaryItem(label, value) {
-    return "<div><dt>" + escapeHtml(label) + "</dt><dd>" + escapeHtml(value == null || value === "" ? "—" : value) + "</dd></div>";
+    return screenImportacaoFeature().summaryItem(label,value);
   }
 
   function renderImports(state, data, components) {
-    var context = normalizeArgs(state, data, components);
-    var entities = selectedEntities(context);
-    if (!entities.company || !entities.competence) return missingContextScreen(context, "Importações", "Selecione uma empresa e uma competência antes de adicionar arquivos.", true);
-    var analysis = valueOf(context.state, ["importAnalysis", "analiseImportacao", "analysisResult"], undefined);
-    if (analysis === undefined && valueOf(context.state, ["showImportAnalysis", "analysisVisible", "analiseVisivel"], false)) {
-      analysis = valueOf(context.data, ["importAnalysis", "analiseImportacao"], null);
-    }
-    var online = valueOf(context.state, ["apiMode"], "offline") === "online";
-    var loading = valueOf(context.state, ["importLoading"], false) === true;
-    var closed = competenceIsClosed(entities.competence);
-    var importError = valueOf(context.state, ["importError"], "");
-    var dropzone = component(context.components, ["ImportDropzone", "importDropzone"], {
-      id: "importFile",
-      inputId: "importFile",
-      action: "select-import-file",
-      accept: ".txt,.xlsx,text/plain,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      disabled: loading || closed,
-      file: valueOf(context.state, ["selectedImportFile", "arquivoSelecionado"], null),
-      title: "Arraste o arquivo aqui",
-      description: "ou escolha um arquivo do computador",
-    }, function () {
-      return '<label class="import-dropzone' + (loading || closed ? " is-disabled" : "") + '" for="importFile" data-action="open-file-picker"><span class="import-dropzone__icon" aria-hidden="true">⇧</span><strong>Arraste o arquivo aqui</strong><span>ou escolha um arquivo do computador</span><small>TXT ou XLSX de ponto · o formato é detectado automaticamente</small><input id="importFile" name="importFile" type="file" accept=".txt,.xlsx,text/plain,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" data-action="select-import-file"' + (loading || closed ? " disabled" : "") + "></label>";
-    });
-
-    return [
-      '<section class="screen screen--imports" data-screen="imports">', demoBanner(),
-      pageHeader(context.components, { title: "Importações", subtitle: companyName(entities.company) + " · " + formatCompetence(entities.competence), breadcrumbs: competenceBreadcrumbs(entities, "Importações") }),
-      competencyAreaNavigation("imports"),
-      closedCompetenceNotice(entities.competence),
-      '<section class="work-card competency-hero"><div>' + statusChip(context.components, entities.competence.status, entities.competence.statusLabel) + '</div><dl class="summary-grid summary-grid--four">' + summaryItem("Empresa", companyName(entities.company)) + summaryItem("Competência", formatCompetence(entities.competence)) + summaryItem("Arquivos recebidos", valueOf(entities.competence, ["fileCount", "quantidadeArquivos"], "—")) + summaryItem("Pendências", valueOf(entities.competence, ["pendingCount", "quantidadePendencias"], "—")) + "</dl></section>",
-      '<div class="content-grid content-grid--form">',
-      '<form class="work-card import-form" data-form="import" data-action="analyze-import"' + (closed ? ' aria-disabled="true"' : "") + ">",
-      dropzone,
-      '<div class="form-footer"><p class="helper-text">' + (closed ? "Reabra a competência para analisar novos arquivos." : online ? "A análise salva o arquivo original, mas só cria marcações depois da sua confirmação." : "A API está offline; a análise usará dados de demonstração e não enviará o arquivo.") + '</p><button class="button button--primary" type="submit" data-action="analyze-import"' + (loading || closed ? " disabled" : "") + ">" + (loading ? "Analisando..." : "Analisar arquivo") + "</button></div>",
-      "</form>",
-      '<aside class="context-note"><strong>Como funciona</strong><ol><li>O original é preservado.</li><li>O sistema sugere uma interpretação.</li><li>Você confere e corrige.</li><li>Só então confirma o resultado.</li></ol></aside>',
-      "</div>",
-      importError ? '<div class="inline-feedback inline-feedback--error" role="alert"><strong>Erro na importação</strong><span>' + escapeHtml(importError) + "</span></div>" : "",
-      importAnalysisCard(context, analysis),
-      importPendingControls(context, entities),
-      "</section>",
-    ].join("");
+    return screenImportacaoFeature().renderImports(state,data,components);
   }
 
   function importPendingRecord(file, record) {
-    return '<li>' + escapeHtml(record.data ? formatDate(record.data, true) : "Sem data") + ' · ' + escapeHtml(record.mensagem || "Registro pendente") +
-      ' <button class="text-button" type="button" data-action="discard-import-record" data-file-id="' + escapeHtml(file.id) + '" data-record-id="' + escapeHtml(record.registro_id) + '">Excluir só este</button></li>';
+    return screenImportacaoFeature().importPendingRecord(file,record);
   }
 
   function importPendingGroups(file, groups) {
-    return '<ul class="import-pending-groups">' + groups.map(function (group, index) {
-      var records = asArray(group.registros);
-      var found = group.funcionario_encontrado !== false;
-      // A falta de cadastro já aparece no selo; o texto mostra só os demais motivos.
-      var reasons = [];
-      records.forEach(function (record) {
-        String(record.mensagem || "").split(/;\s*/).forEach(function (reason) {
-          if (reason && reasons.indexOf(reason) === -1 && (found || !/não cadastrado/i.test(reason))) reasons.push(reason);
-        });
-      });
-      return '<li class="import-pending-group">' +
-        '<div class="import-pending-group__who"><strong>' + escapeHtml(group.nome_origem || "Pessoa sem nome no arquivo") + '</strong>' +
-        (group.codigo_origem ? '<small>Código no relógio: ' + escapeHtml(group.codigo_origem) + '</small>' : "") +
-        (!found ? '<span class="preview-warning preview-warning--danger">Não cadastrado no OnPonto</span>' : "") + '</div>' +
-        '<p class="import-pending-group__what">' + records.length + (records.length === 1 ? " registro pendente" : " registros pendentes") + (reasons.length ? " · " + escapeHtml(reasons.slice(0, 2).join(" / ")) : "") + '</p>' +
-        '<div class="import-pending-group__actions">' +
-        (!found ? '<button class="button button--primary" type="button" data-action="ignore-import-person" data-file-id="' + escapeHtml(file.id) + '" data-group-index="' + index + '">Ignorar nas importações</button>' : "") +
-        '<button class="button button--secondary" type="button" data-action="discard-import-group" data-file-id="' + escapeHtml(file.id) + '" data-group-index="' + index + '">Excluir ' + records.length + ' deste arquivo</button></div>' +
-        '<details class="import-pending-group__days"><summary>Ver dias</summary><ul>' + records.map(function (record) { return importPendingRecord(file, record); }).join("") + '</ul></details></li>';
-    }).join("") + '</ul>';
+    return screenImportacaoFeature().importPendingGroups(file,groups);
   }
 
   function importIgnoredPeople(context, entities) {
-    var rules = asArray((valueOf(context.data, ["ignoredPeople"], {}) || {})[String(idOf(entities.company))]);
-    if (!rules.length) return "";
-    return '<details class="work-card import-ignored"><summary>Pessoas ignoradas nas importações desta empresa (' + rules.length + ')</summary><ul>' + rules.map(function (rule) {
-      // O backend grava em UTC sem fuso; a data exibida segue o horário local.
-      var created = rule.criada_em ? new Date(String(rule.criada_em).replace(/(Z|[+-]\d{2}:\d{2})?$/, function (zone) { return zone || "Z"; })) : null;
-      var since = created && !isNaN(created.getTime()) ? " · desde " + created.toLocaleDateString("pt-BR") : "";
-      return '<li><div><strong>' + escapeHtml(rule.nome_origem || "Pessoa sem nome") + '</strong>' + (rule.codigo_origem ? '<small>Código no relógio: ' + escapeHtml(rule.codigo_origem) + '</small>' : "") +
-        '<small>' + escapeHtml(rule.justificativa) + escapeHtml(since) + '</small></div>' +
-        '<button class="text-button" type="button" data-action="unignore-import-person" data-rule-id="' + escapeHtml(rule.id) + '">Voltar a considerar</button></li>';
-    }).join("") + '</ul></details>';
+    return screenImportacaoFeature().importIgnoredPeople(context,entities);
   }
 
   function importPendingControls(context, entities) {
-    if (competenceIsClosed(entities.competence)) return "";
-    var files = filesForCompetence(context, entities.competence);
-    var groupsByFile = valueOf(context.data, ["importGroups"], {}) || {};
-    var cards = files.map(function(file){
-      var c = file.controle_importacao;
-      var pending = asArray(c && c.pendencias);
-      if (c && c.estado === "confirmada" && !pending.length) return "";
-      var cached = groupsByFile[String(file.id)];
-      var body = !pending.length ? "" : cached && cached.groups ? importPendingGroups(file, cached.groups)
-        : cached && cached.error ? '<p class="muted-text">Não foi possível agrupar por pessoa: ' + escapeHtml(cached.error) + '</p><ul class="import-pending-flat">' + pending.map(function (p) { return importPendingRecord(file, p); }).join("") + '</ul>'
-        : '<p class="muted-text" role="status">Agrupando pendências por pessoa…</p>';
-      return '<article class="work-card import-pending-file"><header class="import-pending-file__header"><div><h2>' + escapeHtml(file.name || file.nome_original) + '</h2>' +
-        (pending.length ? '<p class="helper-text">' + pending.length + (pending.length === 1 ? " registro pendente impede" : " registros pendentes impedem") + ' o fechamento da competência.</p>' : "") +
-        '</div><button class="button button--secondary" type="button" data-action="resume-import" data-file-id="' + escapeHtml(file.id) + '">Retomar análise</button></header>' + body + '</article>';
-    }).join("");
-    return (cards ? '<section class="import-pending" aria-label="Importações a resolver">' + cards + '</section>' : "") + importIgnoredPeople(context, entities);
+    return screenImportacaoFeature().importPendingControls(context,entities);
   }
 
   function rowSuggestion(row) {
-    var explicit = valueOf(row, ["interpretacaoSugerida", "suggestedLabel", "suggestionLabel"], "");
-    if (explicit) return explicit;
-    var suggestion = valueOf(row, ["suggestion", "suggested", "interpretacaoSugerida"], {}) || {};
-    return [
-      valueOf(suggestion, ["entry", "entrada"], null),
-      valueOf(suggestion, ["breakStart", "breakOut", "saidaIntervalo", "saida_intervalo", "saida_almoco"], null),
-      valueOf(suggestion, ["breakEnd", "breakIn", "retorno", "retorno_intervalo", "retorno_almoco"], null),
-      valueOf(suggestion, ["exit", "saida"], null),
-    ].map(function (time) { return time || "—"; }).join(" / ");
+    return screenImportacaoFeature().rowSuggestion(row);
   }
 
   function originalPunchValues(item) {
-    var original = valueOf(item, ["originalPunches", "batidasOriginais"], null);
-    if (!original) {
-      var nested = valueOf(item, ["original", "originalData", "dadosOriginais"], {}) || {};
-      original = valueOf(nested, ["punches", "batidas"], []);
-    }
-    return asArray(original).map(function (punch) {
-      return typeof punch === "object" ? valueOf(punch, ["value", "time", "horario"], "") : punch;
-    }).filter(Boolean);
+    return screenImportacaoFeature().originalPunchValues(item);
   }
 
   function renderImportPreview(state, data, components) {
-    var context = normalizeArgs(state, data, components);
-    var entities = selectedEntities(context);
-    if (!entities.company || !entities.competence) return missingContextScreen(context, "Prévia da importação", "Selecione uma empresa e uma competência antes de revisar a importação.", true);
-    var online = valueOf(context.state, ["apiMode"], "offline") === "online";
-    var closed = competenceIsClosed(entities.competence);
-    var stateAnalysis = valueOf(context.state, ["importAnalysis", "analiseImportacao", "analysisResult"], null);
-    var analysis = stateAnalysis || (!online ? valueOf(context.data, ["importAnalysis", "analiseImportacao"], {}) : {}) || {};
-    var analysisCompanyId = valueOf(analysis, ["companyId", "empresaId", "empresa_id"], null);
-    var analysisCompetenceId = valueOf(analysis, ["competenceId", "competenciaId", "competencia_id"], null);
-    if (!idsEqual(analysisCompanyId, idOf(entities.company)) || !idsEqual(analysisCompetenceId, idOf(entities.competence))) analysis = {};
-    var rows = asArray(valueOf(context.state, ["importPreviewRows", "linhasPrevia"], null));
-    if (!rows.length) rows = asArray(valueOf(analysis, ["rows", "linhas"], null));
-    if (!rows.length && !online) rows = collection(context.data, ["importPreviewRows", "linhasPrevia"]);
-    rows = rows.filter(function (row) {
-      return idsEqual(valueOf(row, ["companyId", "empresaId", "empresa_id"], null), idOf(entities.company)) &&
-        idsEqual(valueOf(row, ["competenceId", "competenciaId", "competencia_id"], null), idOf(entities.competence));
-    });
-    var filter = statusKey(valueOf(context.state, ["importPreviewFilter", "previewFilter", "filtroPrevia"], "all"));
-    filter = { todos: "all", pendencias: "pending", somente_pendencias: "pending" }[filter] || filter;
-    var employeeFilter = valueOf(context.state, ["importPreviewEmployeeId", "previewEmployeeId", "funcionarioPreviaId"], "");
-    var visibleRows = rows.filter(function (row) {
-      if (filter === "pending" && !valueOf(row, ["hasPendingIssue", "temPendencia"], false)) return false;
-      if (employeeFilter && !idsEqual(valueOf(row, ["employeeId", "funcionario_id"], null), employeeFilter)) return false;
-      return true;
-    });
-    var fileName = valueOf(analysis, ["fileName", "nomeArquivo"], "Nenhum arquivo analisado");
-    var hasAnalysis = Boolean(valueOf(analysis, ["fileName", "nomeArquivo"], ""));
-    var analysisSaved = valueOf(analysis, ["saved", "salva", "confirmada"], false) === true;
-    var selectedIds = asArray(valueOf(context.state, ["selectedImportRowIds", "registrosImportacaoSelecionados"], []));
-    var confirming = valueOf(context.state, ["importConfirming"], false) === true;
-    var conflicts = asArray(valueOf(context.state, ["importConflicts", "conflitosImportacao"], []));
-    var selectedCount = rows.filter(function (row) { return selectedIds.some(function (id) { return idsEqual(id, idOf(row)); }); }).length;
-    var visibleSelectable = visibleRows.filter(function (row) { return valueOf(row, ["employeeFound", "funcionarioEncontrado"], true) !== false; });
-    var visibleSelectedCount = visibleSelectable.filter(function (row) { return selectedIds.some(function (id) { return idsEqual(id, idOf(row)); }); }).length;
-    var allVisibleSelected = visibleSelectable.length > 0 && visibleSelectedCount === visibleSelectable.length;
-    var mixedVisibleSelection = visibleSelectedCount > 0 && !allVisibleSelected;
-
-    var table = visibleRows.length ? [
-      '<div class="table-frame table-frame--tall"><table class="data-table import-preview-table">',
-      '<thead><tr><th class="selection-cell"><input type="checkbox" data-action="toggle-all-import-rows" aria-label="Selecionar todos os registros importáveis visíveis"' + (allVisibleSelected ? " checked" : "") + (mixedVisibleSelection ? ' aria-checked="mixed" data-indeterminate="true"' : "") + (closed ? " disabled" : "") + '></th><th>Funcionário</th><th>Data</th><th>Batidas originais</th><th>Interpretação sugerida</th><th>Status</th><th>Pendências</th></tr></thead><tbody>',
-      visibleRows.map(function (row) {
-        var punches = originalPunchValues(row);
-        var rowId = idOf(row);
-        var employeeFound = valueOf(row, ["employeeFound", "funcionarioEncontrado"], true) !== false;
-        var outsideCompetence = valueOf(row, ["outsideCompetence", "foraDaCompetencia", "fora_da_competencia"], false) === true;
-        var selected = selectedIds.some(function (id) { return idsEqual(id, rowId); });
-        var issues = asArray(valueOf(row, ["issues", "pendencias"], [])).map(function (issue) {
-          return typeof issue === "string" ? issue : valueOf(issue, ["message", "mensagem", "detail"], "Revisão necessária.");
-        });
-        var observation = valueOf(row, ["observation", "observacao"], "") || issues.join(" ");
-        var sourceName = valueOf(row, ["employeeSourceName", "nomeFuncionarioOrigem", "employeeName", "funcionario", "nomeFuncionario"], "—");
-        var registeredName = valueOf(row, ["employeeRegisteredName", "nomeFuncionarioCadastrado"], "");
-        return [
-          '<tr class="preview-row' + (!employeeFound ? " has-unmatched-employee" : "") + (outsideCompetence ? " is-outside-competence" : "") + '" data-preview-row-id="' + escapeHtml(rowId) + '">',
-          '<td class="selection-cell"><input type="checkbox" data-action="toggle-import-row" data-preview-row-id="' + escapeHtml(rowId) + '" aria-label="Selecionar registro de ' + escapeHtml(sourceName) + '"' + (selected ? " checked" : "") + (!employeeFound || closed ? " disabled" : "") + "></td>",
-          "<td><strong>" + escapeHtml(registeredName || sourceName) + "</strong>" + (registeredName && registeredName !== sourceName ? "<small>Origem: " + escapeHtml(sourceName) + "</small>" : "") + (row.ignorado ? '<span class="preview-warning" title="' + escapeHtml(row.ignorado.justificativa || "") + '">Ignorado nas importações</span>' : !employeeFound ? '<span class="preview-warning preview-warning--danger">Funcionário não cadastrado</span>' : "") + "</td>",
-          "<td>" + escapeHtml(formatDate(valueOf(row, ["date", "data"], null), true)) + (outsideCompetence ? '<span class="preview-warning">Data fora da competência</span>' : "") + "</td>",
-          '<td><span class="original-data">' + escapeHtml(punches.length ? punches.join(", ") : "Sem batidas") + "</span></td>",
-          '<td><span class="suggested-data">' + escapeHtml(rowSuggestion(row)) + "</span></td>",
-          "<td>" + statusChip(context.components, valueOf(row, ["status", "situacao"], "conferir"), valueOf(row, ["statusLabel"], "")) + "</td>",
-          '<td class="preview-issues">' + escapeHtml(observation || "—") + "</td>",
-          "</tr>",
-        ].join("");
-      }).join(""),
-      "</tbody></table></div>",
-    ].join("") : emptyState(context.components, hasAnalysis ? "Nenhum registro neste filtro" : "Nenhuma análise disponível", hasAnalysis ? "Altere os filtros para visualizar outras linhas da prévia." : "Volte para Importações e analise um arquivo desta competência.", hasAnalysis ? null : { label: "Voltar para Importações", route: "imports", action: "navigate" });
-
-    return [
-      '<section class="screen screen--import-preview" data-screen="import-preview">', demoBanner(),
-      pageHeader(context.components, {
-        title: "Prévia da importação",
-        subtitle: "O que o sistema entendeu deste arquivo?",
-        breadcrumbs: competenceBreadcrumbs(entities, "Importações", "Prévia"),
-      }),
-      competencyAreaNavigation("imports"),
-      closedCompetenceNotice(entities.competence),
-      '<section class="work-card import-summary"><div class="section-heading"><div><span class="eyebrow">Arquivo analisado</span><h2>' + escapeHtml(fileName) + "</h2></div>" + (analysisSaved ? statusChip(context.components, "confirmed", "Importação confirmada") : '<span class="unsaved-badge">Não salvo</span>') + "</div>",
-      '<dl class="summary-grid summary-grid--four">',
-      summaryItem("Empresa", valueOf(analysis, ["companyName", "empresaNome"], companyName(entities.company))),
-      summaryItem("Competência", valueOf(analysis, ["competenceLabel", "competenciaLabel"], formatCompetence(entities.competence))),
-      summaryItem("Formato", valueOf(analysis, ["detectedFormat", "formatoDetectado"], "—")),
-      summaryItem("Funcionários", valueOf(analysis, ["employeeCount", "totalFuncionarios"], 0)),
-      summaryItem("Registros", valueOf(analysis, ["recordCount", "totalRegistros"], rows.length)),
-      summaryItem("Pendências", valueOf(analysis, ["pendingCount", "totalPendencias"], rows.filter(function (row) { return row.hasPendingIssue; }).length)),
-      summaryItem("Não cadastrados", valueOf(analysis, ["unmatchedEmployeeCount", "totalFuncionariosNaoCadastrados"], rows.filter(function (row) { return row.employeeFound === false; }).length)),
-      summaryItem("Fora da competência", valueOf(analysis, ["outsideCompetenceCount", "totalForaDaCompetencia"], rows.filter(function (row) { return row.outsideCompetence; }).length)),
-      "</dl></section>",
-      '<div class="toolbar toolbar--sticky"><div class="filter-group" role="group" aria-label="Filtrar prévia">',
-      filterButton("Todos", "all", filter, "preview"), filterButton("Somente pendências", "pending", filter, "preview"),
-      '</div><span class="preview-selection-count"><strong>' + escapeHtml(selectedCount) + "</strong> de " + escapeHtml(rows.length) + ' registros selecionados</span><label class="compact-field"><span>Funcionário</span><select data-action="filter-preview-employee"><option value="">Todos</option>' + selectOptions(entities.companyEmployees, employeeFilter, employeeName) + "</select></label></div>",
-      conflicts.length ? '<div class="inline-feedback inline-feedback--warning" role="alert"><strong>Conflitos encontrados</strong><ul>' + conflicts.map(function (conflict) { return "<li>" + escapeHtml(conflict) + "</li>"; }).join("") + "</ul></div>" : "",
-      table,
-      '<footer class="screen-actions screen-actions--sticky"><button class="button button--ghost" type="button" data-route="imports" data-action="navigate"' + (confirming ? " disabled" : "") + '>Voltar</button><div><button class="button button--danger-ghost" type="button" data-action="discard-import"' + (hasAnalysis && !confirming ? "" : " disabled") + '><span>Descartar</span></button><button class="button button--primary" type="button" data-action="save-import-start-review" data-route="review"' + (selectedCount && !confirming && !analysisSaved && !closed ? "" : " disabled") + ">" + (confirming ? "Salvando importação..." : closed ? "Competência fechada" : analysisSaved ? "Importação confirmada" : "Salvar importação e iniciar conferência") + "</button></div></footer>",
-      "</section>",
-    ].join("");
+    return screenImportacaoFeature().renderImportPreview(state,data,components);
   }
 
   function filterButton(label, filter, active, scope) {
@@ -1207,319 +1080,71 @@
   }
 
   function currentSlots(day) {
-    var current = valueOf(day, ["currentInterpretation", "interpretacaoAtual"], null);
-    if (!current) {
-      var nestedCurrent = valueOf(day, ["current", "atual"], {}) || {};
-      current = valueOf(nestedCurrent, ["slots", "horarios"], nestedCurrent);
-    }
-    if (!current) current = valueOf(day, ["suggestion", "suggested", "interpretacaoSugerida"], {}) || {};
-    return {
-      entry: valueOf(current, ["entry", "entrada"], ""),
-      breakStart: valueOf(current, ["breakStart", "breakOut", "saidaIntervalo", "saida_intervalo", "saida_almoco"], ""),
-      breakEnd: valueOf(current, ["breakEnd", "breakIn", "retorno", "retorno_intervalo", "retorno_almoco"], ""),
-      exit: valueOf(current, ["exit", "saida"], ""),
-    };
+    return screenConferenciaFeature().currentSlots(day);
   }
 
   function dayDate(day) {
-    return valueOf(day, ["date", "data"], "");
+    return screenConferenciaFeature().dayDate(day);
   }
 
   function dayStatus(day) {
-    var current = valueOf(day, ["current", "atual"], {}) || {};
-    return valueOf(current, ["situation", "status", "situacao"], valueOf(day, ["status", "situacao", "status_dia"], "conferir"));
+    return screenConferenciaFeature().dayStatus(day);
   }
 
   function dayConfirmed(day) {
-    var review = valueOf(day, ["review", "conferencia"], {}) || {};
-    var reviewState = valueOf(review, ["state", "status"], valueOf(day, ["reviewState"], ""));
-    return valueOf(day, ["confirmed", "conferido"], false) === true || ["confirmed", "conferido"].indexOf(statusKey(reviewState)) !== -1;
+    return screenConferenciaFeature().dayConfirmed(day);
   }
 
   function dayMetric(day, keys, nestedKeys) {
-    var direct = valueOf(day, keys, undefined);
-    if (direct !== undefined) return direct;
-    var current = valueOf(day, ["current", "atual"], {}) || {};
-    return valueOf(current, nestedKeys || keys, null);
+    return screenConferenciaFeature().dayMetric(day,keys,nestedKeys);
   }
 
   function reviewDays(context, entities) {
-    var days = asArray(valueOf(context.state, ["reviewDays", "attendanceDays", "diasConferencia", "dias"], null));
-    if (!days.length) days = collection(context.data, ["attendanceDays", "dias"]);
-    var employeeId = entities.employee ? idOf(entities.employee) : null;
-    var competenceId = entities.competence ? idOf(entities.competence) : null;
-    if (!employeeId || !competenceId) return [];
-    return days.filter(function (day) {
-      var dayEmployeeId = valueOf(day, ["employeeId", "funcionario_id"], null);
-      var dayCompetenceId = valueOf(day, ["competenceId", "competencia_id"], null);
-      return idsEqual(dayEmployeeId, employeeId) && idsEqual(dayCompetenceId, competenceId);
-    });
+    return screenConferenciaFeature().reviewDays(context,entities);
   }
 
   function editableTimeCell(context, day, field, value, label, readonly) {
-    return '<input class="editable-time-cell" type="text" inputmode="numeric" autocomplete="off" spellcheck="false" value="' + escapeHtml(value || "") + '" placeholder="—" aria-label="' + escapeHtml(label + " de " + formatDate(dayDate(day), true)) + '" data-action="edit-time" data-day-id="' + escapeHtml(idOf(day)) + '" data-field="' + escapeHtml(field) + '"' + (readonly ? " disabled" : "") + ">";
+    return screenConferenciaFeature().editableTimeCell(context,day,field,value,label,readonly);
   }
 
   function dayPresentation(context, day) {
-    if (day.problema === true) return '<span class="day-problem"><span aria-hidden="true">⚠</span>' + escapeHtml(day.problemLabel || day.problema_rotulo || "Problema") + '</span>';
-    return statusChip(context.components, day.effectiveStatus || dayStatus(day), day.effectiveStatus === "fora_vinculo" ? "Fora do vínculo" : day.effectiveStatus === "feriado" ? "Feriado" : valueOf(day, ["statusLabel"], ""));
+    return screenConferenciaFeature().dayPresentation(context,day);
   }
 
   function fallbackAttendanceTable(context, days, selectedDay, selectedIds, readonly) {
-    if (!days.length) return emptyState(context.components, "Nenhum dia neste filtro", "Escolha outro filtro ou funcionário.");
-    return [
-      '<div class="attendance-table-wrap" tabindex="0"><table class="attendance-table" data-density="compact" aria-label="Conferência diária">',
-      '<thead><tr>' + (readonly ? "" : '<th scope="col" class="select-column"><input type="checkbox" data-action="toggle-all-days" aria-label="Selecionar todos os dias visíveis"></th>') + '<th scope="col" class="attendance-table__day-heading">Dia</th><th scope="col">Atenção</th><th scope="col" class="attendance-table__time-heading">Entrada</th><th scope="col" class="attendance-table__time-heading">Saída intervalo</th><th scope="col" class="attendance-table__time-heading">Retorno</th><th scope="col" class="attendance-table__time-heading">Saída</th><th scope="col" class="attendance-table__number-heading">Jornada</th><th scope="col" class="attendance-table__number-heading">Saldo</th><th scope="col">Situação</th><th scope="col">Observação</th></tr></thead><tbody>',
-      days.map(function (day) {
-        var slots = currentSlots(day);
-        var selected = selectedDay && idsEqual(idOf(day), idOf(selectedDay));
-        var checked = selectedIds.some(function (id) { return idsEqual(id, idOf(day)); });
-        var worked = dayMetric(day, ["workedMinutes", "jornadaApuradaMinutos"], ["workedMinutes", "apuradaMinutos"]);
-        var balance = dayMetric(day, ["balanceMinutes", "saldoMinutos"], ["balanceMinutes", "saldoMinutos"]);
-        return [
-          '<tr class="attendance-row' + (selected ? " is-selected" : "") + (dayConfirmed(day) ? " is-confirmed" : "") + '" data-day-id="' + escapeHtml(idOf(day)) + '">',
-          readonly ? "" : '<td class="select-column"><input type="checkbox" data-action="toggle-day-selection" data-day-id="' + escapeHtml(idOf(day)) + '" aria-label="Selecionar ' + escapeHtml(formatDate(dayDate(day), true)) + '"' + (checked ? " checked" : "") + "></td>",
-          '<th scope="row"><button class="day-selector" type="button" data-action="select-day" data-day-id="' + escapeHtml(idOf(day)) + '" aria-controls="day-details-panel"' + (selected ? ' aria-current="date"' : "") + '><strong class="day-number">' + escapeHtml(valueOf(day, ["day"], String(dayDate(day)).slice(-2))) + "</strong><span>" + escapeHtml(valueOf(day, ["weekdayShort"], typeof utils.formatWeekday === "function" ? utils.formatWeekday(dayDate(day)) : "")) + "</span></button></th>",
-          '<td class="problem-cell">' + (day.problema === true ? dayPresentation(context, day) : "") + "</td>",
-          "<td>" + editableTimeCell(context, day, "entry", slots.entry, "Entrada", readonly) + "</td>",
-          "<td>" + editableTimeCell(context, day, "breakStart", slots.breakStart, "Saída do intervalo", readonly) + "</td>",
-          "<td>" + editableTimeCell(context, day, "breakEnd", slots.breakEnd, "Retorno do intervalo", readonly) + "</td>",
-          "<td>" + editableTimeCell(context, day, "exit", slots.exit, "Saída", readonly) + "</td>",
-          '<td class="duration-cell">' + escapeHtml(formatDuration(worked)) + "</td>",
-          '<td class="balance-cell balance-cell--' + (Number(balance) > 0 ? "positive" : Number(balance) < 0 ? "negative" : "neutral") + '">' + escapeHtml(formatBalance(balance)) + "</td>",
-          "<td>" + dayPresentation(context, day) + "</td>",
-          '<td><input class="observation-cell" type="text" value="' + escapeHtml(valueOf(day, ["observation", "observacao"], "")) + '" aria-label="Observação de ' + escapeHtml(formatDate(dayDate(day), true)) + '" data-action="edit-observation" data-day-id="' + escapeHtml(idOf(day)) + '"' + (readonly ? " disabled" : "") + "></td>",
-          "</tr>",
-        ].join("");
-      }).join(""),
-      "</tbody></table></div>",
-    ].join("");
+    return screenConferenciaFeature().fallbackAttendanceTable(context,days,selectedDay,selectedIds,readonly);
   }
 
   function autosaveIndicator(context) {
-    var status = valueOf(context.state, ["autosaveStatus", "saveStatus", "estadoSalvamento"], "saved");
-    return component(context.components, ["AutosaveIndicator", "autosaveIndicator"], { status: status, state: status }, function () {
-      var meta = {
-        saving: { icon: "…", text: "Salvando..." },
-        saved: { icon: "✓", text: "Alterações salvas" },
-        unsaved: { icon: "!", text: "Alterações não salvas" },
-        error: { icon: "×", text: "Erro ao salvar" },
-      }[status] || { icon: "✓", text: "Alterações salvas" };
-      return '<span class="autosave-indicator autosave-indicator--' + escapeHtml(status) + '" role="status"><span aria-hidden="true">' + meta.icon + "</span>" + meta.text + "</span>";
-    });
+    return screenConferenciaFeature().autosaveIndicator(context);
   }
 
   function originalPunchesList(context, day) {
-    var punches = originalPunchValues(day);
-    var details = asArray(valueOf(day, ["originalPunchDetails", "detalhesBatidasOriginais"], null));
-    return component(context.components, ["OriginalPunchesList", "originalPunchesList"], {
-      day: day,
-      punches: details.length ? details : punches,
-      readonly: true,
-    }, function () {
-      if (!punches.length) return '<p class="muted-text">Nenhuma batida no arquivo original.</p>';
-      return '<ol class="original-punches-list" aria-label="Batidas originais somente leitura">' + punches.map(function (punch, index) {
-        var detail = details[index] || {};
-        var line = valueOf(detail, ["sourceLine", "linhaOrigem", "line"], null);
-        return '<li><time>' + escapeHtml(punch) + "</time>" + (line ? "<small>Linha " + escapeHtml(line) + "</small>" : "") + "</li>";
-      }).join("") + "</ol>";
-    });
+    return screenConferenciaFeature().originalPunchesList(context,day);
   }
 
   function dayTimeline(context, day) {
-    var history = asArray(valueOf(day, ["history", "historico"], null));
-    return (day.occurrenceLabel ? '<p class="context-note"><strong>' + escapeHtml(day.occurrenceLabel) + '</strong> · Abono calculado: ' + escapeHtml(day.excusedMinutes || 0) + ' min. As batidas permanecem preservadas.</p>' : "") + activityTimeline(context, history.map(function (item) {
-      return {
-        title: valueOf(item, ["title", "description", "descricao"], "Atividade"),
-        description: valueOf(item, ["description", "descricao"], ""),
-        at: valueOf(item, ["at", "data"], null),
-        actor: valueOf(item, ["actor", "autor"], ""),
-      };
-    }));
+    return screenConferenciaFeature().dayTimeline(context,day);
   }
 
   function contextActions(day) {
-    var punches = originalPunchValues(day);
-    var status = normalizeStatus(dayStatus(day));
-    if (dayConfirmed(day)) {
-      return [{ label: "Reabrir conferência", action: "reopen-day", variant: "button--secondary" }];
-    }
-    if (!punches.length) {
-      return [
-        { label: "Registrar falta", action: "set-day-absence" },
-        { label: "Adicionar atestado", action: "set-day-certificate" },
-        { label: "Registrar folga", action: "set-day-dayoff" },
-        { label: "Inserir horários manualmente", action: "focus-first-time", variant: "button--secondary" },
-        { label: "Marcar como sem expediente", action: "set-day-no-schedule", variant: "button--ghost" },
-      ];
-    }
-    if (["conferir", "inconsistente"].indexOf(status) !== -1) {
-      return [
-        { label: "Adicionar atestado", action: "set-day-certificate" },
-        { label: "Corrigir marcações", action: "focus-first-time" },
-        { label: "Manter interpretação", action: "keep-interpretation" },
-        { label: "Adicionar observação", action: "focus-observation", variant: "button--secondary" },
-        { label: "Marcar como conferido", action: "confirm-day", variant: "button--primary" },
-      ];
-    }
-    return [{ label: "Adicionar atestado", action: "set-day-certificate" },
-      { label: "Marcar dia como conferido", action: "confirm-day", variant: "button--primary" }];
+    return screenConferenciaFeature().contextActions(day);
   }
 
   function fallbackDayDetailsPanel(context, day, readonly) {
-    if (!day) return emptyState(context.components, "Selecione um dia", "Os detalhes e as batidas originais aparecerão aqui.");
-    var slots = currentSlots(day);
-    var source = valueOf(day, ["source", "origem"], {}) || {};
-    var issues = asArray(valueOf(day, ["issues", "pendencias"], null));
-    var expected = dayMetric(day, ["expectedMinutes", "jornadaPrevistaMinutos"], ["expectedMinutes", "previstaMinutos"]);
-    var worked = dayMetric(day, ["workedMinutes", "jornadaApuradaMinutos"], ["workedMinutes", "apuradaMinutos"]);
-    var balance = dayMetric(day, ["balanceMinutes", "saldoMinutos"], ["balanceMinutes", "saldoMinutos"]);
-    return [
-      '<aside id="day-details-panel" class="day-details-panel" aria-label="Detalhes do dia selecionado" data-day-id="' + escapeHtml(idOf(day)) + '">',
-      '<header class="day-details-panel__header"><div><span class="eyebrow">' + escapeHtml(valueOf(day, ["weekday"], "Dia selecionado")) + '</span><h2>' + escapeHtml(formatDate(dayDate(day))) + "</h2></div>" + dayPresentation(context, day) + "</header>",
-      (day.calendarNote ? '<p class="context-note">' + escapeHtml(day.calendarNote) + '</p>' : ''),
-      '<section><h3>Batidas originais <span class="readonly-label">Somente leitura</span></h3>' + originalPunchesList(context, day) + "</section>",
-      '<section><h3>Interpretação atual</h3><dl class="detail-grid">',
-      summaryItem("Entrada", slots.entry || "—"), summaryItem("Saída intervalo", slots.breakStart || "—"), summaryItem("Retorno", slots.breakEnd || "—"), summaryItem("Saída", slots.exit || "—"),
-      summaryItem("Jornada prevista", formatDuration(expected)), summaryItem("Jornada apurada", formatDuration(worked)), summaryItem("Saldo", formatBalance(balance)),
-      "</dl><p class=\"difference-reason\"><strong>Motivo da diferença:</strong> " + escapeHtml(valueOf(day, ["differenceReason", "motivoDiferenca"], "Sem diferença relevante informada.") || "Sem diferença relevante informada.") + "</p></section>",
-      '<section><h3>Pendências</h3>' + (issues.length ? '<ul class="issue-list">' + issues.map(function (issue) { return '<li class="issue-list__item"><span aria-hidden="true">!</span><span>' + escapeHtml(typeof issue === "string" ? issue : valueOf(issue, ["message", "mensagem"], "Revisão necessária.")) + "</span></li>"; }).join("") + "</ul>" : '<p class="muted-text">Nenhuma pendência ativa.</p>') + "</section>",
-      '<section><h3>Origem</h3><dl class="source-details">' + summaryItem("Arquivo", valueOf(source, ["fileName", "arquivo", "nomeArquivo"], "—")) + summaryItem("Importado em", formatDateTime(valueOf(source, ["importedAt", "importadoEm"], null))) + summaryItem("Linhas de origem", asArray(valueOf(source, ["sourceLines", "linhasOrigem"], [])).join(", ") || "—") + '</dl><div class="button-row"><button class="button button--secondary" type="button" data-action="open-original-file" data-file-id="' + escapeHtml(valueOf(source, ["fileId"], "")) + '">Ver arquivo original</button><button class="button button--ghost" type="button" data-action="open-source-region">Ver região de origem</button></div></section>',
-      '<section><h3>Histórico do dia</h3>' + dayTimeline(context, day) + "</section>",
-      '<section class="context-actions"><h3>Ações</h3>' + (readonly
-        ? '<p class="muted-text" role="note">Competência fechada: este dia está disponível somente para consulta.</p>'
-        : '<div class="context-actions__buttons">' + contextActions(day).map(function (action) {
-          return actionButton({ label: action.label, action: action.action, variant: action.variant || "button--secondary", attributes: ' data-day-id="' + escapeHtml(idOf(day)) + '"' });
-        }).join("") + "</div>") + "</section>",
-      "</aside>",
-    ].join("");
+    return screenConferenciaFeature().fallbackDayDetailsPanel(context,day,readonly);
   }
 
   function dayForComponents(day) {
-    if (!day) return null;
-    var source = valueOf(day, ["source", "origem"], {}) || {};
-    var original = valueOf(day, ["original", "dadosOriginais"], {}) || {};
-    var details = asArray(valueOf(day, ["originalPunchDetails", "detalhesBatidasOriginais"], []));
-    var punches = details.length ? details.map(function (punch) {
-      return Object.assign({}, punch, {
-        value: valueOf(punch, ["value", "time", "horario"], ""),
-        line: valueOf(punch, ["line", "sourceLine", "linhaOrigem"], null),
-        page: valueOf(punch, ["page", "pagina"], null),
-        region: valueOf(punch, ["region", "regiao"], null),
-      });
-    }) : originalPunchValues(day);
-    var current = Object.assign({}, valueOf(day, ["current", "currentInterpretation", "interpretacaoAtual"], {}) || {}, currentSlots(day), {
-      situation: dayStatus(day),
-      observation: valueOf(day, ["observation", "observacao"], ""),
-      expectedMinutes: dayMetric(day, ["expectedMinutes", "jornadaPrevistaMinutos"], ["expectedMinutes", "previstaMinutos"]),
-      workedMinutes: dayMetric(day, ["workedMinutes", "jornadaApuradaMinutos"], ["workedMinutes", "apuradaMinutos"]),
-      balanceMinutes: dayMetric(day, ["balanceMinutes", "saldoMinutos"], ["balanceMinutes", "saldoMinutos"]),
-      differenceReason: valueOf(day, ["differenceReason", "motivoDiferenca"], ""),
-    });
-    return Object.assign({}, day, {
-      current: current,
-      original: Object.assign({}, original, source, {
-        punches: punches,
-        fileId: valueOf(source, ["fileId"], valueOf(original, ["fileId"], null)),
-        fileName: valueOf(source, ["fileName", "arquivo", "nomeArquivo"], valueOf(original, ["fileName"], null)),
-        importedAt: valueOf(source, ["importedAt", "importadoEm"], valueOf(original, ["importedAt"], null)),
-        lines: asArray(valueOf(source, ["sourceLines", "linhasOrigem"], valueOf(original, ["lines"], []))),
-        region: valueOf(source, ["region", "regiao"], valueOf(original, ["region"], null)) || (valueOf(source, ["canOpenRegion"], false) ? "Região de origem disponível" : null),
-      }),
-    });
+    return screenConferenciaFeature().dayForComponents(day);
   }
 
   function employeeSearchField(context) {
-    return '<label class="employee-search"><span class="sr-only">Buscar funcionário por nome ou ID, de exibição ou original</span><input type="search" data-action="search-employees" placeholder="Buscar nome ou ID (OnPonto ou ponto)" value="' + escapeHtml(context.state.employeeSearch || "") + '"></label>';
+    return screenConferenciaFeature().employeeSearchField(context);
   }
 
   function renderReview(state, data, components) {
-    var context = normalizeArgs(state, data, components);
-    var entities = selectedEntities(context);
-    if (!entities.company || !entities.competence) return missingContextScreen(context, "Conferência", "Selecione uma empresa e uma competência antes de abrir a conferência.", true);
-    var closed = competenceIsClosed(entities.competence);
-    var summary = competenceSummaryFor(context, entities.competence);
-    var problemRows = summary && summary.rows || [];
-    var nextProblem = utils.nextProblemEmployee(entities.companyEmployees, problemRows, entities.employee && idOf(entities.employee));
-    var matchingEmployees = entities.companyEmployees.filter(function (employee) { return utils.employeeMatches(employee, context.state.employeeSearch); });
-    function employeeOption(employee) {
-      var row = problemRows.find(function (row) { return idsEqual(row.employeeId, idOf(employee)); });
-      var count = row && row.pending;
-      return employeeName(employee) + " · " + valueOf(employee, ["codigo_exibicao", "code", "codigo"], "—") + " · " +
-        (count == null ? "problemas: —" : count + (Number(count) === 1 ? " problema" : " problemas"));
-    }
-    var allDays = reviewDays(context, entities);
-    var filter = statusKey(valueOf(context.state, ["reviewFilter", "attendanceFilter", "filtroConferencia"], "all"));
-    filter = {
-      todos: "all",
-      todos_os_dias: "all",
-      pendencias: "pending",
-      nao_conferidos: "unconfirmed",
-      ausencias: "absences",
-    }[filter] || filter;
-    var days = allDays.filter(function (day) {
-      var normalized = normalizeStatus(dayStatus(day));
-      var issues = asArray(valueOf(day, ["issues", "pendencias"], []));
-      if (filter === "pending") return day.problema !== undefined ? day.problema : day.pendingCalculation === true || issues.some(function(issue){return !issue.resolved && issue.type !== "review" && issue.type !== "manual_change";});
-      if (filter === "unconfirmed") return !dayConfirmed(day);
-      if (filter === "absences") return ["falta", "falta_justificada", "atestado", "folga", "afastamento"].indexOf(normalized) !== -1;
-      return true;
-    });
-    var selectedDayId = valueOf(context.state, ["selectedDayId", "dayId", "diaSelecionadoId"], null);
-    var selectedDay = findById(allDays, selectedDayId) || days[0] || allDays[0] || null;
-    var selection = closed ? [] : asArray(valueOf(context.state, ["selectedDayIds", "bulkSelection", "diasSelecionados"], []));
-    var progressItems = collection(context.data, ["employeeProgress", "progressoFuncionarios"]);
-    var employeeProgress = progressItems.find(function (item) { return entities.employee && idsEqual(valueOf(item, ["employeeId", "funcionario_id"], null), idOf(entities.employee)); }) || {};
-    var position = valueOf(employeeProgress, ["position", "posicao"], Math.max(1, entities.companyEmployees.indexOf(entities.employee) + 1));
-    var totalEmployees = valueOf(employeeProgress, ["totalEmployees", "totalFuncionarios"], entities.companyEmployees.length);
-    var confirmedDays = valueOf(employeeProgress, ["confirmedDayCount", "diasConferidos"], allDays.filter(dayConfirmed).length);
-    var eligibleDays = valueOf(employeeProgress, ["eligibleDayCount", "totalDias"], allDays.length);
-    var reviewLoading = valueOf(context.state, ["reviewLoading"], false) === true;
-    var table = reviewLoading && !allDays.length ? '<div class="review-loading" role="status"><strong>Carregando marcações...</strong><span>Buscando os dados persistidos desta competência.</span></div>' : component(context.components, ["AttendanceTable", "attendanceTable"], {
-      days: days,
-      rows: days,
-      selectedDayId: selectedDay ? idOf(selectedDay) : null,
-      selectedIds: selection,
-      bulkSelection: selection,
-      selectable: !closed,
-      readonly: closed,
-    }, function () { return fallbackAttendanceTable(context, days, selectedDay, selection, closed); });
-    var componentDay = dayForComponents(selectedDay);
-    var panel = component(context.components, ["DayDetailsPanel", "dayDetailsPanel"], {
-      day: componentDay,
-      selectedDay: componentDay,
-      readonly: closed,
-      file: componentDay ? {
-        id: valueOf(componentDay.original, ["fileId"], null),
-        name: valueOf(componentDay.original, ["fileName"], null),
-        importedAt: valueOf(componentDay.original, ["importedAt"], null),
-      } : null,
-    }, function () { return fallbackDayDetailsPanel(context, selectedDay, closed); });
-
-    return [
-      '<section class="screen screen--review" data-screen="review">', demoBanner(),
-      pageHeader(context.components, {
-        title: "Conferência",
-        subtitle: companyName(entities.company) + " · " + formatCompetence(entities.competence),
-        breadcrumbs: competenceBreadcrumbs(entities, "Conferência"),
-        actions: [{ label: closed ? "Somente leitura" : "Salvar agora", action: "save-now", variant: "primary", disabled: closed }],
-      }),
-      competencyAreaNavigation("review"),
-      closedCompetenceNotice(entities.competence),
-      '<section class="review-toolbar work-card">',
-      employeeSearchField(context),
-      '<button class="button button--secondary next-problem" type="button" data-action="next-problem-employee"' + (!nextProblem ? ' disabled' : '') + '>' + (nextProblem ? 'Próximo com problema →' : 'Sem próximo com problema') + '</button>',
-
-      '<div class="employee-navigation"><button class="icon-button" type="button" data-action="previous-employee" aria-label="Funcionário anterior" title="Funcionário anterior (Alt + ↑)">←</button><label><span class="sr-only">Funcionário</span><select data-action="select-review-employee">' + (context.state.employeeSearch ? '<option value="">Selecione um resultado (' + matchingEmployees.length + ')</option>' : "") + selectOptions(matchingEmployees, entities.employee ? idOf(entities.employee) : "", employeeOption) + '</select></label><button class="icon-button" type="button" data-action="next-employee" aria-label="Próximo funcionário" title="Próximo funcionário (Alt + ↓)">→</button><span class="position-label">' + escapeHtml(position) + " de " + escapeHtml(totalEmployees) + " funcionários</span></div>",
-      '<button class="button button--secondary" type="button" data-action="open-employee-timesheet" data-employee-id="' + escapeHtml(entities.employee ? idOf(entities.employee) : "") + '"' + (!entities.employee || context.state.apiMode !== "online" ? " disabled" : "") + '>Emitir espelho</button>',
-      '<details class="employee-origin"><summary>Identificação no ponto</summary><p>Nome original: ' + escapeHtml(entities.employee && entities.employee.nome || "—") + '<br>Código original: ' + escapeHtml(entities.employee && entities.employee.codigo || "—") + '</p></details>',
-      '<div class="review-progress">' + progressIndicator(context.components, confirmedDays, eligibleDays, "Progresso") + (closed ? '<span class="autosave-indicator" role="status">Somente leitura</span>' : autosaveIndicator(context)) + "</div>",
-      '<div class="filter-group review-filters" role="group" aria-label="Filtrar dias">' + filterButton("Todos os dias", "all", filter, "review") + filterButton("Problemas", "pending", filter, "review") + filterButton("Não conferidos", "unconfirmed", filter, "review") + filterButton("Ausências", "absences", filter, "review") + "</div>",
-      "</section>",
-      '<section class="bulk-actions' + (selection.length ? " is-active" : "") + '" aria-label="Ações em massa" aria-live="polite"><strong>' + (closed ? "Ações indisponíveis enquanto a competência estiver fechada" : selection.length + " registro" + (selection.length === 1 ? "" : "s") + " selecionado" + (selection.length === 1 ? "" : "s")) + '</strong><div><button class="button button--secondary" type="button" data-action="bulk-confirm" data-bulk-action="confirm"' + (closed || !selection.length ? " disabled" : "") + '>Marcar como conferidos</button><button class="button button--secondary" type="button" data-action="bulk-set-status" data-bulk-action="set_status"' + (closed || !selection.length ? " disabled" : "") + '>Definir situação</button><button class="button button--secondary" type="button" data-action="bulk-add-observation" data-bulk-action="add_observation"' + (closed || !selection.length ? " disabled" : "") + ">Adicionar observação</button></div><small>As batidas originais nunca serão alteradas.</small></section>",
-      '<div class="review-layout"><section class="review-grid" aria-label="Tabela de conferência">' + table + '</section><div class="review-context">' + panel + "</div></div>",
-      "</section>",
-    ].join("");
+    return screenConferenciaFeature().renderReview(state,data,components);
   }
 
   function renderOcr(state, data, components) {
@@ -1566,72 +1191,23 @@
   }
 
   function competencyExportContent(context, entities) {
-    var competence = entities.competence;
-    var online = valueOf(context.state, ["apiMode"], "offline") === "online";
-    var exporting = valueOf(context.state, ["exportExcelLoading"], false) === true;
-    var summary = online ? competenceSummaryFor(context, competence) : null;
-    var general = summary && summary.general || {};
-    var pendingValue = online ? availableSummaryValue(general.pending) : Number(valueOf(competence, ["pendingCount", "quantidadePendencias"], "—"));
-    var employeeTotal = online && general.employees !== null && general.employees !== undefined && general.employees !== "" ? Number(general.employees) : null;
-    var confirmedTotal = online && general.confirmed !== null && general.confirmed !== undefined && general.confirmed !== "" ? Number(general.confirmed) : null;
-    var pendingTotal = online && general.pending !== null && general.pending !== undefined && general.pending !== "" ? Number(general.pending) : Number(pendingValue);
-    var progress = online
-      ? (Number.isFinite(employeeTotal) && employeeTotal > 0 && Number.isFinite(confirmedTotal) ? Math.round((confirmedTotal / employeeTotal) * 100) + "%" : "Indisponível")
-      : valueOf(competence, ["progress", "progresso"], "—") + "%";
-    var hasUnavailableRows = online && summary && asArray(summary.rows).some(function (row) {
-      var situation = statusKey(row.situation);
-      return !situation || situation === "indisponivel" || situation === "unavailable";
-    });
-    var readinessStatus = online
-      ? (!summary || progress === "Indisponível" || !Number.isFinite(pendingTotal) || hasUnavailableRows
-        ? statusChip(context.components, "sem_expediente", "Apuração indisponível")
-        : statusChip(context.components, pendingTotal > 0 ? "conferir" : "normal", pendingTotal > 0 ? "Revisão recomendada" : "Pronto para exportar"))
-      : statusChip(context.components, pendingValue ? "conferir" : "normal", pendingValue ? "Revisão recomendada" : "Pronto para exportar");
-    return [
-      '<div class="report-grid">',
-      reportCard("Resumo da competência", "Visão consolidada de saldo, ausências e pendências por funcionário.", "Abrir prévia", "preview-summary-report"),
-      reportCard("Planilha de conferência", "Exportação operacional com as marcações e o resultado atual da conferência.", exporting ? "Gerando..." : "Exportar Excel", "export-excel", { disabled: exporting, busy: exporting }),
-      reportCard("Relatório para impressão", "Layout limpo para imprimir ou salvar como PDF no navegador.", "Abrir impressão", "open-print-report"),
-      reportCard("Espelhos de ponto (todos os funcionários)", "Um espelho por funcionário, pronto para impressão e assinatura.", "Abrir espelhos", "open-espelhos-lote"),
-      "</div>",
-      '<section class="work-card report-readiness"><div class="section-heading"><div><h2>Prontidão para exportação</h2><p>' + (online ? "Indicadores da apuração mais recente desta competência." : "Os indicadores abaixo são simulados.") + "</p></div>" + readinessStatus + '</div><dl class="summary-grid summary-grid--four">' + summaryItem("Empresa", companyName(entities.company)) + summaryItem("Competência", formatCompetence(competence)) + summaryItem("Progresso", progress) + summaryItem("Pendências", pendingValue) + "</dl></section>",
-    ].join("");
+    return screenRelatoriosFeature().competencyExportContent(context,entities);
   }
 
   function renderCompetencyExports(state, data, components) {
-    var context = normalizeArgs(state, data, components);
-    var entities = selectedEntities(context);
-    if (!entities.company || !entities.competence) return missingContextScreen(context, "Exportações", "Selecione uma empresa e uma competência antes de exportar.", true);
-    return '<section class="screen screen--competency-exports" data-screen="competency-exports">' + demoBanner() + pageHeader(context.components, {
-      title: "Exportações",
-      subtitle: companyName(entities.company) + " · " + formatCompetence(entities.competence),
-      breadcrumbs: competenceBreadcrumbs(entities, "Exportações"),
-    }) + competencyAreaNavigation("competency-exports") + competencyExportContent(context, entities) + "</section>";
+    return screenRelatoriosFeature().renderCompetencyExports(state,data,components);
   }
 
   function renderCompanyReports(state, data, components) {
-    var context = normalizeArgs(state, data, components);
-    var entities = selectedEntities(context);
-    if (!entities.company) return missingContextScreen(context, "Relatórios", "Abra uma empresa para visualizar seus relatórios.", false);
-    var competencies = competenciesForCompany(entities, entities.company);
-    var totalPending = competencies.reduce(function (total, competence) { return total + Number(valueOf(competence, ["pendingCount", "quantidadePendencias"], "—")); }, 0);
-    var rows = competencies.map(function (competence) {
-      return '<tr><td><strong>' + escapeHtml(formatCompetence(competence)) + "</strong></td><td>" + statusChip(context.components, competence.status, competence.statusLabel) + "</td><td>" + escapeHtml(valueOf(competence, ["progress", "progresso"], "—")) + "%</td><td>" + escapeHtml(valueOf(competence, ["pendingCount", "quantidadePendencias"], "—")) + "</td><td>" + escapeHtml(formatDateTime(valueOf(competence, ["updatedAt", "updated_at"], null))) + '</td><td><button class="table-link" type="button" data-action="open-competence-area" data-competence-id="' + escapeHtml(idOf(competence)) + '" data-route="competency-exports">Abrir exportações</button></td></tr>';
-    }).join("");
-    return '<section class="screen screen--company-reports" data-screen="company-reports">' + demoBanner() + pageHeader(context.components, {
-      title: "Relatórios",
-      subtitle: companyName(entities.company),
-      breadcrumbs: companyBreadcrumbs(entities.company, "Relatórios"),
-    }) + '<section class="work-card competency-hero"><dl class="summary-grid">' + summaryItem("Competências", competencies.length) + summaryItem("Em conferência", competencies.filter(function (item) { return normalizeStatus(item.status) === "em_conferencia"; }).length) + summaryItem("Conferidas", competencies.filter(function (item) { return normalizeStatus(item.status) === "conferida"; }).length) + summaryItem("Fechadas", competencies.filter(function (item) { return normalizeStatus(item.status) === "fechada"; }).length) + summaryItem("Problemas", Number.isFinite(totalPending) ? totalPending : "—") + '</dl></section><section class="work-card"><div class="section-heading"><div><h2>Relatórios por competência</h2><p>Escolha uma competência para gerar suas saídas.</p></div></div>' + (rows ? '<div class="table-frame"><table class="data-table"><thead><tr><th>Competência</th><th>Status</th><th>Progresso</th><th>Pendências</th><th>Atualização</th><th><span class="sr-only">Ação</span></th></tr></thead><tbody>' + rows + "</tbody></table></div>" : emptyState(context.components, "Nenhuma competência", "Crie uma competência antes de gerar relatórios.", { label: "Criar competência", action: "new-competence" })) + "</section></section>";
+    return screenRelatoriosFeature().renderCompanyReports(state,data,components);
   }
 
   function renderReports(state, data, components) {
-    return renderCompanyReports(state, data, components);
+    return screenRelatoriosFeature().renderReports(state,data,components);
   }
 
   function reportCard(title, description, label, action, options) {
-    var settings = options || {};
-    return '<article class="report-card"><span class="report-card__icon" aria-hidden="true">▤</span><h2>' + escapeHtml(title) + "</h2><p>" + escapeHtml(description) + '</p><button class="button button--secondary" type="button" data-action="' + escapeHtml(action) + '"' + (settings.busy ? ' aria-busy="true"' : "") + (settings.disabled ? " disabled" : "") + ">" + escapeHtml(label) + "</button></article>";
+    return screenRelatoriosFeature().reportCard(title,description,label,action,options);
   }
 
   function renderRegistrations(state, data, components) {

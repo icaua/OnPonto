@@ -10,7 +10,7 @@ function extract(name) {
 }
 function setup() {
   const c={URLSearchParams, localStorage:{getItem:()=>null}}; c.window=c;
-  vm.createContext(c);
+  require('./module-loader.cjs').context(c);
   for (const file of ['mocks','utils','components','screens']) vm.runInContext(fs.readFileSync(path.join(__dirname,'../js/'+file+'.js'),'utf8'),c);
   vm.runInContext(source.replace('\n  init();','\n  root.testApp={state,data,normalizeEmployee,applyApurationDetails};'),c);
   return c;

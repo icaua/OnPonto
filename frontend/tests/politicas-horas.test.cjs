@@ -4,7 +4,7 @@ const fs=require('node:fs');
 const path=require('node:path');
 const vm=require('node:vm');
 function setup(){
-  const c={URLSearchParams,localStorage:{getItem:()=>null}};c.window=c;vm.createContext(c);
+  const c={URLSearchParams,localStorage:{getItem:()=>null}};c.window=c;require('./module-loader.cjs').context(c);
   for(const f of ['mocks','utils','components','screens','banco-horas']) vm.runInContext(fs.readFileSync(path.join(__dirname,'../js/'+f+'.js'),'utf8'),c);
   vm.runInContext(fs.readFileSync(path.join(__dirname,'../app.js'),'utf8').replace('\n  init();','\n root.testApi={hourPolicyFields,hourPolicyPayload,normalizeCompetenceSummary};'),c);
   return c;
