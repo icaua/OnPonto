@@ -25,7 +25,7 @@ Não haverá merge automático. Somente dados fictícios/temporários são usado
 | 06 | validado | `64d2526` | backend 412/412; Node 102/102; navegador/migração/compileall/diff OK | nenhuma trabalhista; reenvio idempotente | `06-importacao.json`, 3 portes | nenhum |
 | 07 | validado | `cbd5fd1` | backend 413/413; Node 108/108; navegador ciclo completo OK | módulos e conferência por funcionário | `07-frontend-50.json` | nenhum |
 | 08 | validado | `7e838ec` | backend 415/415; Node 108/108; restore ampliado 4/4 | recuperação/índices/distribuição | `08-indices.json`, `08-custo-indices.json`, `08-final-1000.json` | nenhum |
-| 09 | validado | commit deste checkpoint | backend 425/425; Node 110/110; navegador completo OK | sessão/origens/arquivos; nenhuma regra trabalhista | `09-seguranca-50.json`; OSV 25 pacotes/0 advisories | nenhum local; CI Linux pendente |
+| 09 | validado | `d3a88cc` | backend 425/425; Node 110/110; navegador completo OK | sessão/origens/arquivos; nenhuma regra trabalhista | `09-seguranca-50.json`; OSV 25 pacotes/0 advisories | nenhum local; CI Linux pendente |
 
 ## Pacote 00
 
@@ -139,3 +139,5 @@ Benchmark 50 com código final estável: todas operações 200; GET 12 queries, 
 Pacotes 00–09 implementados e validados na ordem, com checkpoints independentes. Main local permanece `65d5059afb2d24867435129baad7a6482cf1816d`; sem merge/push, PR ou migração sobre DB/uploads reais. OCR funcional não implementado; somente contratos. A branch contém motor/versões/revisões/evidências/triagem/frontend/recuperação/segurança e documentação de decisões/rollback.
 
 Pendência externa: executar CI em Linux e revisão da branch antes de integração/publicação ampliada; não há credenciais ou pedido de publicação nesta tarefa. Homologação local Windows concluída, sem regressão não resolvida ou bloqueio de dados. Avaliar implantação somente após backup completo e restauração verificada da instalação específica, sem usar dados reais nos testes automatizados.
+
+Commits finais: 07 `cbd5fd1`, 08 `7e838ec`, 09 `d3a88cc`; este registro documental fecha o acompanhamento. Branch `codex/onponto-motor-arquitetura-v2`. Nenhum merge em main foi realizado.
