@@ -1,0 +1,59 @@
+{
+  "metodo": "Caso de uso local, tempo sem tracemalloc; SQL inclui escritas. Banco e arquivos fictícios temporários.",
+  "cenarios": [
+    {
+      "funcionarios": 50,
+      "batidas": 200,
+      "analise": {
+        "ms": 62.597,
+        "sql": 228
+      },
+      "confirmacao": {
+        "ms": 127.099,
+        "sql": 285,
+        "select": 30
+      },
+      "reenvio": {
+        "ms": 4.81,
+        "sql": 12
+      },
+      "db_bytes": 630784
+    },
+    {
+      "funcionarios": 250,
+      "batidas": 1000,
+      "analise": {
+        "ms": 113.897,
+        "sql": 1028
+      },
+      "confirmacao": {
+        "ms": 338.274,
+        "sql": 1285,
+        "select": 30
+      },
+      "reenvio": {
+        "ms": 8.583,
+        "sql": 12
+      },
+      "db_bytes": 1695744
+    },
+    {
+      "funcionarios": 1000,
+      "batidas": 4000,
+      "analise": {
+        "ms": 379.707,
+        "sql": 4028
+      },
+      "confirmacao": {
+        "ms": 1355.938,
+        "sql": 5035,
+        "select": 30
+      },
+      "reenvio": {
+        "ms": 22.05,
+        "sql": 12
+      },
+      "db_bytes": 5799936
+    }
+  ]
+}

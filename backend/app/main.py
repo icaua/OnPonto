@@ -5,6 +5,7 @@ from app.arquivos.routes import router as arquivos_router
 from app.apuracao.routes import router as apuracao_router
 from app.competencias.routes import router as competencias_router
 from app.database.migrations import aplicar_migracoes_compativeis
+from app.database.backup import realizar_backups_automaticos
 from app.database.session import Base, engine
 from app.empresas.routes import router as empresas_router
 from app.escalas.routes import router as escalas_router
@@ -17,6 +18,7 @@ from app.competencias.preservacao import preservar_fechamentos_legados
 from app.ocorrencias.routes import router as ocorrencias_router
 from app.calendario.routes import router as calendario_router
 from app.banco_horas.routes import router as banco_horas_router
+from app.seguranca.sessao import ORIGENS,ProtecaoLocal,router as sessao_router
 
 
 app = FastAPI(
@@ -27,15 +29,19 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=sorted(ORIGENS),
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
     expose_headers=["Content-Disposition"],
 )
+app.add_middleware(ProtecaoLocal)
+app.include_router(sessao_router)
 
 
 @app.on_event("startup")
 def criar_tabelas() -> None:
+    realizar_backups_automaticos(engine)
     Base.metadata.create_all(bind=engine)
     aplicar_migracoes_compativeis(engine)
     preservar_fechamentos_legados(engine)

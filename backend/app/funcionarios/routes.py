@@ -64,6 +64,11 @@ def criar_funcionario(payload: FuncionarioCreate, db: Session = Depends(get_db))
     try:
         db.flush()
         registrar_vinculo_inicial(db, funcionario)
+        if funcionario.escala_id is not None:
+            from app.escalas.versoes import garantir_inicial
+            garantir_inicial(db,db.get(Escala,funcionario.escala_id))
+        from app.competencias.service import sincronizar_abertas_empresa
+        sincronizar_abertas_empresa(db,funcionario.empresa_id)
         db.commit()
     except IntegrityError as exc:
         db.rollback()
@@ -92,6 +97,10 @@ def atualizar_funcionario(
         raise HTTPException(status_code=404, detail="Funcionário não encontrado.")
 
     dados = payload.model_dump(exclude_unset=True)
+    empresa_anterior=funcionario.empresa_id
+    if any(campo in dados and dados[campo]!=getattr(funcionario,campo) for campo in ("empresa_id","escala_id","data_admissao","data_demissao","ativo")):
+        from app.competencias.dependencias import exigir_referencias_editaveis
+        exigir_referencias_editaveis(db,funcionario_id=funcionario.id)
     try:
         DatasVinculo(data_admissao=dados.get("data_admissao", funcionario.data_admissao),
                     data_demissao=dados.get("data_demissao", funcionario.data_demissao))
@@ -115,11 +124,16 @@ def atualizar_funcionario(
     )
 
     if escala_id != funcionario.escala_id:
+        if escala_id is not None:
+            from app.escalas.versoes import garantir_inicial
+            garantir_inicial(db,db.get(Escala,escala_id))
         trocar_vinculo(db, funcionario, escala_id)
     for campo, valor in dados.items():
         setattr(funcionario, campo, valor)
 
     try:
+        from app.competencias.service import sincronizar_abertas_empresa
+        for id in {empresa_anterior,funcionario.empresa_id}: sincronizar_abertas_empresa(db,id)
         db.commit()
     except IntegrityError as exc:
         db.rollback()

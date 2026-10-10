@@ -439,53 +439,72 @@ Entre elas:
 
 ## Requisitos
 
-* Python 3
-* Windows ou Linux
+* Windows 10/11 de 64 bits (o Python e as bibliotecas vêm na pasta `setup/`) ou Linux com Python 3.10+
 * portas locais `8000` e `5500` disponíveis
+* cerca de 400 MB livres
 
 ---
 
-## Windows
+## Windows: instalação em um clique
 
-Na primeira instalação:
+Dê dois cliques em:
 
 ```text
 instalar_onponto.bat
 ```
 
-Depois:
+O instalador:
+
+1. procura um Python 3.12; se não houver, instala o que vem em `setup/`, só para o usuário atual, **sem internet e sem pedir administrador** (o arquivo é conferido por SHA-256 antes);
+2. cria ou repara a `.venv` com as bibliotecas de `setup/wheels`, nas versões testadas, **sem internet**; a internet só é usada se esses pacotes não servirem para o Python encontrado;
+3. testa o On Ponto subindo a API com **uma cópia** do banco (os dados reais nunca são alterados);
+4. cria o atalho **On Ponto** na Área de Trabalho.
+
+Uma `.venv` existente só é descartada quando a nova passa em todas as verificações. Se algo falhar, o ambiente anterior continua funcionando e a mensagem diz o que fazer. Cada execução gera um registro em `logs/instalacao-*.log`.
+
+Depois, para abrir, use o atalho ou:
 
 ```text
 iniciar_onponto.bat
 ```
 
-Nas execuções seguintes, normalmente basta:
+O `iniciar_onponto.bat` confere o ambiente em menos de um segundo. Se ele estiver ausente, quebrado ou desatualizado (por exemplo, depois de atualizar o On Ponto), o instalador roda sozinho antes de abrir.
+
+Opções do instalador, para casos específicos:
 
 ```text
-iniciar_onponto.bat
+instalar_onponto.bat --recriar      refaz a .venv do zero
+instalar_onponto.bat --sem-atalho   não cria o atalho
 ```
+
+Problemas comuns:
+
+* **"O On Ponto está aberto"**: feche as janelas "On Ponto API" e "On Ponto Frontend" e execute de novo.
+* **Executado de dentro de um ZIP**: extraia o ZIP inteiro primeiro (botão direito > Extrair tudo).
+* **Sem os pacotes incluídos e sem internet**: copie de novo a pasta completa, com `setup/`. Em rede com proxy, defina `HTTPS_PROXY` antes de instalar.
 
 ---
 
 ## Linux
 
-Dê permissão aos scripts:
-
-```bash
-chmod +x instalar_onponto.sh iniciar_onponto.sh
-```
-
-Instale:
-
 ```bash
 ./instalar_onponto.sh
-```
-
-Execute:
-
-```bash
 ./iniciar_onponto.sh
 ```
+
+Se necessário, dê permissão antes com `chmod +x instalar_onponto.sh iniciar_onponto.sh`. No Linux as bibliotecas vêm da internet, nas mesmas versões testadas (`setup/constraints.txt`). Em distribuições Debian/Ubuntu pode ser preciso `sudo apt install python3-venv`. O `iniciar_onponto.sh` também repara o ambiente sozinho.
+
+---
+
+## Manutenção dos pacotes incluídos
+
+Depois de trocar arquivos em `setup/wheels` (ou o instalador do Python), atualize o manifesto de integridade e as versões travadas:
+
+```bash
+python setup/instalar_onponto.py --gerar-manifesto
+```
+
+Isso regrava `setup/SHA256SUMS.txt` e `setup/constraints.txt`. O teste `backend/tests/test_instalador.py` falha se o manifesto não corresponder aos pacotes.
 
 ---
 
@@ -517,14 +536,14 @@ A partir da raiz:
 
 ```bash
 python3 -m venv .venv
-.venv/bin/python -m pip install -r backend/requirements.txt
+.venv/bin/python -m pip install -r backend/requirements.txt -c setup/constraints.txt
 .venv/bin/python -m uvicorn app.main:app --app-dir backend --host 127.0.0.1 --port 8000
 ```
 
-No Windows:
+No Windows, sem internet, com os pacotes incluídos:
 
 ```bat
-.venv\Scripts\python.exe -m pip install -r backend\requirements.txt
+.venv\Scripts\python.exe -m pip install -r backend\requirements.txt -c setup\constraints.txt --no-index --find-links setup\wheels
 .venv\Scripts\python.exe -m uvicorn app.main:app --app-dir backend --host 127.0.0.1 --port 8000
 ```
 
@@ -561,6 +580,22 @@ backend/uploads/
 ```
 
 O banco e os arquivos anexados fazem parte do mesmo conjunto operacional de dados.
+
+## Backups automáticos
+
+Ao iniciar com um banco SQLite existente, a API faz uma cópia antes de migrar o
+schema e uma cópia diária na primeira subida do dia. Se o backup pré-migração
+falhar, a API não inicia; falhas no diário geram aviso no log. São mantidas as
+10 cópias pré-migração e as 7 diárias mais recentes, verificadas por integridade.
+
+O banco padrão usa `backups/automaticos/` na raiz do projeto. Outros bancos usam
+`backups/` ao lado do banco; `ONPONTO_BACKUP_DIR` permite escolher outra pasta.
+O caminho de cada cópia criada é registrado no log. Os backups não vão na
+exportação limpa para pendrive.
+
+Para restaurar, feche o On Ponto e a janela **On Ponto API**, preserve o banco
+atual e copie o backup desejado sobre `backend/onponto.db`. As cópias automáticas
+contêm apenas o banco: continue preservando `backend/uploads/` junto dos dados.
 
 ---
 

@@ -19,11 +19,6 @@ BACKEND_PID=""
 FRONTEND_PID=""
 USE_PROCESS_GROUPS=false
 
-if [[ ! -x "$VENV_PYTHON" ]]; then
-    printf '%s\n' "Ambiente do On Ponto não encontrado. Execute ./instalar_onponto.sh primeiro." >&2
-    exit 1
-fi
-
 if [[ ! -f "$BACKEND_DIR/app/main.py" ]]; then
     printf '%s\n' "ERRO: O backend do On Ponto não foi encontrado." >&2
     exit 1
@@ -34,10 +29,18 @@ if [[ ! -f "$FRONTEND_DIR/index.html" ]]; then
     exit 1
 fi
 
-if ! "$VENV_PYTHON" -c 'import fastapi, openpyxl, sqlalchemy, uvicorn, multipart' >/dev/null 2>&1; then
-    printf '%s\n' "ERRO: As dependências do On Ponto não estão instaladas corretamente." >&2
-    printf '%s\n' "Execute ./instalar_onponto.sh novamente." >&2
-    exit 1
+ambiente_pronto() {
+    [[ -x "$VENV_PYTHON" ]] && "$VENV_PYTHON" "$SCRIPT_DIR/setup/instalar_onponto.py" --verificar >/dev/null 2>&1
+}
+
+# Ambiente ausente, quebrado ou desatualizado: o instalador conserta antes de abrir.
+if ! ambiente_pronto; then
+    printf '%s\n' "Preparando o ambiente do On Ponto (só na primeira vez ou após uma atualização)..."
+    bash "$SCRIPT_DIR/instalar_onponto.sh" --sem-atalho
+    if ! ambiente_pronto; then
+        printf '%s\n' "ERRO: O ambiente do On Ponto não ficou pronto. Veja logs/instalacao-*.log." >&2
+        exit 1
+    fi
 fi
 
 porta_livre() {
@@ -71,9 +74,11 @@ import urllib.request
 
 url = sys.argv[1]
 limite = time.monotonic() + float(sys.argv[2])
+# Sem proxy: um proxy configurado no ambiente não alcança o 127.0.0.1 desta máquina.
+abridor = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 while time.monotonic() < limite:
     try:
-        with urllib.request.urlopen(url, timeout=1) as resposta:
+        with abridor.open(url, timeout=1) as resposta:
             if 200 <= resposta.status < 400:
                 raise SystemExit(0)
     except Exception:

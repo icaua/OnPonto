@@ -12,7 +12,8 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
+from urllib.request import Request
+from http_sessao import urlopen
 
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
@@ -111,6 +112,8 @@ class FechamentoCompetenciaApiTest(unittest.TestCase):
         caminho: str,
         payload: dict | None = None,
     ) -> tuple[int, object]:
+        from http_revisoes import com_revisao
+        payload = com_revisao(self.base_url, metodo, caminho, payload)
         corpo = json.dumps(payload).encode("utf-8") if payload is not None else None
         headers = {"Content-Type": "application/json"} if corpo is not None else {}
         status_http, _, conteudo = self.requisicao(metodo, caminho, corpo, headers)
@@ -303,7 +306,8 @@ class FechamentoCompetenciaApiTest(unittest.TestCase):
             "PATCH", f'/marcacoes/{marcacao["id"]}', {"conferido": True}
         )
         self.assertEqual(status_http, 200)
-        self.assertEqual(self.obter_competencia(competencia["id"])["status"], "conferida")
+        # Conferir um dia não resolve os outros dias do vínculo sem registro.
+        self.assertEqual(self.obter_competencia(competencia["id"])["status"], "em_conferencia")
 
         self.resolver_calendario(competencia["id"])
         self.assertEqual(self.obter_competencia(competencia["id"])["status"], "conferida")

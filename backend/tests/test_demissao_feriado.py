@@ -91,11 +91,11 @@ class DemissaoFeriadoTest(unittest.TestCase):
         self.assertEqual(d['horas_feriado_minutos'],0)
         self.assertEqual(d['pendencia_tipo'],'marcacao_posterior_demissao')
 
-    def test_excel_numerico_e_espelhos_individual_lote_mostram_100_separado(self):
+    def test_excel_numerico_e_espelhos_mostram_feriado_sem_adicional_inventado(self):
         self.batida(status_dia='feriado',entrada=time(8),saida=time(12),conferido=True)
         wb=self.excel()
         resumo,marcacoes=wb['Resumo'],wb['Marcações']
-        self.assertEqual(resumo['K1'].value,'Horas 100% (feriado)')
+        self.assertEqual(resumo['K1'].value,'Horas em feriado')
         self.assertEqual(resumo['K2'].value,timedelta(hours=4))
         self.assertEqual(resumo['K2'].number_format,'[h]:mm')
         linha=next(row for row in marcacoes.iter_rows(min_row=2) if row[0].value.day==15)
@@ -103,9 +103,9 @@ class DemissaoFeriadoTest(unittest.TestCase):
         self.assertEqual(linha[11].number_format,'[h]:mm')
         for resposta in [espelho_ponto(self.c.id,self.f.id,self.db),espelho_ponto_lote(self.c.id,self.db)]:
             html=resposta.body.decode()
-            self.assertIn('Horas 100%: 04:00',html)
-            self.assertIn('Horas 100% (feriado): <strong>04:00</strong>',html)
-            self.assertNotIn('<th>Horas 100%',html)
+            self.assertIn('Horas em feriado: 04:00',html)
+            self.assertIn('Horas em feriado: <strong>04:00</strong>',html)
+            self.assertNotIn('Horas 100%',html)
 
     def test_feriado_incompleto_total_indisponivel_e_relatorio_avisa(self):
         self.batida(status_dia='feriado')
@@ -113,8 +113,8 @@ class DemissaoFeriadoTest(unittest.TestCase):
         self.assertIsNone(r['resumo'][0]['horas_feriado_minutos'])
         self.assertEqual(self.excel()['Resumo']['K2'].value,'Indisponível')
         html=espelho_ponto(self.c.id,self.f.id,self.db).body.decode()
-        self.assertIn('Horas 100%: Indisponível',html)
-        self.assertIn('Horas 100% (feriado): <strong>Indisponível</strong>',html)
+        self.assertIn('Horas em feriado: Indisponível',html)
+        self.assertIn('Horas em feriado: <strong>Indisponível</strong>',html)
 
     def test_snapshot_antigo_sem_novos_campos_leitura_zero_sem_regravar(self):
         self.batida(status_dia='feriado',entrada=time(8),saida=time(12),conferido=True)

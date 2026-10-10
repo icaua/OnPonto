@@ -1,6 +1,14 @@
+from app.dominio import apuracao as motor
+from app.apuracao import adaptadores
+from app.apuracao.dsr import preparar_dsr, resumir_dsr
+from app.dominio.contratos import ContextoCalendario
+# Nomes públicos preservados para módulos e ferramentas existentes.
+from app.dominio.apuracao import (minutos_hora,diferenca_minutos,formatar_minutos,formatar_hora,
+    jornada_horario_fixo_minutos,jornada_prevista_minutos,tolerancia_intervalo_efetiva,
+    horario_fixo_configurado,calcular_atraso_horario_fixo,calcular_trabalhado,STATUS_SEM_CALCULO)
 from types import SimpleNamespace
 from app.banco_horas.regras import distribuir_dia, resumir_distribuicao
-from app.funcionarios.historico_escalas import escala_no_dia
+from app.funcionarios.historico_escalas import ResolvedorEscalas
 from app.marcacoes.batidas import desconsideradas_em_uso
 from app.apuracao.operacional import classificar_dia, indicadores, contar_batidas_originais
 from calendar import monthrange
@@ -10,7 +18,6 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 from app.ocorrencias.service import consultar as consultar_ocorrencias
-from app.ocorrencias.interpretacao import aplicar_ocorrencias
 from app.banco_horas.service import complementar_apuracao, bloqueios_saldo_projetado
 from app.calendario.service import dentro_vinculo, feriados_da_competencia, motivo_fora_vinculo, vinculo_intersecta_periodo
 
@@ -23,14 +30,6 @@ from app.database.models import (
 )
 
 
-STATUS_SEM_CALCULO = {
-    "atestado",
-    "folga",
-    "falta",
-    "afastamento",
-    "domingo",
-    "sem_expediente",
-}
 STATUS_AUTOMATICOS_CALENDARIO = {
     ("normal", False),
     ("domingo", True),
@@ -38,168 +37,26 @@ STATUS_AUTOMATICOS_CALENDARIO = {
 }
 
 
-def minutos_hora(valor: time) -> int:
-    return valor.hour * 60 + valor.minute
-
-
-def diferenca_minutos(inicio: time, fim: time) -> int | None:
-    diferenca = minutos_hora(fim) - minutos_hora(inicio)
-    if diferenca < 0:
-        return None
-    return diferenca
-
-
-def formatar_minutos(minutos: int | None) -> str | None:
-    if minutos is None:
-        return None
-    sinal = "-" if minutos < 0 else ""
-    minutos = abs(minutos)
-    horas, resto = divmod(minutos, 60)
-    return f"{sinal}{horas:02d}:{resto:02d}"
-
-
-def formatar_hora(valor: time | None) -> str | None:
-    return valor.strftime("%H:%M") if valor else None
-
-
-def horario_fixo_configurado(funcionario: Funcionario) -> bool:
-    escala = funcionario.escala
-    if not escala or escala.modo_apuracao != "horario_fixo":
-        return False
-    if not escala.horario_entrada_prevista or not escala.horario_saida_prevista:
-        return False
-    return bool(escala.horario_saida_almoco_prevista) == bool(
-        escala.horario_retorno_almoco_prevista
-    )
-
-
-def jornada_horario_fixo_minutos(escala: Escala) -> int | None:
-    entrada = escala.horario_entrada_prevista
-    saida = escala.horario_saida_prevista
-    if not entrada or not saida:
-        return None
-
-    saida_almoco = escala.horario_saida_almoco_prevista
-    retorno_almoco = escala.horario_retorno_almoco_prevista
-    if bool(saida_almoco) != bool(retorno_almoco):
-        return None
-    if saida_almoco and retorno_almoco:
-        manha = diferenca_minutos(entrada, saida_almoco)
-        tarde = diferenca_minutos(retorno_almoco, saida)
-        if manha is None or tarde is None:
-            return None
-        return manha + tarde
-    return diferenca_minutos(entrada, saida)
-
-
-def jornada_prevista_minutos(funcionario: Funcionario, data_referencia: date) -> int | None:
-    escala = funcionario.escala
-    if not escala:
-        return None
-
-    dia_semana = data_referencia.weekday()
-    if dia_semana == 6 and escala.regime_domingo != "trabalha":
-        return 0
-    if dia_semana == 5 and escala.regime_sabado != "trabalha":
-        return 0
-
-    if escala.modo_apuracao == "horario_fixo":
-        return jornada_horario_fixo_minutos(escala)
-
-    if escala.modo_apuracao != "carga_horaria":
-        return None
-    if dia_semana == 5:
-        horas = escala.jornada_sabado_horas
-    else:
-        # A escala atual não possui carga própria de domingo. Quando o domingo é
-        # de trabalho, a carga de segunda a sexta é a única referência disponível.
-        horas = escala.jornada_seg_sex_horas
-    return int(round(horas * 60)) if horas is not None else None
-
-
-def tolerancia_intervalo_efetiva(escala: Escala) -> int:
-    if escala.tolerancia_intervalo_minutos is not None:
-        return escala.tolerancia_intervalo_minutos
-    return escala.tolerancia_atraso_minutos
-
-
-def calcular_atraso_horario_fixo(
-    funcionario: Funcionario,
-    marcacao: MarcacaoPonto,
-) -> int | None:
-    if not horario_fixo_configurado(funcionario) or not marcacao.entrada:
-        return None
-
-    escala = funcionario.escala
-    if escala is None or escala.horario_entrada_prevista is None:
-        return None
-
-    atraso_entrada = max(
-        minutos_hora(marcacao.entrada) - minutos_hora(escala.horario_entrada_prevista),
-        0,
-    )
-    if atraso_entrada <= escala.tolerancia_atraso_minutos:
-        atraso_entrada = 0
-
-    excesso_intervalo = 0
-    if escala.horario_saida_almoco_prevista and escala.horario_retorno_almoco_prevista:
-        if not marcacao.saida_almoco or not marcacao.retorno_almoco:
-            return None
-        intervalo_previsto = diferenca_minutos(
-            escala.horario_saida_almoco_prevista,
-            escala.horario_retorno_almoco_prevista,
-        )
-        intervalo_realizado = diferenca_minutos(
-            marcacao.saida_almoco,
-            marcacao.retorno_almoco,
-        )
-        if intervalo_previsto is None or intervalo_realizado is None:
-            return None
-        excesso_intervalo = max(intervalo_realizado - intervalo_previsto, 0)
-        if excesso_intervalo <= tolerancia_intervalo_efetiva(escala):
-            excesso_intervalo = 0
-
-    return atraso_entrada + excesso_intervalo
-
-
-def calcular_trabalhado(marcacao: MarcacaoPonto) -> tuple[int, str | None]:
-    if not marcacao.entrada or not marcacao.saida:
-        return 0, "Entrada ou saída não informada."
-
-    if bool(marcacao.saida_almoco) != bool(marcacao.retorno_almoco):
-        return 0, "Intervalo de almoço incompleto."
-
-    horarios = [h for h in (marcacao.entrada, marcacao.saida_almoco, marcacao.retorno_almoco, marcacao.saida) if h is not None]
-    if any(a >= b for a, b in zip(horarios, horarios[1:])):
-        return 0, "Sequência de horários inválida."
-
-    if marcacao.saida_almoco and marcacao.retorno_almoco:
-        manha = diferenca_minutos(marcacao.entrada, marcacao.saida_almoco)
-        tarde = diferenca_minutos(marcacao.retorno_almoco, marcacao.saida)
-        if manha is None or tarde is None:
-            return 0, "Sequência de horários inválida."
-        return manha + tarde, None
-
-    total = diferenca_minutos(marcacao.entrada, marcacao.saida)
-    if total is None:
-        return 0, "Sequência de horários inválida."
-    return total, None
-
-
 def configuracao_calendario(funcionario: Funcionario, data_referencia: date) -> tuple[str, bool]:
     escala = funcionario.escala
     if not escala:
         return "normal", False
+    if getattr(escala,"politica_dsr",None) and data_referencia.weekday()==escala.politica_dsr["dia_descanso"]:
+        return "sem_expediente",True
 
     dia_semana = data_referencia.weekday()
     if dia_semana == 6:
         if escala.regime_domingo == "nao_trabalha":
             return "domingo", True
+        if getattr(escala,"jornada_dia_minutos",None)==0: return "sem_expediente",True
         return "normal", False
     if dia_semana == 5:
         if escala.regime_sabado in {"compensado", "nao_trabalha"}:
             return "sem_expediente", True
+        if getattr(escala,"jornada_dia_minutos",None)==0: return "sem_expediente",True
         return "normal", False
+    if getattr(escala,"jornada_dia_minutos",None)==0:
+        return "sem_expediente",True
     return "normal", False
 
 
@@ -257,12 +114,19 @@ def gerar_dias_faltantes(db: Session, competencia: Competencia) -> int:
         )
     }
     ultimo_dia = monthrange(competencia.ano, competencia.mes)[1]
+    resolvedor=ResolvedorEscalas(db,competencia.empresa_id)
+    from app.database.models import DependenciaFechamento
+    referenciadas={id for id, in db.query(DependenciaFechamento.marcacao_id).join(MarcacaoPonto,
+                  MarcacaoPonto.id==DependenciaFechamento.marcacao_id).filter(MarcacaoPonto.competencia_id==competencia.id)}
     criadas = 0
     for funcionario in funcionarios:
         for dia in range(1, ultimo_dia + 1):
             data_marcacao = date(competencia.ano, competencia.mes, dia)
             chave = (funcionario.id, data_marcacao)
+            contexto=SimpleNamespace(escala=resolvedor.regra_no_dia(funcionario,data_marcacao))
             existente = existentes.get(chave)
+            if existente is not None and existente.id in referenciadas:
+                continue
             if not dentro_vinculo(funcionario, data_marcacao):
                 if existente is not None and placeholder_calendario_intocado(existente):
                     db.delete(existente)
@@ -273,13 +137,13 @@ def gerar_dias_faltantes(db: Session, competencia: Competencia) -> int:
                 # são reinterpretadas aqui.
                 if placeholder_calendario_intocado(existente):
                     status_dia, conferido = configuracao_calendario(
-                        funcionario,
+                        contexto,
                         data_marcacao,
                     )
                     existente.status_dia = status_dia
                     existente.conferido = conferido
                 continue
-            status_dia, conferido = configuracao_calendario(funcionario, data_marcacao)
+            status_dia, conferido = configuracao_calendario(contexto, data_marcacao)
             nova_marcacao = MarcacaoPonto(
                 competencia_id=competencia.id,
                 funcionario_id=funcionario.id,
@@ -296,168 +160,12 @@ def gerar_dias_faltantes(db: Session, competencia: Competencia) -> int:
     return criadas
 
 
-def detalhe_marcacao(
-    funcionario: Funcionario,
-    marcacao: MarcacaoPonto,
-    feriados: dict | None = None,
-) -> dict[str, Any]:
-    if not dentro_vinculo(funcionario, marcacao.data):
-        return detalhe_fora_vinculo(funcionario, marcacao)
-    nomes_feriados = (feriados or {}).get(marcacao.data, [])
-    feriado_aplicado = bool(nomes_feriados and marcacao.status_dia in {"normal", "domingo", "sem_expediente"})
-    status_dia = "feriado" if feriado_aplicado else marcacao.status_dia
-    conferido = marcacao.conferido or (feriado_aplicado and placeholder_calendario_intocado(marcacao))
-    escala = funcionario.escala
-    prevista = jornada_prevista_minutos(funcionario, marcacao.data)
-    trabalhadas = 0
-    atraso = 0
-    extra = 0
-    horas_feriado = 0
-    horas_feriado_pendente = False
-    pendente_calculo = False
-    pendencia_tipo = None
-    motivo_pendencia = None
-
-    if status_dia == "feriado":
-        prevista = 0
-    elif not escala:
-        pendente_calculo = True
-        pendencia_tipo = "escala_nao_cadastrada"
-        motivo_pendencia = "Escala não cadastrada para o funcionário."
-    elif prevista is None:
-        pendente_calculo = True
-        pendencia_tipo = "escala_incompleta"
-        motivo_pendencia = "A escala não possui dados suficientes para apurar o dia."
-
-    if status_dia == "falta":
-        falta = 1
-        atestado = 0
-    elif status_dia == "atestado":
-        falta = 0
-        atestado = 1
-    else:
-        falta = 0
-        atestado = 0
-
-    if status_dia == "feriado":
-        tem_batida = any((marcacao.entrada, marcacao.saida_almoco, marcacao.retorno_almoco, marcacao.saida)) or marcacao.batidas_originais not in (None, "", "[]")
-        if tem_batida:
-            trabalhadas, motivo_batidas = calcular_trabalhado(marcacao)
-            if motivo_batidas:
-                pendente_calculo = True
-                horas_feriado_pendente = True
-                pendencia_tipo = "batidas_insuficientes"
-                motivo_pendencia = "Batidas de feriado requerem revisão: " + motivo_batidas
-            else:
-                horas_feriado = trabalhadas
-        else:
-            # Ausência de trabalho é esperada no feriado, inclusive sem escala.
-            conferido = True
-    elif status_dia in STATUS_SEM_CALCULO:
-        trabalhadas = 0
-        if any((marcacao.entrada, marcacao.saida_almoco, marcacao.retorno_almoco, marcacao.saida)) or marcacao.batidas_originais not in (None, "", "[]"):
-            pendente_calculo = True
-            pendencia_tipo = "batidas_em_dia_sem_calculo"
-            motivo_pendencia = "Há batidas em dia sem apuração. Resolva a situação antes de conferir."
-
-    else:
-        trabalhadas, motivo_batidas = calcular_trabalhado(marcacao)
-        if motivo_batidas is not None and motivo_pendencia is None:
-            motivo_pendencia = motivo_batidas
-            pendencia_tipo = "batidas_insuficientes"
-        pendente_calculo = pendente_calculo or motivo_batidas is not None
-
-        if not pendente_calculo and prevista is not None and escala is not None:
-            deficit_carga = max(prevista - trabalhadas, 0)
-            if deficit_carga <= escala.tolerancia_atraso_minutos:
-                deficit_carga = 0
-
-            if escala.modo_apuracao == "horario_fixo" and (prevista or not escala.politica_horas):
-                atraso_horario = calcular_atraso_horario_fixo(funcionario, marcacao)
-                if atraso_horario is None:
-                    pendente_calculo = True
-                    pendencia_tipo = "horario_fixo_incompleto"
-                    motivo_pendencia = "As batidas não permitem conferir o horário fixo."
-                else:
-                    atraso = max(deficit_carga, atraso_horario)
-            else:
-                atraso = deficit_carga
-
-            if not pendente_calculo and trabalhadas > prevista:
-                extra = trabalhadas - prevista
-                if extra <= escala.tolerancia_extra_minutos:
-                    extra = 0
-
-    pendente_operacional = pendente_calculo or not conferido
-    if motivo_pendencia:
-        pendencia_motivo = motivo_pendencia
-    elif not conferido:
-        pendencia_motivo = "Registro ainda não conferido."
-    else:
-        pendencia_motivo = None
-
-    return {
-        "id": marcacao.id,
-        "data": marcacao.data.isoformat(),
-        "funcionario_id": funcionario.id,
-        "funcionario": (getattr(funcionario, "nome_exibicao", None) or funcionario.nome),
-        "entrada": formatar_hora(marcacao.entrada),
-        "saida_almoco": formatar_hora(marcacao.saida_almoco),
-        "retorno_almoco": formatar_hora(marcacao.retorno_almoco),
-        "saida": formatar_hora(marcacao.saida),
-        "status_dia": status_dia,
-        "status_original": marcacao.status_dia,
-        "feriados": nomes_feriados,
-        "feriado_aplicado": feriado_aplicado,
-        "fora_vinculo": False,
-        "origem": marcacao.origem,
-        "quantidade_batidas_originais": contar_batidas_originais(marcacao.batidas_originais),
-        "quantidade_batidas_desconsideradas": contar_batidas_originais(marcacao.batidas_desconsideradas_json),
-        "batida_desconsiderada_em_uso": desconsideradas_em_uso(marcacao),
-        "conferido": conferido,
-        "jornada_prevista_minutos": prevista,
-        "jornada_prevista": formatar_minutos(prevista),
-        "horas_trabalhadas_minutos": trabalhadas,
-        "horas_trabalhadas": formatar_minutos(trabalhadas),
-        "horas_feriado_minutos": horas_feriado,
-        "horas_feriado": formatar_minutos(horas_feriado),
-        "horas_feriado_pendente": horas_feriado_pendente,
-        "atraso_minutos": atraso,
-        "atraso": formatar_minutos(atraso),
-        "extra_minutos": extra,
-        "extra": formatar_minutos(extra),
-        "falta": falta,
-        "atestado": atestado,
-        "pendente": pendente_operacional,
-        "pendente_calculo": pendente_calculo,
-        "pendente_operacional": pendente_operacional,
-        "pendencia_tipo": pendencia_tipo,
-        "pendencia_motivo": pendencia_motivo,
-        "observacoes": marcacao.observacoes,
-    }
+def detalhe_marcacao(funcionario,marcacao,feriados=None):
+    return motor.detalhe_marcacao(adaptadores.funcionario(funcionario),adaptadores.marcacoes(marcacao),feriados)
 
 
-def detalhe_fora_vinculo(funcionario: Funcionario, marcacao: MarcacaoPonto) -> dict[str, Any]:
-    """Preserva o registro para conferência sem executar qualquer regra de jornada."""
-    tem_batida = any((marcacao.entrada, marcacao.saida_almoco, marcacao.retorno_almoco, marcacao.saida)) or marcacao.batidas_originais not in (None, "", "[]")
-    motivo = motivo_fora_vinculo(funcionario, marcacao.data)
-    return {
-        "id": marcacao.id, "data": marcacao.data.isoformat(),
-        "funcionario_id": funcionario.id, "funcionario": (getattr(funcionario, "nome_exibicao", None) or funcionario.nome),
-        **{campo: formatar_hora(getattr(marcacao, campo)) for campo in ("entrada", "saida_almoco", "retorno_almoco", "saida")},
-        "status_dia": "fora_vinculo", "status_original": marcacao.status_dia,
-        "origem": marcacao.origem, "conferido": marcacao.conferido,
-        "fora_vinculo": True, "feriados": [], "feriado_aplicado": False,
-        "jornada_prevista_minutos": 0, "jornada_prevista": "00:00",
-        "jornada_exigida_minutos": 0, "horas_trabalhadas_minutos": 0, "horas_trabalhadas": "00:00",
-        "horas_feriado_minutos": 0, "horas_feriado": "00:00", "horas_feriado_pendente": False,
-        "atraso_minutos": 0, "atraso": "00:00", "extra_minutos": 0, "extra": "00:00",
-        "falta": 0, "atestado": 0, "minutos_abonados": 0, "ocorrencias": [], "ocorrencias_rotulo": "",
-        "pendente": bool(tem_batida), "pendente_operacional": bool(tem_batida), "pendente_calculo": False,
-        "pendencia_tipo": "marcacao_" + motivo if tem_batida else None,
-        "pendencia_motivo": ("Marcação posterior à data de demissão" if motivo == "posterior_demissao" else "Marcação anterior à data de admissão") if tem_batida else None,
-        "observacoes": marcacao.observacoes,
-    }
+def detalhe_fora_vinculo(funcionario,marcacao):
+    return motor.detalhe_fora_vinculo(adaptadores.funcionario(funcionario),adaptadores.marcacoes(marcacao))
 
 
 def apurar_competencia(
@@ -482,15 +190,12 @@ def apurar_competencia(
     if gerar_calendario:
         gerar_dias_faltantes(db, competencia)
 
-    empresa = competencia.empresa
-    feriados = feriados_da_competencia(db, empresa, competencia.ano, competencia.mes)
-    funcionarios = (
-        db.query(Funcionario)
-        .filter(Funcionario.empresa_id == competencia.empresa_id)
-        .order_by(Funcionario.nome.asc())
-        .all()
-    )
-    funcionarios_por_id = {funcionario.id: funcionario for funcionario in funcionarios}
+    from app.apuracao.contexto import ContextoApuracao
+    contexto_apuracao=ContextoApuracao(db,competencia)
+    empresa=contexto_apuracao.empresa
+    funcionarios=contexto_apuracao.funcionarios
+    funcionarios_por_id=contexto_apuracao.por_id
+    resolvedor_escalas=contexto_apuracao.resolvedor
 
     resumo = {
         funcionario.id: {
@@ -520,44 +225,11 @@ def apurar_competencia(
         for funcionario in funcionarios
     }
 
-    marcacoes = (
-        db.query(MarcacaoPonto)
-        .filter(MarcacaoPonto.competencia_id == competencia.id)
-        .order_by(MarcacaoPonto.data.asc(), MarcacaoPonto.funcionario_id.asc())
-        .all()
-    )
-
-    detalhes = []
-    pendencias = []
-    dias_com_pendencia: set[tuple[int, date]] = set()
-    ocorrencias_por_funcionario = {}
-    for ocorrencia in consultar_ocorrencias(db, empresa_id=competencia.empresa_id,
-            inicio=date(competencia.ano, competencia.mes, 1),
-            fim=date(competencia.ano, competencia.mes, monthrange(competencia.ano, competencia.mes)[1])):
-        ocorrencias_por_funcionario.setdefault(ocorrencia.funcionario_id, []).append(ocorrencia)
-
-    acumuladores_politica = {}
-    for marcacao in marcacoes:
-        funcionario = funcionarios_por_id.get(marcacao.funcionario_id)
-        if not funcionario:
-            continue
-
-        if not dentro_vinculo(funcionario, marcacao.data) and placeholder_calendario_intocado(marcacao):
-            continue
-        escala_dia = escala_no_dia(db, funcionario, marcacao.data)
-        # Regras legadas continuam com a jornada vigente, como antes da política.
-        # Políticas explícitas usam a mesma escala histórica na jornada e no banco.
-        escala_apuracao = escala_dia if (escala_dia and escala_dia.politica_horas
-            or funcionario.escala and funcionario.escala.politica_horas) else funcionario.escala
-        contexto = SimpleNamespace(**{c.name: getattr(funcionario, c.name) for c in Funcionario.__table__.columns},
-                                   escala=escala_apuracao, empresa=funcionario.empresa)
-        detalhe = detalhe_marcacao(contexto, marcacao, feriados)
-        if not detalhe["fora_vinculo"]:
-            aplicar_ocorrencias(detalhe, contexto, marcacao, ocorrencias_por_funcionario.get(funcionario.id, []))
-        distribuir_dia(detalhe, escala_dia, marcacao, empresa, acumuladores_politica)
-        classificar_dia(detalhe)
-        detalhes.append(detalhe)
-
+    detalhes=contexto_apuracao.detalhes()
+    pendencias=[]
+    dias_com_pendencia=set()
+    for detalhe in detalhes:
+        funcionario=funcionarios_por_id[detalhe['funcionario_id']]
         item_resumo = resumo[funcionario.id]
         item_resumo["dias_processados"] += int(not detalhe["fora_vinculo"])
         item_resumo["atrasos_minutos"] += detalhe["atraso_minutos"]
@@ -574,7 +246,7 @@ def apurar_competencia(
         if detalhe["pendente"]:
             item_resumo["pendencias"] += 1
             pendencias.append(detalhe)
-            dias_com_pendencia.add((funcionario.id, marcacao.data))
+            dias_com_pendencia.add((funcionario.id, detalhe["data"]))
 
     for item in resumo.values():
         if item.pop("_horas_feriado_pendentes"):
@@ -616,6 +288,7 @@ def apurar_competencia(
 
     resumo_funcionarios = list(resumo.values())
     resumir_distribuicao(resumo_funcionarios, detalhes)
+    resumir_dsr(resumo_funcionarios, detalhes)
     resumo_geral = {
         "funcionarios": len(resumo_funcionarios),
         "conferidos": sum(1 for item in resumo_funcionarios if item["situacao"] == "conferido"),
@@ -647,8 +320,11 @@ def apurar_competencia(
         "marcacoes": detalhes,
         "pendencias": pendencias,
     }
-    indicadores(resultado, funcionarios, db.query(ArquivoRecebido).filter_by(competencia_id=competencia.id).all(), competencia)
-    bloqueios = bloqueios_saldo_projetado(db, resultado)
+    indicadores(resultado, funcionarios, contexto_apuracao.arquivos, competencia,
+        arquivos_com_marcacoes=contexto_apuracao.arquivos_com_marcacoes)
+    from app.banco_horas.consulta import LedgerEmMemoria
+    ledger=LedgerEmMemoria(db,funcionarios_por_id)
+    bloqueios = bloqueios_saldo_projetado(db, resultado,ledger=ledger)
     resultado["bloqueios_politica"] = bloqueios
     if bloqueios:
         decisao = resultado["fechamento"]
@@ -656,4 +332,5 @@ def apurar_competencia(
         decisao.update(pode_fechar=False, motivo_bloqueio=" ".join(decisao["motivos"]))
         if not resultado["operacional"]["problemas"] and not resultado["pendencias_importacao"]:
             decisao["proxima_acao"] = "revisar_banco"
-    return complementar_apuracao(db, competencia, resultado) if incluir_banco else resultado
+    return complementar_apuracao(db, competencia, resultado, resolvedor_escalas=resolvedor_escalas,
+        ledger=ledger,funcionarios_por_id=funcionarios_por_id) if incluir_banco else resultado

@@ -1,13 +1,15 @@
 import json
 from datetime import date, datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.competencias.service import exigir_competencia_editavel, sincronizar_status_competencia
 from app.database.models import Competencia, Funcionario, MarcacaoPonto
 from app.database.session import get_db
+from app.database.transacoes import atomica
+from app.competencias.dependencias import exigir_referencias_editaveis
 from app.marcacoes.batidas import desconsideradas_em_uso
 from app.marcacoes.schemas import DesconsideracaoBatida, MarcacaoCreate, MarcacaoRead, MarcacaoUpdate, ORIGENS, STATUS_DIA
 from app.apuracao.service import apurar_competencia
@@ -17,6 +19,17 @@ from app.marcacoes.auditoria import estado, registrar_alteracao, registrar_event
 
 
 router = APIRouter(prefix="/marcacoes", tags=["Marcações de ponto"])
+
+
+def exigir_revisao(marcacao, esperada, request=None):
+    # HTTP exige token lido pelo cliente; chamadas internas são protegidas
+    # adicionalmente pelo version_id_col do ORM.
+    if esperada is None and request is not None:
+        raise HTTPException(409, detail={"codigo": "revisao_necessaria",
+            "mensagem": "Recarregue o registro e envie sua revisão antes de alterar."})
+    if esperada is not None and esperada != marcacao.revisao:
+        raise HTTPException(409, detail={"codigo": "revisao_conflitante", "revisao_atual": marcacao.revisao,
+            "mensagem": "O registro foi alterado em outra janela. Recarregue e revise sua edição."})
 
 
 def validar_status_origem(status_dia: str | None, origem: str | None) -> None:
@@ -60,16 +73,18 @@ def listar_marcacoes(
     funcionario_id: int | None = Query(default=None),
     db: Session = Depends(get_db),
 ) -> list[MarcacaoPonto]:
-    query = db.query(MarcacaoPonto).filter(MarcacaoPonto.competencia_id == competencia_id)
+    query = db.query(MarcacaoPonto).options(joinedload(MarcacaoPonto.arquivo_origem)).filter(MarcacaoPonto.competencia_id == competencia_id)
     if funcionario_id:
         query = query.filter(MarcacaoPonto.funcionario_id == funcionario_id)
     return query.order_by(MarcacaoPonto.data.asc(), MarcacaoPonto.funcionario_id.asc()).all()
 
 
 @router.post("", response_model=MarcacaoRead, status_code=status.HTTP_201_CREATED)
-def salvar_marcacao(payload: MarcacaoCreate, db: Session = Depends(get_db)) -> MarcacaoPonto:
+@atomica
+def salvar_marcacao(payload: MarcacaoCreate, db: Session = Depends(get_db), request: Request = None) -> MarcacaoPonto:
     validar_status_origem(payload.status_dia, payload.origem)
     competencia = validar_vinculos(db, payload.competencia_id, payload.funcionario_id)
+    db.refresh(competencia)
     exigir_competencia_editavel(competencia)
     validar_data_competencia(competencia, payload.data)
 
@@ -85,12 +100,15 @@ def salvar_marcacao(payload: MarcacaoCreate, db: Session = Depends(get_db)) -> M
 
     antes = estado(marcacao) if marcacao else None
     if marcacao:
-        for campo, valor in payload.model_dump().items():
+        db.refresh(marcacao)
+        exigir_referencias_editaveis(db,marcacao_id=marcacao.id)
+        exigir_revisao(marcacao, payload.revisao, request)
+        for campo, valor in payload.model_dump(exclude={"revisao"}).items():
             if campo == "origem" and marcacao.arquivo_origem_id is not None:
                 continue
             setattr(marcacao, campo, valor)
     else:
-        marcacao = MarcacaoPonto(**payload.model_dump())
+        marcacao = MarcacaoPonto(**payload.model_dump(exclude={"revisao"}))
         db.add(marcacao)
 
     validar_sequencia(marcacao)
@@ -110,29 +128,41 @@ def salvar_marcacao(payload: MarcacaoCreate, db: Session = Depends(get_db)) -> M
 class ConferenciaLote(BaseModel):
     competencia_id: int
     marcacoes_ids: list[int] = Field(min_length=1, max_length=1000)
+    revisoes: dict[int, int] | None = None
 
 
 def validar_conferencia(db, marcacao):
     if not marcacao.conferido:
         return
     db.flush()
-    resultado = apurar_competencia(db, marcacao.competencia_id, incluir_banco=False)
-    dia = next((d for d in resultado["marcacoes"] if d["id"] == marcacao.id), None)
+    from app.apuracao.contexto import ContextoApuracao
+    contexto=ContextoApuracao(db,db.get(Competencia,marcacao.competencia_id),marcacao.funcionario_id)
+    dia = next((d for d in contexto.detalhes(marcacao.funcionario_id) if d["id"] == marcacao.id), None)
     if dia is None or dia["problema"]:
         db.rollback()
         raise HTTPException(409, detail={"codigo": "dia_com_problema", "mensagem": dia["pendencia_motivo"] if dia else "Registro fora do vínculo."})
 
 
 @router.post("/conferir-lote")
-def conferir_lote(payload: ConferenciaLote, db: Session = Depends(get_db)):
+@atomica
+def conferir_lote(payload: ConferenciaLote, db: Session = Depends(get_db), request: Request = None):
     iniciar_escrita(db)
     competencia = db.get(Competencia, payload.competencia_id)
     if not competencia:
         raise HTTPException(404, "Competência não encontrada.")
+    db.refresh(competencia)
     exigir_competencia_editavel(competencia)
-    resultado = apurar_competencia(db, competencia.id, incluir_banco=False)
-    por_id = {d["id"]: d for d in resultado["marcacoes"]}
+    from app.apuracao.contexto import ContextoApuracao
+    contexto=ContextoApuracao(db,competencia)
+    por_id = {d["id"]: d for d in contexto.detalhes()}
     conferidos, problemas = [], []
+    for id in dict.fromkeys(payload.marcacoes_ids):
+        marcacao = db.get(MarcacaoPonto, id)
+        if marcacao is None or marcacao.competencia_id != competencia.id:
+            raise HTTPException(422, "Seleção contém registro que não pertence à competência.")
+        db.refresh(marcacao)
+        exigir_revisao(marcacao, (payload.revisoes or {}).get(id), request)
+        exigir_referencias_editaveis(db,marcacao_id=marcacao.id)
     for id in dict.fromkeys(payload.marcacoes_ids):
         dia = por_id.get(id)
         if dia is None:
@@ -159,20 +189,27 @@ def obter_marcacao(marcacao_id: int, db: Session = Depends(get_db)) -> MarcacaoP
 
 
 @router.patch("/{marcacao_id}", response_model=MarcacaoRead)
+@atomica
 def atualizar_marcacao(
     marcacao_id: int,
     payload: MarcacaoUpdate,
     db: Session = Depends(get_db),
+    request: Request = None,
 ) -> MarcacaoPonto:
     marcacao = db.get(MarcacaoPonto, marcacao_id)
     if not marcacao:
         raise HTTPException(status_code=404, detail="Marcação não encontrada.")
+    db.refresh(marcacao)
     competencia_original = db.get(Competencia, marcacao.competencia_id)
     if not competencia_original:
         raise HTTPException(status_code=404, detail="Competência não encontrada.")
+    db.refresh(competencia_original)
     exigir_competencia_editavel(competencia_original)
+    exigir_referencias_editaveis(db,marcacao_id=marcacao.id)
+    exigir_revisao(marcacao, payload.revisao, request)
 
     dados = payload.model_dump(exclude_unset=True)
+    dados.pop("revisao", None)
     validar_status_origem(dados.get("status_dia"), dados.get("origem"))
 
     competencia_id = dados.get("competencia_id", marcacao.competencia_id)
@@ -206,8 +243,11 @@ def marcacao_para_decisao_de_batida(db: Session, marcacao_id: int) -> tuple[Marc
     marcacao = db.get(MarcacaoPonto, marcacao_id)
     if not marcacao:
         raise HTTPException(status_code=404, detail="Marcação não encontrada.")
+    db.refresh(marcacao)
     competencia = db.get(Competencia, marcacao.competencia_id)
+    db.refresh(competencia)
     exigir_competencia_editavel(competencia)
+    exigir_referencias_editaveis(db,marcacao_id=marcacao.id)
     if marcacao.conferido:
         raise HTTPException(status_code=409, detail="Reabra a conferência do dia antes de alterar o destino de uma batida.")
     try:
@@ -218,9 +258,11 @@ def marcacao_para_decisao_de_batida(db: Session, marcacao_id: int) -> tuple[Marc
 
 
 @router.post("/{marcacao_id}/batidas-desconsideradas", response_model=MarcacaoRead)
-def desconsiderar_batida(marcacao_id: int, payload: DesconsideracaoBatida, db: Session = Depends(get_db)) -> MarcacaoPonto:
+@atomica
+def desconsiderar_batida(marcacao_id: int, payload: DesconsideracaoBatida, db: Session = Depends(get_db), request: Request = None) -> MarcacaoPonto:
     """Tira uma batida bruta da contagem (ex.: batida duplicada). A batida original é preservada."""
     marcacao, competencia, brutas = marcacao_para_decisao_de_batida(db, marcacao_id)
+    exigir_revisao(marcacao, payload.revisao, request)
     if payload.indice >= len(brutas):
         raise HTTPException(status_code=422, detail="Batida original não encontrada neste dia.")
     atuais = marcacao.batidas_desconsideradas
@@ -241,8 +283,10 @@ def desconsiderar_batida(marcacao_id: int, payload: DesconsideracaoBatida, db: S
 
 
 @router.delete("/{marcacao_id}/batidas-desconsideradas/{indice}", response_model=MarcacaoRead)
-def restaurar_batida(marcacao_id: int, indice: int, db: Session = Depends(get_db)) -> MarcacaoPonto:
+@atomica
+def restaurar_batida(marcacao_id: int, indice: int, db: Session = Depends(get_db), revisao: int | None = None, request: Request = None) -> MarcacaoPonto:
     marcacao, competencia, _ = marcacao_para_decisao_de_batida(db, marcacao_id)
+    exigir_revisao(marcacao, revisao, request)
     atuais = marcacao.batidas_desconsideradas
     removida = next((item for item in atuais if item["indice"] == indice), None)
     if removida is None:

@@ -22,7 +22,7 @@ test('lote abre nova aba sem funcionario_id e respeita todas as guardas de emiss
       showToast:(...args)=>messages.push(args), document:{body:{appendChild(){}}, createElement:()=>({
         click(){clicked.push({href:this.href,target:this.target,rel:this.rel});},remove(){}
       })}, ...overrides};
-    vm.createContext(context);
+    require('./module-loader.cjs').context(context);
     vm.runInContext(extract(app,'openCompetencePrintReport'), context);
     context.openCompetencePrintReport(null, true);
     if (Object.keys(overrides).length) {
@@ -40,12 +40,11 @@ test('Exportacoes apresenta quarto cartao com acao ligada ao lote', () => {
   const context = {valueOf:(obj, keys, fallback)=>obj[keys[0]] ?? fallback,
     reportCard:(...args)=>{cards.push(args);return args[0];}, statusChip:()=>'', summaryItem:()=>'',
     companyName:()=>'', formatCompetence:()=>''};
-  vm.createContext(context);
-  vm.runInContext(extract(screens, 'competencyExportContent'), context);
+  require('./module-loader.cjs').context(context);
+  context.competencyExportContent=require('../js/features/screen-relatorios.js').create({...context,escapeHtml:String}).competencyExportContent;
   const html = context.competencyExportContent({state:{apiMode:'demo'}}, {competence:{},company:{}});
-  assert.equal(cards.length,4);
-  assert.deepEqual(cards[3],['Espelhos de ponto (todos os funcionários)',
-    'Um espelho por funcionário, pronto para impressão e assinatura.', 'Abrir espelhos', 'open-espelhos-lote']);
+  assert.equal((html.match(/class="report-card"/g)||[]).length,4);
+  assert.match(html,/data-action="open-espelhos-lote"/);
   assert.ok(html.includes('Espelhos de ponto'));
   const handler = app.match(/if \(action === "open-espelhos-lote"\) return [^;]+;/)[0];
   let args;
@@ -65,7 +64,7 @@ test('cadastro e edicao mantem campo opcional vazio para null e preservam zero l
       showDialog:config=>{dialog=config;},apiRequest:async(endpoint,options)=>{saved={endpoint,...options};return options.body;},
       upsertEntity(){},scales:()=>[],normalizeScale:x=>x,compareEntityNames(){},
       invalidateCompanyCompetenceData(){},render(){},showToast(){}};
-    vm.createContext(context);
+    require('./module-loader.cjs').context(context);
     vm.runInContext(['nullableDialogNumber','hourPolicyFields','hourPolicyPayload','openScaleDialog'].map(name=>extract(app,name)).join('\n'),context);
     context.openScaleDialog(scenario.entity?.id);
     const field = dialog.fields.find(f=>f.name==='tolerancia_intervalo_minutos');

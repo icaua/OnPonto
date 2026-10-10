@@ -87,6 +87,13 @@ def extra_bruta(dia, escala, marcacao):
         return 0
     if dia.get("feriado_aplicado") or dia["status_dia"] == "feriado":
         return dia.get("horas_feriado_minutos", 0)
+    if getattr(escala, "tipo_intervalo", None) in {"flexivel", "sem_intervalo"} or "pre_assinalado" in (dia.get("origens_horarios_calculo") or {}).values():
+        trabalhados = dia.get("horas_trabalhadas_minutos")
+        previstos = dia.get("jornada_prevista_minutos")
+        if trabalhados is None or previstos is None:
+            return None
+        minutos = max(trabalhados - previstos, 0)
+        return 0 if minutos <= escala.tolerancia_extra_minutos else minutos
     if escala.modo_apuracao == "horario_fixo" and dia["status_dia"] == "normal":
         from app.ocorrencias.interpretacao import intervalos, minutos_cobertos
         realizados = intervalos(marcacao.entrada, marcacao.saida_almoco, marcacao.retorno_almoco, marcacao.saida)
@@ -157,8 +164,11 @@ def distribuir_dia(dia, escala, marcacao, empresa, acumuladores):
 
 
 def resumir_distribuicao(resumo, dias):
+    por_funcionario={}
+    for d in dias:
+        if not d.get("fora_vinculo"): por_funcionario.setdefault(d["funcionario_id"],[]).append(d)
     for item in resumo:
-        registros = [d for d in dias if d["funcionario_id"] == item["funcionario_id"] and not d.get("fora_vinculo")]
+        registros=por_funcionario.get(item["funcionario_id"],[])
         for campo in CAMPOS_DISTRIBUICAO:
             valores = [d.get(campo) for d in registros]
             item[campo] = sum(valores) if valores and all(v is not None for v in valores) else None

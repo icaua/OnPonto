@@ -284,7 +284,7 @@ def parse_xlsx_cartao_ponto(
                 "pendencias": pendencias,
                 "fora_da_competencia": fora_da_competencia,
                 "selecionado": encontrado and not fora_da_competencia,
-                "origem": {"tipo": NOME_ADAPTER, "arquivo": nome_arquivo},
+                "origem": {"tipo": NOME_ADAPTER, "arquivo": nome_arquivo,"aba":ws.title,"linha":row_idx},
             }
         )
 

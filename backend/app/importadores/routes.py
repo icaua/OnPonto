@@ -5,7 +5,7 @@ from datetime import date, datetime, time, timezone
 from pathlib import Path
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import Request, APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from openpyxl import load_workbook
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
@@ -13,107 +13,28 @@ from sqlalchemy.orm import Session
 from app.apuracao.service import placeholder_calendario_intocado
 from app.competencias.service import exigir_competencia_editavel
 from app.ocorrencias.service import iniciar_escrita
+from app.database.transacoes import atomica
 from app.database.models import ArquivoRecebido, Competencia, Empresa, Funcionario, IdentificacaoIgnorada, MarcacaoPonto
 from app.database.session import BACKEND_DIR, UPLOADS_DIR, get_db
-from app.importadores.deteccao import (
-    ADAPTADORES_TXT,
-    ADAPTADORES_XLSX,
-    detectar_adaptadores_txt,
-    detectar_adaptadores_xlsx,
-)
-from app.importadores import ignorados
+from app.importadores import ignorados, armazenamento, pipeline, propostas
 from app.importadores.schemas import ConfirmacaoImportacao, IdentificacaoIgnoradaCreate
-from app.importadores.txt_generico import parse_txt_generico
-from app.importadores.txt_id_tempo_maquina import parse_txt_id_tempo_maquina
-from app.importadores.txt_log_relogio import parse_txt_log_relogio
-from app.importadores.xlsx_cartao_ponto import parse_xlsx_cartao_ponto
-from app.importadores.xlsx_ponto_generico import parse_xlsx_ponto_generico
-
+from app.database.models import PreviaImportacao, ConfirmacaoImportacaoEvento, BatidaOriginal
 
 router = APIRouter(prefix="/importadores", tags=["Importadores"])
-LIMITE_ARQUIVO_BYTES = 25 * 1024 * 1024
-
-EXTENSOES_SUPORTADAS = (".txt", ".xlsx")
-NOMES_ADAPTADORES = {adaptador.NOME_ADAPTER for adaptador in (*ADAPTADORES_TXT, *ADAPTADORES_XLSX)}
-FUNCOES_PARSE = {
-    "txt_log_relogio": parse_txt_log_relogio,
-    "txt_id_tempo_maquina": parse_txt_id_tempo_maquina,
-    "txt_generico": parse_txt_generico,
-    ADAPTADORES_XLSX[0].NOME_ADAPTER: parse_xlsx_ponto_generico,
-    ADAPTADORES_XLSX[1].NOME_ADAPTER: parse_xlsx_cartao_ponto,
-}
+LIMITE_ARQUIVO_BYTES = armazenamento.LIMITE_ARQUIVO_BYTES
+EXTENSOES_SUPORTADAS = pipeline.EXTENSOES_SUPORTADAS
+NOMES_ADAPTADORES = pipeline.NOMES_ADAPTADORES
+FUNCOES_PARSE = pipeline.FUNCOES_PARSE
 
 
-def nome_seguro(nome: str) -> str:
-    base = Path(nome).name.strip() or "arquivo.xlsx"
-    return re.sub(r"[^A-Za-z0-9._-]+", "_", base)
+def salvar_arquivo_original(db, competencia, arquivo, **kwargs):
+    return armazenamento.salvar_arquivo_original(db, competencia, arquivo, uploads_dir=UPLOADS_DIR, **kwargs)
 
+def caminho_arquivo_recebido(registro):
+    return pipeline.caminho_arquivo_recebido(registro, UPLOADS_DIR)
 
-def salvar_arquivo_original(
-    db: Session,
-    competencia: Competencia,
-    arquivo: UploadFile,
-    *,
-    extensoes_esperadas: tuple[str, ...],
-    tipo_arquivo: str,
-    observacoes: str,
-) -> ArquivoRecebido:
-    original = nome_seguro(arquivo.filename or f"ponto{extensoes_esperadas[0]}")
-    extensao = Path(original).suffix.lower()
-    if extensao not in extensoes_esperadas:
-        raise HTTPException(status_code=400, detail=f"Envie um arquivo {' ou '.join(extensoes_esperadas)}.")
-
-    pasta_destino = UPLOADS_DIR / f"empresa_{competencia.empresa_id}" / f"{competencia.ano}-{competencia.mes:02d}"
-    try:
-        pasta_destino.mkdir(parents=True, exist_ok=True)
-    except OSError as exc:
-        raise HTTPException(status_code=500, detail="Não foi possível preparar o armazenamento do arquivo.") from exc
-    nome_final = f"{datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{uuid4().hex[:8]}_{original}"
-    destino = pasta_destino / nome_final
-
-    try:
-        try:
-            with destino.open("wb") as buffer:
-                total_bytes = 0
-                while trecho := arquivo.file.read(1024 * 1024):
-                    total_bytes += len(trecho)
-                    if total_bytes > LIMITE_ARQUIVO_BYTES:
-                        raise HTTPException(
-                            status_code=413,
-                            detail="O arquivo excede o limite de 25 MB.",
-                        )
-                    buffer.write(trecho)
-        finally:
-            arquivo.file.close()
-    except HTTPException:
-        destino.unlink(missing_ok=True)
-        raise
-    except OSError as exc:
-        destino.unlink(missing_ok=True)
-        raise HTTPException(status_code=500, detail="Não foi possível salvar o arquivo enviado.") from exc
-
-    try:
-        caminho_armazenado = destino.relative_to(BACKEND_DIR).as_posix()
-    except ValueError:
-        caminho_armazenado = destino.resolve().as_posix()
-
-    registro = ArquivoRecebido(
-        competencia_id=competencia.id,
-        nome_original=arquivo.filename or original,
-        caminho_arquivo=caminho_armazenado,
-        tipo_arquivo=tipo_arquivo,
-        observacoes=observacoes,
-    )
-    db.add(registro)
-    try:
-        db.commit()
-    except Exception as exc:
-        db.rollback()
-        destino.unlink(missing_ok=True)
-        raise HTTPException(status_code=500, detail="Não foi possível registrar o arquivo enviado.") from exc
-    db.refresh(registro)
-    return registro
-
+def gerar_previa(db, competencia, registro):
+    return pipeline.gerar_previa(db, competencia, registro, UPLOADS_DIR)
 
 def validar_contexto_importacao(db: Session, empresa_id: int, competencia_id: int) -> tuple[Empresa, Competencia]:
     empresa = db.get(Empresa, empresa_id)
@@ -129,94 +50,11 @@ def validar_contexto_importacao(db: Session, empresa_id: int, competencia_id: in
     return empresa, competencia
 
 
-def caminho_arquivo_recebido(registro: ArquivoRecebido) -> Path:
-    caminho = Path(registro.caminho_arquivo)
-    if not caminho.is_absolute():
-        caminho = BACKEND_DIR / caminho
-    caminho = caminho.resolve()
-    if not caminho.is_relative_to(UPLOADS_DIR.resolve()):
-        raise HTTPException(status_code=400, detail="Caminho do arquivo de origem inválido.")
-    if not caminho.is_file():
-        raise HTTPException(status_code=404, detail="Arquivo original não encontrado.")
-    return caminho
-
-
-def detectar_adaptador(caminho: Path, extensao: str) -> tuple[object, bytes | str]:
-    """Detecta qual adaptador reconhece o arquivo. Devolve o módulo do
-    adaptador e o argumento já preparado para chamar sua função de parse.
-    Levanta HTTPException(400) se nenhum ou mais de um adaptador reconhecer."""
-
-    if extensao == ".txt":
-        conteudo = caminho.read_bytes()
-        encontrados = detectar_adaptadores_txt(conteudo)
-        argumento_parse: bytes | str = conteudo
-    elif extensao == ".xlsx":
-        try:
-            workbook = load_workbook(caminho, data_only=True)
-        except Exception as exc:
-            raise HTTPException(status_code=400, detail="Não foi possível ler o arquivo XLSX enviado.") from exc
-        encontrados = detectar_adaptadores_xlsx(workbook)
-        argumento_parse = str(caminho)
-    else:
-        raise HTTPException(status_code=400, detail="Envie um arquivo .txt ou .xlsx.")
-
-    if not encontrados:
-        raise HTTPException(
-            status_code=400,
-            detail="Formato de arquivo não reconhecido. Nenhum adaptador soube interpretar este arquivo.",
-        )
-    if len(encontrados) > 1:
-        raise HTTPException(
-            status_code=400,
-            detail="Mais de um adaptador reconheceu este arquivo. Revise o conteúdo antes de importar.",
-        )
-    return encontrados[0], argumento_parse
-
-
-def gerar_previa(db: Session, competencia: Competencia, registro: ArquivoRecebido) -> tuple[object, dict]:
-    """Interpreta o arquivo salvo sem gravar nada."""
-    caminho = caminho_arquivo_recebido(registro)
-    extensao = Path(registro.nome_original).suffix.lower()
-    funcionarios = db.query(Funcionario).filter(Funcionario.empresa_id == competencia.empresa_id).all()
-
-    adaptador, argumento_parse = detectar_adaptador(caminho, extensao)
-
-    try:
-        resultado = FUNCOES_PARSE[adaptador.NOME_ADAPTER](
-            argumento_parse,
-            arquivo_nome=registro.nome_original,
-            mes=competencia.mes,
-            ano=competencia.ano,
-            funcionarios=funcionarios,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-    preview = resultado["registros"]
-    # Preserva os adapters homologados, mas sinaliza associações divergentes
-    # antes da seleção automática na prévia operacional.
-    por_id = {f.id: f for f in funcionarios}
-    def nome_comparavel(valor):
-        texto = unicodedata.normalize("NFKD", str(valor or ""))
-        return " ".join("".join(c for c in texto if not unicodedata.combining(c)).casefold().split())
-    for item in preview:
-        info = item["funcionario"]
-        candidato = por_id.get(info.get("id"))
-        if candidato and adaptador.NOME_ADAPTER.startswith("txt_"):
-            codigo = info.get("codigo_origem")
-            nome = info.get("nome_origem")
-            divergente = (codigo and str(codigo) != str(candidato.codigo or "")) or (
-                nome and nome_comparavel(nome) != nome_comparavel(candidato.nome)
-            )
-            if divergente:
-                item["selecionado"] = False
-                item["status"] = "conferir"
-                item["pendencias"].append("ID ou nome diverge do cadastro sugerido; confirme a associação antes de selecionar este registro.")
-    return adaptador, resultado
-
-
-def analisar_arquivo_salvo(db: Session, competencia: Competencia, registro: ArquivoRecebido) -> dict:
+def analisar_arquivo_salvo(db: Session, competencia: Competencia, registro: ArquivoRecebido, *, commit=True) -> dict:
+    hash_antes = propostas.hash_arquivo(caminho_arquivo_recebido(registro))
     adaptador, resultado = gerar_previa(db, competencia, registro)
+    if propostas.hash_arquivo(caminho_arquivo_recebido(registro)) != hash_antes:
+        raise HTTPException(409, "O arquivo mudou durante a análise. Nenhuma proposta foi confirmada.")
     preview = resultado["registros"]
     confirmacoes_anteriores = (registro.observacoes or "").partition(" Confirmação:")[2]
     registro.tipo_arquivo = adaptador.NOME_ADAPTER
@@ -237,7 +75,6 @@ def analisar_arquivo_salvo(db: Session, competencia: Competencia, registro: Arqu
     # Sem registro pendente não há o que confirmar (ex.: arquivo só com pessoas ignoradas).
     controle.update(estado="analisada" if pendencias else "confirmada", pendencias=pendencias)
     registro.controle_importacao_json = json.dumps(controle, ensure_ascii=False)
-    db.commit()
     for item in preview:
         item["origem"]["arquivo_id"] = registro.id
         if item["id"] in resolvidos:
@@ -257,7 +94,7 @@ def analisar_arquivo_salvo(db: Session, competencia: Competencia, registro: Arqu
         for item in preview
         if item.get("ignorado")
     }
-    return {
+    proposta = {
         "arquivo": {
             "id": registro.id,
             "nome_original": registro.nome_original,
@@ -282,6 +119,13 @@ def analisar_arquivo_salvo(db: Session, competencia: Competencia, registro: Arqu
         "registros_fora_competencia": sum(1 for item in preview if item["fora_da_competencia"]),
         "preview": preview,
     }
+    propostas.preservar(db, competencia, registro, proposta, caminho_arquivo_recebido(registro))
+    from app.competencias.service import sincronizar_status_competencia
+    sincronizar_status_competencia(db, competencia)
+    if commit: db.commit()
+    else: db.flush()
+    return proposta
+
 
 
 def hora_interpretada(valor: str | None) -> time | None:
@@ -289,6 +133,7 @@ def hora_interpretada(valor: str | None) -> time | None:
 
 
 @router.post("/{arquivo_id}/reanalisar")
+@atomica
 def reanalisar(arquivo_id: int, db: Session = Depends(get_db)):
     arquivo = db.get(ArquivoRecebido, arquivo_id)
     if not arquivo:
@@ -302,6 +147,7 @@ from app.importadores.schemas import DescartePendencias
 
 
 @router.post("/{arquivo_id}/descartar-pendencias")
+@atomica
 def descartar_pendencias(arquivo_id: int, payload: DescartePendencias, db: Session = Depends(get_db)):
     """Exclusão justificada de registros da apuração; preserva arquivo e trilha."""
     arquivo = db.get(ArquivoRecebido, arquivo_id)
@@ -320,6 +166,9 @@ def descartar_pendencias(arquivo_id: int, payload: DescartePendencias, db: Sessi
     controle["pendencias"] = [p for p in pendencias if p["registro_id"] not in ids]
     controle["estado"] = "confirmada"
     arquivo.controle_importacao_json = json.dumps(controle, ensure_ascii=False)
+    propostas.auditar_arquivo(db, arquivo, "descarte_justificado", {"ids":sorted(ids),"justificativa":payload.justificativa.strip()})
+    from app.competencias.service import sincronizar_status_competencia
+    sincronizar_status_competencia(db, arquivo.competencia)
     db.commit()
     return {"descartados": len(ids), "restantes": len(controle["pendencias"])}
 
@@ -363,6 +212,7 @@ def arquivos_editaveis(db: Session, empresa_id: int) -> list[ArquivoRecebido]:
 
 
 @router.post("/ignorados", status_code=status.HTTP_201_CREATED)
+@atomica
 def ignorar_identificacao(payload: IdentificacaoIgnoradaCreate, db: Session = Depends(get_db)):
     """Ignora uma pessoa do relógio nesta empresa e aplica a decisão às competências abertas."""
     iniciar_escrita(db)
@@ -390,12 +240,16 @@ def ignorar_identificacao(payload: IdentificacaoIgnoradaCreate, db: Session = De
                 controle["estado"] = "confirmada"
             arquivo.controle_importacao_json = json.dumps(controle, ensure_ascii=False)
             excluidos += novos
+    for arquivo in arquivos_editaveis(db, payload.empresa_id):
+        propostas.auditar_arquivo(db,arquivo,"identificacao_ignorada",ignorados.serializar(regra))
+    sincronizar_empresa(db,payload.empresa_id)
     db.commit()
     db.refresh(regra)
     return {"regra": ignorados.serializar(regra), "registros_excluidos": excluidos, "arquivos_nao_reprocessados": falhas}
 
 
 @router.delete("/ignorados/{regra_id}")
+@atomica
 def deixar_de_ignorar(regra_id: int, db: Session = Depends(get_db)):
     """Desativa a regra; registros excluídos por ela em competências abertas voltam a pendências."""
     iniciar_escrita(db)
@@ -411,6 +265,9 @@ def deixar_de_ignorar(regra_id: int, db: Session = Depends(get_db)):
         if quantidade:
             arquivo.controle_importacao_json = json.dumps(controle, ensure_ascii=False)
             restaurados += quantidade
+    for arquivo in arquivos_editaveis(db, regra.empresa_id):
+        propostas.auditar_arquivo(db,arquivo,"identificacao_restaurada",ignorados.serializar(regra))
+    sincronizar_empresa(db,regra.empresa_id)
     db.commit()
     return {"regra": ignorados.serializar(regra), "registros_restaurados": restaurados}
 
@@ -428,6 +285,7 @@ def analisar_importacao(
     arquivo: UploadFile = File(...),
     db: Session = Depends(get_db),
 ) -> dict:
+    iniciar_escrita(db)
     _, competencia = validar_contexto_importacao(db, empresa_id, competencia_id)
     if competencia.mes != mes or competencia.ano != ano:
         raise HTTPException(status_code=400, detail="Mês/ano não correspondem à competência informada.")
@@ -445,8 +303,13 @@ def analisar_importacao(
         observacoes="Arquivo original preservado para análise de importação de ponto.",
     )
     try:
+        # O original já está preservado; a análise revalida sob novo lock.
+        iniciar_escrita(db)
+        db.refresh(competencia)
+        exigir_competencia_editavel(competencia)
         return analisar_arquivo_salvo(db, competencia, registro)
     except HTTPException as exc:
+        db.rollback()
         registro.observacoes = f"Falha na análise do arquivo: {exc.detail}"
         try:
             db.commit()
@@ -456,9 +319,11 @@ def analisar_importacao(
 
 
 @router.post("/confirmar", status_code=status.HTTP_201_CREATED)
+@atomica
 def confirmar_importacao(
     payload: ConfirmacaoImportacao,
     db: Session = Depends(get_db),
+    request: Request = None,
 ) -> dict:
     _, competencia = validar_contexto_importacao(db, payload.empresa_id, payload.competencia_id)
     if not payload.registros_ids:
@@ -475,7 +340,13 @@ def confirmar_importacao(
             detail="Arquivo informado ainda não foi analisado por um adaptador reconhecido.",
         )
 
-    analise = analisar_arquivo_salvo(db, competencia, arquivo)
+    db.refresh(competencia)
+    exigir_competencia_editavel(competencia)
+    previa, analise = propostas.carregar_valida(db, competencia, arquivo, caminho_arquivo_recebido(arquivo),
+        payload.revisao_previa, request is not None)
+    chave = propostas.hash_json([previa.id, sorted(set(payload.registros_ids))])
+    confirmacao = db.query(ConfirmacaoImportacaoEvento).filter_by(chave=chave).first()
+    if confirmacao: return {**json.loads(confirmacao.resposta_json), "idempotente":True}
     registros_por_id = {item["id"]: item for item in analise["preview"]}
     ids_selecionados = list(dict.fromkeys(payload.registros_ids))
     ids_invalidos = [registro_id for registro_id in ids_selecionados if registro_id not in registros_por_id]
@@ -485,10 +356,17 @@ def confirmar_importacao(
     conflitos: list[dict] = []
     marcacoes: list[MarcacaoPonto] = []
     chaves_reservadas: set[tuple[int, date]] = set()
+    funcionarios = {f.id:f for f in db.query(Funcionario).filter_by(empresa_id=competencia.empresa_id)}
+    existentes = {(m.funcionario_id,m.data):m for m in db.query(MarcacaoPonto).filter_by(competencia_id=competencia.id)}
+    brutas = {}
+    for batida in db.query(BatidaOriginal).filter_by(arquivo_id=arquivo.id): brutas.setdefault(batida.fonte,[]).append(batida)
+    controle = arquivo.controle_importacao or {}
+    resolvidos = set(controle.get("importados",[])) | {p["registro_id"] for p in controle.get("descartados",[])}
     for registro_id in ids_selecionados:
+        if registro_id in resolvidos: continue
         item = registros_por_id[registro_id]
         funcionario_info = item["funcionario"]
-        funcionario = db.get(Funcionario, funcionario_info["id"]) if funcionario_info["id"] else None
+        funcionario = funcionarios.get(funcionario_info["id"]) if funcionario_info["id"] else None
         if not funcionario or funcionario.empresa_id != payload.empresa_id:
             conflitos.append(
                 {
@@ -526,15 +404,7 @@ def confirmar_importacao(
                 }
             )
             continue
-        existente = (
-            db.query(MarcacaoPonto)
-            .filter(
-                MarcacaoPonto.competencia_id == competencia.id,
-                MarcacaoPonto.funcionario_id == funcionario.id,
-                MarcacaoPonto.data == data_marcacao,
-            )
-            .first()
-        )
+        existente = existentes.get(chave_marcacao)
         if existente and not placeholder_calendario_vazio(existente):
             conflitos.append(
                 {
@@ -566,6 +436,11 @@ def confirmar_importacao(
         chaves_reservadas.add(chave_marcacao)
         db.add(marcacao)
         marcacoes.append(marcacao)
+        db.flush()
+        for batida in brutas.get(propostas.fonte_bruta(arquivo.id,item), []):
+            if batida.marcacao_id is None: batida.marcacao_id = marcacao.id
+        from app.marcacoes.auditoria import registrar_alteracao
+        registrar_alteracao(marcacao, None)
 
     arquivo.observacoes = (arquivo.observacoes or "") + (
         f" Confirmação: {datetime.now(timezone.utc).isoformat()}; {len(ids_selecionados)} dias solicitados; "
@@ -579,34 +454,32 @@ def confirmar_importacao(
     controle["pendencias"] = [{**p, **conflitos_por_id.get(p["registro_id"], {})} for p in controle["pendencias"] if p["registro_id"] not in importados]
     controle["estado"] = "confirmada"
     arquivo.controle_importacao_json = json.dumps(controle, ensure_ascii=False)
-    if marcacoes or conflitos:
-        if marcacoes:
-            from app.apuracao.service import gerar_dias_faltantes
-            gerar_dias_faltantes(db, competencia)
-            competencia.status = "em_conferencia"
-        try:
-            db.commit()
-        except IntegrityError as exc:
-            db.rollback()
-            raise HTTPException(
-                status_code=409,
-                detail="A importação encontrou uma marcação duplicada. Nenhum registro foi sobrescrito.",
-            ) from exc
-        except SQLAlchemyError as exc:
-            db.rollback()
-            raise HTTPException(
-                status_code=500,
-                detail="Não foi possível salvar a importação. Tente novamente.",
-            ) from exc
-        for marcacao in marcacoes:
-            db.refresh(marcacao)
-
-    return {
-        "arquivo_id": arquivo.id,
-        "competencia_id": competencia.id,
-        "total_solicitados": len(ids_selecionados),
-        "total_importados": len(marcacoes),
-        "marcacoes_ids": [marcacao.id for marcacao in marcacoes],
-        "total_conflitos": len(conflitos),
-        "conflitos": conflitos,
+    if marcacoes:
+        from app.apuracao.service import gerar_dias_faltantes
+        gerar_dias_faltantes(db, competencia)
+    from app.competencias.service import sincronizar_status_competencia
+    sincronizar_status_competencia(db, competencia)
+    resposta = {
+        "arquivo_id": arquivo.id, "competencia_id": competencia.id, "revisao_previa":previa.revisao,
+        "total_solicitados":len(ids_selecionados), "total_importados":len(marcacoes),
+        "marcacoes_ids":[m.id for m in marcacoes], "total_conflitos":len(conflitos), "conflitos":conflitos,
     }
+    db.add(ConfirmacaoImportacaoEvento(previa_id=previa.id,chave=chave,selecao_json=propostas.json_estavel(ids_selecionados),
+        resposta_json=propostas.json_estavel(resposta)))
+    propostas.auditar_arquivo(db,arquivo,"confirmacao",resposta)
+    try:
+        db.commit()
+    except SQLAlchemyError as exc:
+        raise HTTPException(500, "Não foi possível salvar a importação; a transação foi revertida.") from exc
+    return resposta
+
+@router.get("/{arquivo_id}/previa")
+def consultar_previa(arquivo_id:int, db:Session=Depends(get_db)):
+    previa=propostas.ultima(db,arquivo_id)
+    if not previa: raise HTTPException(404,"Prévia não encontrada. Reanalise o arquivo.")
+    return json.loads(previa.proposta_json)
+
+def sincronizar_empresa(db, empresa_id):
+    from app.competencias.service import sincronizar_status_competencia
+    for competencia in db.query(Competencia).filter(Competencia.empresa_id==empresa_id,Competencia.status!="fechada"):
+        sincronizar_status_competencia(db,competencia)

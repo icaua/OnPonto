@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 StatusDia = Literal[
     "normal",
     "falta",
+    "falta_justificada",
     "atestado",
     "folga",
     "feriado",
@@ -20,6 +21,7 @@ StatusDia = Literal[
 STATUS_DIA = {
     "normal",
     "falta",
+    "falta_justificada",
     "atestado",
     "folga",
     "feriado",
@@ -56,11 +58,13 @@ class MarcacaoBase(BaseModel):
 
 
 class MarcacaoCreate(MarcacaoBase):
-    pass
+    revisao: int | None = Field(default=None, ge=1)
 
 
 class MarcacaoUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+    revisao: int | None = Field(default=None, ge=1)
 
     entrada: time | None = None
     saida_almoco: time | None = None
@@ -73,6 +77,8 @@ class MarcacaoUpdate(BaseModel):
 
 class DesconsideracaoBatida(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+    revisao: int | None = Field(default=None, ge=1)
 
     indice: int = Field(ge=0)
     justificativa: str = Field(min_length=10, max_length=1000)
@@ -87,6 +93,7 @@ class MarcacaoRead(MarcacaoBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    revisao: int
     historico: list[dict] = Field(default_factory=list)
     batidas_originais: list[str] = Field(default_factory=list)
     batidas_desconsideradas: list[dict] = Field(default_factory=list)

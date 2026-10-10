@@ -11,6 +11,16 @@ class TimestampMixin:
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class CacheConferencia(Base):
+    __tablename__ = "cache_conferencia"
+    __table_args__ = (UniqueConstraint("competencia_id","funcionario_id",name="uq_cache_conferencia"),)
+    id: Mapped[int] = mapped_column(Integer,primary_key=True)
+    competencia_id: Mapped[int] = mapped_column(ForeignKey("competencias.id"),nullable=False,index=True)
+    funcionario_id: Mapped[int] = mapped_column(ForeignKey("funcionarios.id"),nullable=False)
+    assinatura: Mapped[str] = mapped_column(String(64),nullable=False)
+    contadores_json: Mapped[str] = mapped_column(Text,nullable=False)
+
+
 class Empresa(Base, TimestampMixin):
     __tablename__ = "empresas"
 
@@ -35,6 +45,20 @@ class Escala(Base, TimestampMixin):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     empresa_id: Mapped[int] = mapped_column(ForeignKey("empresas.id"), nullable=False, index=True)
     nome: Mapped[str] = mapped_column(String(120), nullable=False)
+    tipo_intervalo: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    registro_intervalo: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    duracao_intervalo_minutos: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    politica_dsr_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    @property
+    def politica_dsr(self):
+        import json
+        return json.loads(self.politica_dsr_json) if self.politica_dsr_json else None
+
+    @politica_dsr.setter
+    def politica_dsr(self, valor):
+        import json
+        self.politica_dsr_json = json.dumps(valor, ensure_ascii=False) if valor is not None else None
     modo_apuracao: Mapped[str] = mapped_column(
         String(20), nullable=False, default="carga_horaria"
     )
@@ -61,6 +85,17 @@ class Escala(Base, TimestampMixin):
     usa_banco_horas: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
 
     politica_horas_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    jornadas_semana_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    @property
+    def jornadas_semana(self):
+        import json
+        return json.loads(self.jornadas_semana_json) if self.jornadas_semana_json else None
+
+    @jornadas_semana.setter
+    def jornadas_semana(self,valor):
+        import json
+        self.jornadas_semana_json=json.dumps(valor,ensure_ascii=False,default=lambda v:v.isoformat()) if valor is not None else None
 
     @property
     def politica_horas(self):
@@ -145,6 +180,38 @@ class Competencia(Base, TimestampMixin):
     marcacoes = relationship("MarcacaoPonto", back_populates="competencia", cascade="all, delete-orphan")
 
 
+class FechamentoVersao(Base):
+    __tablename__ = "fechamentos_versoes"
+    __table_args__ = (UniqueConstraint("competencia_id", "numero", name="uq_fechamento_versao"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    competencia_id: Mapped[int] = mapped_column(ForeignKey("competencias.id"), nullable=False, index=True)
+    numero: Mapped[int] = mapped_column(Integer, nullable=False)
+    snapshot: Mapped[str | None] = mapped_column(Text, nullable=True)
+    regras_json: Mapped[str] = mapped_column(Text, nullable=False)
+    origem: Mapped[str] = mapped_column(String(60), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class ReaberturaFechamento(Base):
+    __tablename__ = "reaberturas_fechamento"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    fechamento_id: Mapped[int] = mapped_column(ForeignKey("fechamentos_versoes.id"), nullable=False, unique=True)
+    origem: Mapped[str] = mapped_column(String(60), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class DependenciaFechamento(Base):
+    __tablename__ = "dependencias_fechamento"
+    __table_args__ = (UniqueConstraint("fechamento_id", "marcacao_id", name="uq_dependencia_fechamento"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    fechamento_id: Mapped[int] = mapped_column(ForeignKey("fechamentos_versoes.id"), nullable=False, index=True)
+    marcacao_id: Mapped[int] = mapped_column(ForeignKey("marcacoes_ponto.id"), nullable=False, index=True)
+    revisao: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
 class ArquivoRecebido(Base):
     __tablename__ = "arquivos_recebidos"
 
@@ -152,6 +219,8 @@ class ArquivoRecebido(Base):
     competencia_id: Mapped[int] = mapped_column(ForeignKey("competencias.id"), nullable=False, index=True)
     nome_original: Mapped[str] = mapped_column(String(255), nullable=False)
     caminho_arquivo: Mapped[str] = mapped_column(String(500), nullable=False)
+    sha256: Mapped[str | None] = mapped_column(String(64),nullable=True,index=True)
+    tamanho_bytes: Mapped[int | None] = mapped_column(Integer,nullable=True)
     controle_importacao_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     tipo_arquivo: Mapped[str] = mapped_column(String(30), nullable=False)
     observacoes: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -164,6 +233,75 @@ class ArquivoRecebido(Base):
 
     competencia = relationship("Competencia", back_populates="arquivos")
     marcacoes = relationship("MarcacaoPonto", back_populates="arquivo_origem")
+
+
+class PreviaImportacao(Base):
+    __tablename__="previas_importacao"
+    __table_args__=(UniqueConstraint("arquivo_id","revisao",name="uq_previa_revisao"),)
+    id: Mapped[int]=mapped_column(Integer,primary_key=True)
+    arquivo_id: Mapped[int]=mapped_column(ForeignKey("arquivos_recebidos.id"),nullable=False,index=True)
+    revisao: Mapped[int]=mapped_column(Integer,nullable=False)
+    arquivo_sha256: Mapped[str]=mapped_column(String(64),nullable=False)
+    adaptador: Mapped[str]=mapped_column(String(80),nullable=False)
+    adaptador_versao: Mapped[str]=mapped_column(String(80),nullable=False)
+    contexto_sha256: Mapped[str]=mapped_column(String(64),nullable=False)
+    proposta_json: Mapped[str]=mapped_column(Text,nullable=False)
+    created_at: Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow)
+
+
+class ConfirmacaoImportacaoEvento(Base):
+    __tablename__="confirmacoes_importacao"
+    id: Mapped[int]=mapped_column(Integer,primary_key=True)
+    previa_id: Mapped[int]=mapped_column(ForeignKey("previas_importacao.id"),nullable=False,index=True)
+    chave: Mapped[str]=mapped_column(String(64),nullable=False,unique=True)
+    selecao_json: Mapped[str]=mapped_column(Text,nullable=False)
+    resposta_json: Mapped[str]=mapped_column(Text,nullable=False)
+    created_at: Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow)
+
+
+class DocumentoEvidencia(Base):
+    __tablename__="documentos_evidencia"
+    id: Mapped[int]=mapped_column(Integer,primary_key=True)
+    arquivo_id: Mapped[int | None]=mapped_column(ForeignKey("arquivos_recebidos.id"),nullable=True,index=True)
+    ocorrencia_id: Mapped[int | None]=mapped_column(ForeignKey("ocorrencias_funcionario.id"),nullable=True,index=True)
+    caminho_relativo: Mapped[str | None]=mapped_column(String(500),nullable=True)
+    referencia_legada: Mapped[str | None]=mapped_column(Text,nullable=True)
+    nome_original: Mapped[str]=mapped_column(String(255),nullable=False)
+    sha256: Mapped[str | None]=mapped_column(String(64),nullable=True)
+    tamanho_bytes: Mapped[int | None]=mapped_column(Integer,nullable=True)
+    origem: Mapped[str]=mapped_column(String(80),nullable=False)
+    created_at: Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow)
+
+
+class BatidaOriginal(Base):
+    __tablename__="batidas_originais"
+    __table_args__=(UniqueConstraint("fonte","indice",name="uq_batida_fonte_indice"),CheckConstraint("indice>=0"),)
+    id: Mapped[int]=mapped_column(Integer,primary_key=True)
+    arquivo_id: Mapped[int | None]=mapped_column(ForeignKey("arquivos_recebidos.id"),nullable=True,index=True)
+    marcacao_id: Mapped[int | None]=mapped_column(ForeignKey("marcacoes_ponto.id"),nullable=True,index=True)
+    fonte: Mapped[str]=mapped_column(String(255),nullable=False)
+    indice: Mapped[int]=mapped_column(Integer,nullable=False)
+    valor_json: Mapped[str]=mapped_column(Text,nullable=False)
+    origem_json: Mapped[str]=mapped_column(Text,nullable=False)
+    created_at: Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow)
+
+
+class EventoAuditoria(Base):
+    __tablename__="eventos_auditoria"
+    __table_args__=(UniqueConstraint("marcacao_id","evento_uid",name="uq_evento_marcacao"),
+        UniqueConstraint("ocorrencia_id","evento_uid",name="uq_evento_ocorrencia"),
+        UniqueConstraint("arquivo_id","evento_uid",name="uq_evento_arquivo"))
+    id: Mapped[int]=mapped_column(Integer,primary_key=True)
+    evento_uid: Mapped[str]=mapped_column(String(255),nullable=False)
+    marcacao_id: Mapped[int | None]=mapped_column(ForeignKey("marcacoes_ponto.id"),nullable=True,index=True)
+    ocorrencia_id: Mapped[int | None]=mapped_column(ForeignKey("ocorrencias_funcionario.id"),nullable=True,index=True)
+    arquivo_id: Mapped[int | None]=mapped_column(ForeignKey("arquivos_recebidos.id"),nullable=True,index=True)
+    payload_json: Mapped[str]=mapped_column(Text,nullable=False)
+    origem: Mapped[str]=mapped_column(String(80),nullable=False)
+    created_at: Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow)
+    marcacao=relationship("MarcacaoPonto")
+    ocorrencia=relationship("OcorrenciaFuncionario")
+    arquivo=relationship("ArquivoRecebido")
 
 
 class IdentificacaoIgnorada(Base, TimestampMixin):
@@ -193,6 +331,8 @@ class MarcacaoPonto(Base, TimestampMixin):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     competencia_id: Mapped[int] = mapped_column(ForeignKey("competencias.id"), nullable=False, index=True)
     funcionario_id: Mapped[int] = mapped_column(ForeignKey("funcionarios.id"), nullable=False, index=True)
+    revisao: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    __mapper_args__ = {"version_id_col": revisao}
     data: Mapped[date] = mapped_column(Date, nullable=False, index=True)
     entrada: Mapped[time | None] = mapped_column(Time, nullable=True)
     saida_almoco: Mapped[time | None] = mapped_column(Time, nullable=True)
@@ -267,6 +407,22 @@ class HistoricoVinculoEscala(Base, TimestampMixin):
     vigente_ate: Mapped[date | None] = mapped_column(Date, nullable=True)
     funcionario = relationship("Funcionario")
     escala = relationship("Escala")
+
+
+class EscalaVersao(Base):
+    __tablename__ = "escala_versoes"
+    __table_args__ = (
+        UniqueConstraint("escala_id","numero",name="uq_escala_versao_numero"),
+        CheckConstraint("vigente_ate IS NULL OR vigente_desde IS NULL OR vigente_ate >= vigente_desde"),
+    )
+    id: Mapped[int] = mapped_column(Integer,primary_key=True)
+    escala_id: Mapped[int] = mapped_column(ForeignKey("escalas.id"),nullable=False,index=True)
+    numero: Mapped[int] = mapped_column(Integer,nullable=False)
+    vigente_desde: Mapped[date | None] = mapped_column(Date,nullable=True)
+    vigente_ate: Mapped[date | None] = mapped_column(Date,nullable=True)
+    configuracao_json: Mapped[str] = mapped_column(Text,nullable=False)
+    origem: Mapped[str] = mapped_column(String(80),nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime,default=datetime.utcnow)
 
 
 class LancamentoBancoHoras(Base, TimestampMixin):

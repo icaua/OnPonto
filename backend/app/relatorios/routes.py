@@ -124,6 +124,7 @@ ROTULOS_STATUS_DIA = {
     "feriado": "Feriado",
     "domingo": "Domingo",
     "sem_expediente": "Sem expediente",
+    "falta_justificada": "Falta justificada",
     "trabalho_externo": "Trabalho externo",
     "afastamento": "Afastamento",
 }
@@ -246,10 +247,10 @@ def exportar_excel(
             "Pendências",
             "Situação",
             "Observações",
-            "Horas 100% (feriado)",
+            "Horas em feriado",
         ]
     )
-    for item in resultado["resumo"]:
+    for linha,item in enumerate(resultado["resumo"],start=2):
         ws_resumo.append(
             [
                 texto_seguro_excel(resultado["empresa"]["nome"]),
@@ -265,9 +266,9 @@ def exportar_excel(
                 valor_calculado_excel(duracao_excel(item.get("horas_feriado_minutos", 0))),
             ]
         )
-        ws_resumo.cell(ws_resumo.max_row, 4).number_format = FORMATO_DURACAO_EXCEL
-        ws_resumo.cell(ws_resumo.max_row, 5).number_format = FORMATO_DURACAO_EXCEL
-        ws_resumo.cell(ws_resumo.max_row, 11).number_format = FORMATO_DURACAO_EXCEL
+        ws_resumo.cell(linha, 4).number_format = FORMATO_DURACAO_EXCEL
+        ws_resumo.cell(linha, 5).number_format = FORMATO_DURACAO_EXCEL
+        ws_resumo.cell(linha, 11).number_format = FORMATO_DURACAO_EXCEL
     finalizar_planilha(ws_resumo)
 
     ws_marcacoes = wb.create_sheet("Marcações")
@@ -284,10 +285,10 @@ def exportar_excel(
             "Status",
             "Conferido",
             "Observações",
-            "Horas 100% (feriado)",
+            "Horas em feriado",
         ]
     )
-    for item in resultado["marcacoes"]:
+    for linha,item in enumerate(resultado["marcacoes"],start=2):
         ws_marcacoes.append(
             [
                 data_excel(item["data"]),
@@ -308,7 +309,6 @@ def exportar_excel(
                 "Indisponível" if item.get("horas_feriado_pendente") else duracao_excel(item.get("horas_feriado_minutos", 0)),
             ]
         )
-        linha = ws_marcacoes.max_row
         ws_marcacoes.cell(linha, 1).number_format = FORMATO_DATA_EXCEL
         for coluna in range(3, 7):
             ws_marcacoes.cell(linha, coluna).number_format = FORMATO_HORA_EXCEL
@@ -319,6 +319,30 @@ def exportar_excel(
             FORMATO_DURACAO_EXCEL if isinstance(celula_saldo.value, timedelta) else "@"
         )
     finalizar_planilha(ws_marcacoes)
+
+    intervalos = [d for d in resultado["marcacoes"] if d.get("intervalo_aplicado")]
+    if intervalos:
+        ws_intervalos = wb.create_sheet("Intervalos aplicados")
+        ws_intervalos.append(["Data","Funcionário","Tipo","Registro","Duração prevista (min)","Início previsto","Fim previsto","Pré-assinalação usada"])
+        for linha,d in enumerate(intervalos,start=2):
+            i = d["intervalo_aplicado"]
+            ws_intervalos.append([data_excel(d["data"]),texto_seguro_excel(d["funcionario"]),i["tipo"],i["registro"],
+                i["duracao_minutos"],hora_excel(i["inicio_previsto"]),hora_excel(i["fim_previsto"]),
+                "Sim" if "pre_assinalado" in d["origens_horarios_calculo"].values() else "Não"])
+            ws_intervalos.cell(linha,1).number_format=FORMATO_DATA_EXCEL
+            for coluna in (6,7): ws_intervalos.cell(linha,coluna).number_format=FORMATO_HORA_EXCEL
+        finalizar_planilha(ws_intervalos)
+    dsrs = [d for d in resultado["marcacoes"] if d.get("dsr")]
+    if dsrs:
+        ws_dsr=wb.create_sheet("DSR e feriados")
+        ws_dsr.append(["Data","Funcionário","Tipo","Dias","Desconto (dias)","Início da referência","Fim da referência","Descanso de referência","Faltas injustificadas"])
+        for linha,d in enumerate(dsrs,start=2):
+            dsr=d["dsr"]
+            ws_dsr.append([data_excel(d["data"]),texto_seguro_excel(d["funcionario"]),dsr["tipo"],dsr["dias"],
+                "Pendente" if dsr["desconto_dias"] is None else dsr["desconto_dias"],data_excel(dsr["periodo_inicio"]),
+                data_excel(dsr["periodo_fim"]),data_excel(dsr["descanso_referencia"]),", ".join(dsr["faltas_injustificadas"])])
+            for coluna in (1,6,7,8): ws_dsr.cell(linha,coluna).number_format=FORMATO_DATA_EXCEL
+        finalizar_planilha(ws_dsr)
 
     bancos = [item for item in resultado["resumo"] if item.get("banco_horas")]
     if bancos:
@@ -342,7 +366,7 @@ def exportar_excel(
         ws_he = wb.create_sheet("Distribuição de HE")
         ws_he.append(["Funcionário", "HE apurada", "Para folha", "Base do banco", "Crédito com fator", "Débitos do banco",
                       "Adicionais da folha", "Saldo anterior", "Saldo final", "Compensados 1:1"])
-        for item in politicas:
+        for linha,item in enumerate(politicas,start=2):
             banco = item.get("banco_horas", {})
             ws_he.append([texto_seguro_excel(item["funcionario"])] +
                 [valor_calculado_excel(duracao_excel(item.get(c))) for c in CAMPOS_DISTRIBUICAO] +
@@ -351,7 +375,7 @@ def exportar_excel(
                  formatar_saldo(banco["saldo_final_minutos"]) if banco else "—",
                  valor_calculado_excel(duracao_excel(banco.get("compensados_minutos")))])
             for col in (2, 3, 4, 5, 6, 10):
-                ws_he.cell(ws_he.max_row, col).number_format = FORMATO_DURACAO_EXCEL
+                ws_he.cell(linha, col).number_format = FORMATO_DURACAO_EXCEL
         finalizar_planilha(ws_he)
         ws_regras = wb.create_sheet("Políticas aplicadas")
         ws_regras.append(["Funcionário", "Escala", "Referência", "Modo", "% folha", "% banco", "Adicional folha (%)",
@@ -602,9 +626,15 @@ def renderizar_bloco_espelho(resultado: dict, resumo: dict, dias: list, cargo: s
                    item.get("ocorrencias_rotulo"), item.get("minutos_abonados") or None]
         celulas = [texto(v) for v in valores]
         if item.get("horas_feriado_pendente"):
-            celulas[6] += '<br><small>Horas 100%: Indisponível</small>'
+            celulas[6] += '<br><small>Horas em feriado: Indisponível</small>'
         elif item.get("horas_feriado_minutos", 0):
-            celulas[6] += '<br><small>Horas 100%: ' + duracao(item["horas_feriado_minutos"]) + '</small>'
+            celulas[6] += '<br><small>Horas em feriado: ' + duracao(item["horas_feriado_minutos"]) + '</small>'
+        if "pre_assinalado" in (item.get("origens_horarios_calculo") or {}).values():
+            intervalo=item["intervalo_aplicado"]
+            celulas[6]+='<br><small>Intervalo previsto (pré-assinalado): '+texto(intervalo["inicio_previsto"])+"–"+texto(intervalo["fim_previsto"])+"</small>"
+        if item.get("dsr"):
+            dsr=item["dsr"]
+            celulas[6]+='<br><small>Desconto DSR/feriado: '+texto("Pendente" if dsr["desconto_dias"] is None else dsr["desconto_dias"])+" dia(s)</small>"
         linhas.append('<tr class="dia">' + "".join(f"<td>{v}</td>" for v in celulas) + "</tr>")
         observacao = item.get("observacoes")
         motivo = item.get("pendencia_motivo") if item.get("pendente") else None
@@ -625,7 +655,8 @@ def renderizar_bloco_espelho(resultado: dict, resumo: dict, dias: list, cargo: s
     atestados = sum(item.get("atestado", int(item.get("status_dia") == "atestado")) for item in dias) if dias else "Indisponível"
     feriado_pendente = any(item.get("horas_feriado_pendente", False) for item in dias)
     total_feriado = sum(item.get("horas_feriado_minutos", 0) for item in dias)
-    feriado_html = ('<span>Horas 100% (feriado): <strong>' + ("Indisponível" if feriado_pendente else duracao(total_feriado)) + '</strong></span>') if total_feriado or feriado_pendente else ""
+    feriado_html = ('<span>Horas em feriado: <strong>' + ("Indisponível" if feriado_pendente else duracao(total_feriado)) + '</strong></span>') if total_feriado or feriado_pendente else ""
+    dsr_html = '<span>Desconto DSR/feriados (dias): <strong>'+texto("Pendente" if resumo["dsr_desconto_dias"] is None else resumo["dsr_desconto_dias"])+"</strong></span>" if "dsr_desconto_dias" in resumo else ""
     com_ocorrencia = sum(bool(item.get("ocorrencias")) for item in dias)
     notas_html = '<section class="notas"><h2>Observações e pendências dos dias</h2><ul>' + "".join(notas) + "</ul></section>" if notas else ""
     return f'''<article class="espelho-pagina" data-funcionario-id="{texto(resumo["funcionario_id"])}">
@@ -643,7 +674,7 @@ def renderizar_bloco_espelho(resultado: dict, resumo: dict, dias: list, cargo: s
 <section class="totais" aria-label="Totais do funcionário">
 <span>Atrasos: <strong>{atrasos}</strong></span><span>Extras: <strong>{extras}</strong></span>
 <span>Faltas: <strong>{faltas}</strong></span><span>Atestados: <strong>{atestados}</strong></span>
-<span>Dias com ocorrência: <strong>{com_ocorrencia}</strong></span>{feriado_html}</section>
+<span>Dias com ocorrência: <strong>{com_ocorrencia}</strong></span>{feriado_html}{dsr_html}</section>
 {bloco_distribuicao(resumo)}
 {bloco_banco_horas(resumo)}
 {notas_html}

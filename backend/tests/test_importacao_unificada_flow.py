@@ -10,7 +10,8 @@ import time
 import unittest
 from pathlib import Path
 from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
+from urllib.request import Request
+from http_sessao import urlopen
 
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
@@ -100,6 +101,8 @@ class ImportacaoUnificadaFlowTest(unittest.TestCase):
             return exc.code, json.loads(conteudo) if conteudo else None
 
     def json_request(self, metodo: str, caminho: str, payload: dict) -> tuple[int, object]:
+        from http_revisoes import com_revisao
+        payload = com_revisao(self.base_url, metodo, caminho, payload)
         return self.requisicao(
             metodo,
             caminho,

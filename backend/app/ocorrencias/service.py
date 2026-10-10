@@ -37,6 +37,8 @@ def validar_fechadas(db, dados):
     funcionario = db.get(Funcionario, dados.funcionario_id)
     if not funcionario:
         raise HTTPException(404, "Funcionário não encontrado.")
+    from app.competencias.dependencias import exigir_referencias_editaveis
+    exigir_referencias_editaveis(db,funcionario_id=dados.funcionario_id,inicio=dados.data_inicio,fim=dados.data_fim)
     for competencia in db.query(Competencia).filter_by(empresa_id=funcionario.empresa_id, status="fechada"):
         inicio = date(competencia.ano, competencia.mes, 1)
         fim = date(competencia.ano, competencia.mes, monthrange(competencia.ano, competencia.mes)[1])
@@ -68,6 +70,12 @@ def auditar(ocorrencia, acao, antes):
     eventos.append({"id": str(uuid4()), "acao": acao, "at": datetime.now(timezone.utc).isoformat(),
                     "actor": "Operador local", "antes": antes, "depois": depois})
     ocorrencia.historico_json = json.dumps(eventos, ensure_ascii=False)
+    from sqlalchemy.orm import object_session
+    from app.database.models import EventoAuditoria
+    db = object_session(ocorrencia)
+    if db is not None:
+        db.add(EventoAuditoria(ocorrencia=ocorrencia, evento_uid=eventos[-1]["id"],
+            payload_json=json.dumps(eventos[-1], ensure_ascii=False), origem="operador_local"))
 
 
 def sincronizar_abertas(db, *periodos):

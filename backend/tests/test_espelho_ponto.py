@@ -224,7 +224,7 @@ class EspelhoPontoTest(unittest.TestCase):
             m = self.db.get(MarcacaoPonto, resultado['marcacoes_ids'][0])
             original = m.batidas_originais
             self.assertIn('<td>DECLARAÇÃO</td><td>120</td>', self.html().text)
-            self.assertEqual(confirmar_importacao(payload, self.db)['total_importados'], 0)
+            self.assertTrue(confirmar_importacao(payload, self.db)['idempotente'])  # resultado preservado do pacote 06
             self.fechar(); html = self.html().text
             arquivo_count = self.db.query(ArquivoRecebido).count()
             with self.assertRaises(HTTPException) as exc:

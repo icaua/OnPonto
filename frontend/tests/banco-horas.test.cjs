@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 function setup() {
-  const ctx = {URLSearchParams}; ctx.window = ctx; vm.createContext(ctx);
+  const ctx = {URLSearchParams}; ctx.window = ctx; require('./module-loader.cjs').context(ctx);
   for (const name of ['utils','components','screens','banco-horas','ocorrencias'])
     vm.runInContext(fs.readFileSync(path.join(__dirname,'../js/'+name+'.js'),'utf8'),ctx);
   const state={selectedCompanyId:1,apiMode:'online'};

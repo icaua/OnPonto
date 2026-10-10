@@ -12,7 +12,8 @@ UPLOADS_DIR = Path(os.getenv("ONPONTO_UPLOADS_DIR", BACKEND_DIR / "uploads"))
 
 engine = create_engine(
     DATABASE_URL,
-    connect_args={"check_same_thread": False},
+    hide_parameters=True,
+    connect_args={"check_same_thread": False,"timeout":10},
 )
 
 
@@ -20,6 +21,7 @@ if DATABASE_URL.startswith("sqlite"):
     @event.listens_for(engine, "connect")
     def habilitar_chaves_estrangeiras(dbapi_connection, _connection_record) -> None:
         dbapi_connection.execute("PRAGMA foreign_keys=ON")
+        dbapi_connection.execute("PRAGMA busy_timeout=10000")
 
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

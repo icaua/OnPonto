@@ -9,9 +9,9 @@ function setup(extra={}){
   const c={root:{clearTimeout(){},setTimeout(){}},autosaveTimer:null,autosaveFlushPromise:null,
     pendingDaySaves:{1:{id:1,payload:{entrada:'08:00'}}},activeDaySaves:{},
     state:{apiMode:'online',settings:{autosave:true}},updateAutosaveIndicator(){},findDay(){return null;},
-    isClosedCompetenceError:()=>false,showToast(){},refreshAffectedCompetence:async()=>{},render(){},
+    isClosedCompetenceError:()=>false,isRevisionConflictError:()=>false,resolveDaySaveConflict(){},showToast(){},refreshAffectedCompetence:async()=>{},render(){},
     idsEqual:(a,b)=>String(a)===String(b),...extra};
-  vm.createContext(c);vm.runInContext(extract('flushPendingDaySaves'),c);return c;
+  require('./module-loader.cjs').context(c);vm.runInContext(extract('flushPendingDaySaves'),c);return c;
 }
 test('salva sequencialmente e so indica salvo apos todas as respostas',async()=>{
   const callbacks=[],calls=[];
@@ -112,4 +112,48 @@ test('falha do PATCH por competencia fechada tambem interrompe decisao sem fila 
   await assert.rejects(c.originalPunchDecision(1,async()=>{decided=true;},'Sucesso'),/salvar todos os horários/);
   assert.equal(decided,false);
   assert.equal(Object.keys(c.pendingDaySaves).length,0);
+});
+
+test('resposta atualiza token da edicao seguinte sem apagar valor digitado durante envio',async()=>{
+  let complete;
+  const day={id:1,revisao:3};
+  const c=setup({findDay:()=>day,apiRequest:()=>new Promise(resolve=>{complete=resolve;})});
+  c.pendingDaySaves[1].payload.revisao=3;
+  const work=c.flushPendingDaySaves();await new Promise(setImmediate);
+  c.pendingDaySaves[1]={id:1,payload:{entrada:'08:35',revisao:3}};
+  complete({revisao:4});await work;
+  assert.equal(day.revisao,4);
+  assert.equal(c.pendingDaySaves[1].payload.entrada,'08:35');
+  assert.equal(c.pendingDaySaves[1].payload.revisao,4);
+});
+
+test('409 preserva edicao e suspende repeticao ate resolucao explicita',async()=>{
+  let calls=0,dialogs=0;
+  const conflict={status:409,payload:{detail:{codigo:'revisao_conflitante'}}};
+  const c=setup({apiRequest:async()=>{calls++;throw conflict;},isRevisionConflictError:e=>e===conflict,
+    resolveDaySaveConflict:()=>{dialogs++;}});
+  c.pendingDaySaves[1].payload.revisao=3;
+  await c.flushPendingDaySaves();
+  assert.equal(c.state.autosaveStatus,'error');
+  assert.equal(c.pendingDaySaves[1].payload.entrada,'08:00');
+  assert.equal(c.pendingDaySaves[1].payload.revisao,3);
+  await c.flushPendingDaySaves();
+  assert.equal(calls,1);assert.equal(dialogs,2);
+});
+
+test('resolver conflito so usa nova revisao depois da escolha humana',async()=>{
+  let dialog;
+  const day={id:1,revisao:3};
+  const c=setup({findDay:()=>day,Utils:{escapeHtml:String},showDialog:d=>{dialog=d;},
+    apiRequest:async()=>({entrada:'09:00',revisao:4})});
+  vm.runInContext(extract('resolveDaySaveConflict'),c);
+  c.pendingDaySaves[1].payload.revisao=3;
+  c.pendingDaySaves[1].conflict={status:409};
+  await c.resolveDaySaveConflict(c.pendingDaySaves[1]);
+  assert.equal(c.pendingDaySaves[1].payload.revisao,3);
+  c.flushPendingDaySaves=async()=>[];
+  await dialog.onConfirm('local');
+  assert.equal(c.pendingDaySaves[1].payload.revisao,4);
+  assert.equal(c.pendingDaySaves[1].payload.entrada,'08:00');
+  assert.equal(c.pendingDaySaves[1].conflict,undefined);
 });

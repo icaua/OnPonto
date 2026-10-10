@@ -111,7 +111,8 @@
 
   var DAY_STATUS_LABELS = {
     normal: "Normal",
-    falta: "Falta",
+    falta: "Falta injustificada",
+    falta_justificada: "Falta justificada",
     atestado: "Atestado",
     folga: "Folga",
     feriado: "Feriado",
@@ -167,6 +168,7 @@
   var pendingDaySaves = Object.create(null);
   var activeDaySaves = Object.create(null);
   var loadedCompetenceDays = Object.create(null);
+  var reviewDaySequences = Object.create(null);
   var loadedCompetenceFiles = Object.create(null);
   var loadedCompetenceSummaries = Object.create(null);
   var loadedCompanyScales = Object.create(null);
@@ -179,7 +181,106 @@
   var pendingDialog = null;
   var editSession = null;
   var renderFocus = null;
+  var deferredRender = false;
   var contextSwitchPending = false;
+  var tentativaApiTimer = null;
+  var conexaoApiPendente = null;
+
+  function apiFeature() {
+    return globalThis.OnPontoApi.create({
+      configuredApiBase:typeof configuredApiBase === "undefined" ? undefined : configuredApiBase,
+      data:typeof data === "undefined" ? undefined : data,
+      root:typeof root === "undefined" ? undefined : root
+    });
+  }
+
+  function navigationFeature() {
+    return globalThis.OnPontoNavigation.create({
+      COMPANY_VIEWS:typeof COMPANY_VIEWS === "undefined" ? undefined : COMPANY_VIEWS,
+      COMPETENCY_VIEWS:typeof COMPETENCY_VIEWS === "undefined" ? undefined : COMPETENCY_VIEWS,
+      ROUTE_ALIASES:typeof ROUTE_ALIASES === "undefined" ? undefined : ROUTE_ALIASES,
+      VIEWS:typeof VIEWS === "undefined" ? undefined : VIEWS,
+      asId:typeof asId === "undefined" ? undefined : asId,
+      companies:typeof companies === "undefined" ? undefined : companies,
+      competencies:typeof competencies === "undefined" ? undefined : competencies,
+      employees:typeof employees === "undefined" ? undefined : employees,
+      files:typeof files === "undefined" ? undefined : files,
+      idsEqual:typeof idsEqual === "undefined" ? undefined : idsEqual,
+      scales:typeof scales === "undefined" ? undefined : scales,
+      state:typeof state === "undefined" ? undefined : state
+    });
+  }
+
+  function importacaoFeature() {
+    return globalThis.OnPontoImportacao.create({
+      Utils:typeof Utils === "undefined" ? undefined : Utils,
+      currentCompany:typeof currentCompany === "undefined" ? undefined : currentCompany,
+      currentCompetency:typeof currentCompetency === "undefined" ? undefined : currentCompetency,
+      data:typeof data === "undefined" ? undefined : data,
+      firstValue:typeof firstValue === "undefined" ? undefined : firstValue,
+      normalizeIssues:typeof normalizeIssues === "undefined" ? undefined : normalizeIssues,
+      normalizeOriginalPunches:typeof normalizeOriginalPunches === "undefined" ? undefined : normalizeOriginalPunches,
+      normalizedTime:typeof normalizedTime === "undefined" ? undefined : normalizedTime,
+      state:typeof state === "undefined" ? undefined : state,
+      statusFromBackend:typeof statusFromBackend === "undefined" ? undefined : statusFromBackend,
+      statusLabel:typeof statusLabel === "undefined" ? undefined : statusLabel
+    });
+  }
+
+  function storeFeature() {
+    return globalThis.OnPontoStore.create({
+      data:typeof data === "undefined" ? undefined : data,
+      employees:typeof employees === "undefined" ? undefined : employees
+    });
+  }
+
+  function conferenciaFeature() {
+    return globalThis.OnPontoConferencia.create({
+      Utils:typeof Utils === "undefined" ? undefined : Utils,
+      currentSlots:typeof currentSlots === "undefined" ? undefined : currentSlots,
+      state:typeof state === "undefined" ? undefined : state
+    });
+  }
+
+  function relatoriosFeature() {
+    return globalThis.OnPontoRelatorios.create({
+      apiErrorMessage:typeof apiErrorMessage === "undefined" ? undefined : apiErrorMessage
+    });
+  }
+
+  function escalasFeature() {
+    return globalThis.OnPontoEscalas.create({
+      data:typeof data === "undefined" ? undefined : data
+    });
+  }
+
+  function demonstracaoSolicitada() {
+    return Boolean(root.location && new URLSearchParams(root.location.search || "").get("demo") === "1");
+  }
+
+  function marcarApiIndisponivel(error) {
+    state.apiMode = "indisponivel";
+    state.apiError = error && error.message || "API indisponível.";
+    data = {};
+    state.ocr = {};
+  }
+
+  function conectarApi() {
+    if (conexaoApiPendente) return conexaoApiPendente;
+    root.clearTimeout(tentativaApiTimer);
+    tentativaApiTimer = null;
+    conexaoApiPendente = bootstrapApiData().then(function () {
+      if (state.apiMode === "indisponivel") {
+        render();
+        tentativaApiTimer = root.setTimeout(conectarApi, 5000);
+        return;
+      }
+      return syncRouteFromLocation();
+    }).finally(function () {
+      conexaoApiPendente = null;
+    });
+    return conexaoApiPendente;
+  }
 
   function byId(id) {
     return document.getElementById(id);
@@ -201,74 +302,31 @@
     } catch (error) {
       configured = "";
     }
-    return String(configured || DEFAULT_API_BASE).trim().replace(/\/+$/, "");
+    var base=String(configured || DEFAULT_API_BASE).trim().replace(/\/+$/, "");
+    if(root.location && /^(localhost|127\.0\.0\.1)$/.test(root.location.hostname || "")) {
+      base=base.replace(/^http:\/\/(localhost|127\.0\.0\.1)(?=:)/,"http://"+root.location.hostname);
+    }
+    return base;
   }
 
   function apiErrorMessage(payload, fallback) {
-    var detail = payload && (payload.detail || payload.message || payload.erro || payload.error);
-    if (Array.isArray(detail)) {
-      detail = detail.map(function (item) {
-        return typeof item === "string" ? item : item && (item.msg || item.message) || "Dados inválidos.";
-      }).join(" ");
-    }
-    if (detail && typeof detail === "object") detail = detail.message || detail.mensagem || detail.msg || JSON.stringify(detail);
-    return String(detail || fallback || "Não foi possível concluir a operação.");
+    return apiFeature().apiErrorMessage(payload,fallback);
   }
 
   function isClosedCompetenceError(error) {
-    if (!error || error.status !== 409) return false;
-    var detail = error.payload && error.payload.detail;
-    return /compet[eê]ncia[^.]*fechad|competencia_fechada/i.test(typeof detail === "string" ? detail : JSON.stringify(detail || {}));
+    return apiFeature().isClosedCompetenceError(error);
+  }
+
+  function isRevisionConflictError(error) {
+    return apiFeature().isRevisionConflictError(error);
   }
 
   function apiRequest(path, options) {
-    var settings = options || {};
-    var controller = typeof AbortController === "function" ? new AbortController() : null;
-    var timeout = root.setTimeout(function () {
-      if (controller) controller.abort();
-    }, settings.timeout || 8000);
-    var requestOptions = Object.assign({}, settings);
-    delete requestOptions.timeout;
-    if (controller) requestOptions.signal = controller.signal;
-    requestOptions.headers = Object.assign({ Accept: "application/json" }, requestOptions.headers || {});
-    if (requestOptions.body && typeof FormData !== "undefined" && requestOptions.body instanceof FormData) {
-      delete requestOptions.headers["Content-Type"];
-    } else if (requestOptions.body && typeof requestOptions.body !== "string") {
-      requestOptions.headers["Content-Type"] = "application/json";
-      requestOptions.body = JSON.stringify(requestOptions.body);
-    }
-
-    return root.fetch(configuredApiBase() + path, requestOptions).then(function (response) {
-      return response.text().then(function (textValue) {
-        var payload = null;
-        if (textValue) {
-          try { payload = JSON.parse(textValue); }
-          catch (error) { payload = { detail: textValue }; }
-        }
-        if (!response.ok) {
-          var requestError = new Error(apiErrorMessage(payload, "A API respondeu com erro " + response.status + "."));
-          requestError.status = response.status;
-          requestError.payload = payload;
-          throw requestError;
-        }
-        return payload;
-      });
-    }).catch(function (error) {
-      if (error && error.name === "AbortError") throw new Error("A API demorou mais que o esperado para responder.");
-      throw error;
-    }).finally(function () {
-      root.clearTimeout(timeout);
-    });
+    return apiFeature().apiRequest(path,options);
   }
 
   function apiCollection(payload, aliases) {
-    if (Array.isArray(payload)) return payload;
-    var source = payload && payload.data && typeof payload.data === "object" ? payload.data : payload || {};
-    for (var index = 0; index < aliases.length; index += 1) {
-      if (Array.isArray(source[aliases[index]])) return source[aliases[index]];
-    }
-    if (Array.isArray(source.items)) return source.items;
-    return [];
+    return apiFeature().apiCollection(payload,aliases);
   }
 
   function statusFromBackend(value) {
@@ -373,138 +431,35 @@
   }
 
   function emptyRoute() {
-    return { view: "companies", companyId: null, competenceId: null };
+    return navigationFeature().emptyRoute();
   }
 
   function safeDecode(value) {
-    try {
-      return decodeURIComponent(value);
-    } catch (error) {
-      return value;
-    }
+    return navigationFeature().safeDecode(value);
   }
 
   function parseHashRoute(hash) {
-    var raw = String(hash || "")
-      .replace(/^#/, "")
-      .split("?")[0]
-      .replace(/^\/+|\/+$/g, "");
-    var segments = raw ? raw.split("/").filter(Boolean).map(safeDecode) : [];
-    if (segments.length === 1 && segments[0].toLowerCase() === "calendario") return { view: "calendar", companyId: null, competenceId: null };
-    if (segments.length === 1 && segments[0].toLowerCase() === "empresas") return emptyRoute();
-    if (segments.length < 2 || segments[0].toLowerCase() !== "empresas") return emptyRoute();
-
-    var companyId = asId(segments[1]);
-    if (segments.length === 2) return { view: "company-overview", companyId: companyId, competenceId: null };
-    if (segments.length === 3) {
-      var companyChild = {
-        funcionarios: "company-employees",
-        escalas: "company-scales",
-        ocorrencias: "company-ocorrencias",
-        "banco-horas": "company-banco-horas",
-        competencias: "company-competencies",
-        relatorios: "company-reports",
-        configuracoes: "company-settings",
-      }[segments[2].toLowerCase()];
-      return companyChild ? { view: companyChild, companyId: companyId, competenceId: null } : emptyRoute();
-    }
-    if (segments.length < 4 || segments[2].toLowerCase() !== "competencias") return emptyRoute();
-
-    var competenceId = asId(segments[3]);
-    if (segments.length === 4) return { view: "competency-summary", companyId: companyId, competenceId: competenceId };
-    if (segments.length === 5) {
-      var competenceChild = {
-        importacoes: "imports",
-        conferencia: "review",
-        arquivos: "competency-files",
-        historico: "competency-history",
-        exportacoes: "competency-exports",
-      }[segments[4].toLowerCase()];
-      return competenceChild ? { view: competenceChild, companyId: companyId, competenceId: competenceId } : emptyRoute();
-    }
-    if (segments.length === 6 && segments[4].toLowerCase() === "importacoes") {
-      var importChild = { previa: "import-preview", leitura: "ocr" }[segments[5].toLowerCase()];
-      return importChild ? { view: importChild, companyId: companyId, competenceId: competenceId } : emptyRoute();
-    }
-    return emptyRoute();
+    return navigationFeature().parseHashRoute(hash);
   }
 
   function validateRoute(route) {
-    var descriptor = route || emptyRoute();
-    var view = VIEWS.indexOf(descriptor.view) === -1 ? "companies" : descriptor.view;
-    if (view === "calendar") return { view: "calendar", companyId: null, competenceId: null };
-    if (view === "companies") return emptyRoute();
-
-    var companyId = asId(descriptor.companyId);
-    var company = companies().find(function (item) { return idsEqual(item.id, companyId); });
-    if (!company) return emptyRoute();
-    if (COMPANY_VIEWS.indexOf(view) !== -1) {
-      return { view: view, companyId: company.id, competenceId: null };
-    }
-
-    var competenceId = asId(descriptor.competenceId);
-    var competence = competencies().find(function (item) {
-      return idsEqual(item.id, competenceId) && idsEqual(item.companyId || item.empresa_id, company.id);
-    });
-    if (!competence || COMPETENCY_VIEWS.indexOf(view) === -1) return emptyRoute();
-    return { view: view, companyId: company.id, competenceId: competence.id };
+    return navigationFeature().validateRoute(route);
   }
 
   function routeHash(route) {
-    var descriptor = validateRoute(route);
-    if (descriptor.view === "calendar") return "#/calendario";
-    if (descriptor.view === "companies") return "#/empresas";
-    var base = "#/empresas/" + encodeURIComponent(descriptor.companyId);
-    var companySuffix = {
-      "company-overview": "",
-      "company-employees": "/funcionarios",
-      "company-scales": "/escalas",
-      "company-ocorrencias": "/ocorrencias",
-      "company-banco-horas": "/banco-horas",
-      "company-competencies": "/competencias",
-      "company-reports": "/relatorios",
-      "company-settings": "/configuracoes",
-    }[descriptor.view];
-    if (companySuffix !== undefined) return base + companySuffix;
-
-    var competenceBase = base + "/competencias/" + encodeURIComponent(descriptor.competenceId);
-    return competenceBase + ({
-      "competency-summary": "",
-      imports: "/importacoes",
-      "import-preview": "/importacoes/previa",
-      ocr: "/importacoes/leitura",
-      review: "/conferencia",
-      "competency-files": "/arquivos",
-      "competency-history": "/historico",
-      "competency-exports": "/exportacoes",
-    }[descriptor.view] || "");
+    return navigationFeature().routeHash(route);
   }
 
   function routeView(route) {
-    var key = String(route || "")
-      .replace(/^#\/?/, "")
-      .split("?")[0]
-      .trim()
-      .toLowerCase();
-    return ROUTE_ALIASES[key] || key;
+    return navigationFeature().routeView(route);
   }
 
   function navigationTarget(route) {
-    if (route && typeof route === "object") {
-      return validateRoute({
-        view: routeView(route.view || route.route),
-        companyId: Object.prototype.hasOwnProperty.call(route, "companyId") ? route.companyId : state.selectedCompanyId,
-        competenceId: Object.prototype.hasOwnProperty.call(route, "competenceId") ? route.competenceId : state.selectedCompetenceId,
-      });
-    }
-
-    var raw = String(route || "").trim();
-    if (/^#|^\//.test(raw) || /^empresas(?:\/|$)/i.test(raw)) return validateRoute(parseHashRoute(raw));
-    return validateRoute({ view: routeView(raw), companyId: state.selectedCompanyId, competenceId: state.selectedCompetenceId });
+    return navigationFeature().navigationTarget(route);
   }
 
   function normalizeRoute(route) {
-    return navigationTarget(route).view;
+    return navigationFeature().normalizeRoute(route);
   }
 
   function createInitialState() {
@@ -632,124 +587,11 @@
   }
 
   function normalizePreviewRow(item, index, analysisSource) {
-    var source = item || {};
-    var employee = source.funcionario || source.employee || {};
-    var interpretation = source.interpretacao || source.suggestion || source.suggested || {};
-    var origin = source.origem || {};
-    var employeeFound = employee.encontrado !== undefined ? employee.encontrado === true : firstValue(employee.id, source.funcionario_id, source.employeeId) !== null;
-    var outsideCompetence = source.fora_da_competencia === true || source.outsideCompetence === true;
-    var rowId = firstValue(source.id, source.registro_id, source.preview_id, "preview-api-" + index);
-    var originalPunches = normalizeOriginalPunches(firstValue(source.batidas_originais, source.originalPunches, []));
-    var issues = normalizeIssues(firstValue(source.pendencias, source.issues, []));
-    var rawStatus = source.status || source.status_dia || (issues.length ? "conferir" : "nao_conferido");
-    var rawStatusKey = String(rawStatus).trim().toLowerCase().replace(/[^a-z0-9]+/g, "_");
-    var normalizedStatus = rawStatusKey === "nao_conferido" ? "nao_conferido" : statusFromBackend(rawStatus);
-    var selected = source.selecionado !== undefined ? source.selecionado === true : employeeFound && !outsideCompetence;
-    var employeeId = firstValue(employee.id, source.funcionario_id, source.employeeId);
-    var employeeName = firstValue(employee.nome_cadastrado, employee.nome_origem, employee.nome, source.funcionario_nome, source.employeeName, "Funcionário não identificado");
-    return Object.assign({}, source, {
-      id: rowId,
-      companyId: firstValue(source.empresa_id, source.companyId, analysisSource && analysisSource.companyId, state.selectedCompanyId),
-      empresa_id: firstValue(source.empresa_id, source.companyId, analysisSource && analysisSource.companyId, state.selectedCompanyId),
-      competenceId: firstValue(source.competencia_id, source.competenceId, analysisSource && analysisSource.competenceId, state.selectedCompetenceId),
-      competencia_id: firstValue(source.competencia_id, source.competenceId, analysisSource && analysisSource.competenceId, state.selectedCompetenceId),
-      employeeId: employeeId,
-      funcionario_id: employeeId,
-      employeeName: employeeName,
-      funcionario: employeeName,
-      employeeCode: firstValue(employee.codigo_origem, employee.codigo, source.codigo_origem, ""),
-      employeeSourceName: firstValue(employee.nome_origem, employeeName),
-      employeeRegisteredName: firstValue(employee.nome_cadastrado, employee.nome, ""),
-      employeeFound: employeeFound,
-      funcionarioEncontrado: employeeFound,
-      date: source.data || source.date,
-      data: source.data || source.date,
-      originalPunches: originalPunches,
-      batidasOriginais: originalPunches,
-      suggestion: {
-        entry: normalizedTime(firstValue(interpretation.entrada, interpretation.entry)),
-        breakStart: normalizedTime(firstValue(interpretation.saida_intervalo, interpretation.saida_almoco, interpretation.breakStart, interpretation.breakOut)),
-        breakEnd: normalizedTime(firstValue(interpretation.retorno_intervalo, interpretation.retorno_almoco, interpretation.breakEnd, interpretation.breakIn)),
-        exit: normalizedTime(firstValue(interpretation.saida, interpretation.exit)),
-      },
-      status: normalizedStatus,
-      statusLabel: rawStatusKey === "nao_conferido" ? "Não conferido" : statusLabel(normalizedStatus),
-      issues: issues,
-      pendencias: issues,
-      observation: issues.map(function (issue) { return issue.message; }).join(" ") || source.observacao || source.observation || "",
-      hasPendingIssue: issues.length > 0 || normalizedStatus === "conferir" || normalizedStatus === "inconsistente" || !employeeFound || outsideCompetence,
-      outsideCompetence: outsideCompetence,
-      foraDaCompetencia: outsideCompetence,
-      selected: selected,
-      selecionado: selected,
-      source: {
-        fileId: firstValue(origin.arquivo_id, origin.fileId, analysisSource && analysisSource.fileId),
-        fileName: firstValue(origin.arquivo, origin.fileName, analysisSource && analysisSource.fileName),
-        type: firstValue(origin.tipo, origin.type, "txt_log_relogio"),
-        sourceLines: firstValue(origin.linhas, origin.sourceLines, []),
-      },
-    });
+    return importacaoFeature().normalizePreviewRow(item,index,analysisSource);
   }
 
   function normalizeImportAnalysis(payload) {
-    var source = payload && payload.data && typeof payload.data === "object" ? payload.data : payload || {};
-    var file = source.arquivo && typeof source.arquivo === "object" ? source.arquivo : {};
-    var fileId = firstValue(source.arquivo_id, source.fileId, file.id);
-    var fileName = firstValue(source.nome_arquivo, source.fileName, file.nome_original, file.nome, file.name, state.selectedImportFile && state.selectedImportFile.name, "Arquivo TXT");
-    var rawRows = firstValue(source.preview, source.rows, source.registros, []);
-    if (!Array.isArray(rawRows)) rawRows = [];
-    var analysisContext = {
-      fileId: fileId,
-      fileName: fileName,
-      companyId: firstValue(source.empresa_id, source.companyId, state.selectedCompanyId),
-      competenceId: firstValue(source.competencia_id, source.competenceId, state.selectedCompetenceId),
-    };
-    var rows = rawRows.map(function (row, index) { return normalizePreviewRow(row, index, analysisContext); });
-    var foundEmployees = {};
-    rows.forEach(function (row) { if (row.employeeFound && row.employeeId !== null) foundEmployees[String(row.employeeId)] = true; });
-    var unmatchedValue = firstValue(source.total_funcionarios_nao_cadastrados, source.funcionarios_nao_encontrados, source.unmatchedEmployeeCount);
-    var unmatched = unmatchedValue === null || unmatchedValue === "" ? NaN : Number(unmatchedValue);
-    if (!Number.isFinite(unmatched)) unmatched = rows.filter(function (row) { return !row.employeeFound; }).length;
-    var outsideValue = firstValue(source.total_fora_da_competencia, source.registros_fora_da_competencia, source.registros_fora_competencia, source.outsideCompetenceCount);
-    var outside = outsideValue === null || outsideValue === "" ? NaN : Number(outsideValue);
-    if (!Number.isFinite(outside)) outside = rows.filter(function (row) { return row.outsideCompetence; }).length;
-    var punchCountValue = firstValue(source.total_batidas, source.punchCount);
-    var punchCount = punchCountValue === null || punchCountValue === "" ? NaN : Number(punchCountValue);
-    if (!Number.isFinite(punchCount)) punchCount = rows.reduce(function (sum, row) { return sum + row.originalPunches.length; }, 0);
-    var pendingCountValue = firstValue(source.total_pendencias, source.pendingCount);
-    var pendingCount = pendingCountValue === null || pendingCountValue === "" ? NaN : Number(pendingCountValue);
-    if (!Number.isFinite(pendingCount)) pendingCount = rows.filter(function (row) { return row.hasPendingIssue; }).length;
-    return Object.assign({}, source, {
-      id: firstValue(source.id, source.analise_id, source.importacao_id),
-      analysisId: firstValue(source.analise_id, source.importacao_id, source.id),
-      fileId: fileId,
-      arquivoId: fileId,
-      fileName: fileName,
-      companyId: firstValue(source.empresa_id, source.companyId, state.selectedCompanyId),
-      companyName: firstValue(source.empresa_nome, source.companyName, currentCompany() && (currentCompany().name || currentCompany().nome)),
-      competenceId: firstValue(source.competencia_id, source.competenceId, state.selectedCompetenceId),
-      competenceLabel: firstValue(source.competencia_label, source.competenceLabel, currentCompetency() && (currentCompetency().label || Utils.formatCompetence(currentCompetency()))),
-      requestedType: "txt_clock",
-      detectedType: "txt_clock",
-      detectedFormat: ({
-        txt_log_relogio: "TXT · log do relógio",
-        txt_id_tempo_maquina: "TXT · ID/Tempo/Máquina",
-        txt_generico: "TXT · detecção flexível",
-        xlsx_ponto_generico: "XLSX · ponto genérico",
-        xlsx_cartao_ponto: "XLSX · cartão de ponto",
-      }[firstValue(source.tipo_detectado, source.formato_detectado, source.detectedFormat)] || firstValue(source.tipo_detectado, source.formato_detectado, source.detectedFormat, "Arquivo de ponto")),
-      validLineCount: Number(firstValue(source.total_linhas_validas, source.validLineCount, rows.length)) || 0,
-      employeeCount: Number(firstValue(source.total_funcionarios_encontrados, source.employeeCount, Object.keys(foundEmployees).length)) || 0,
-      unmatchedEmployeeCount: unmatched,
-      punchCount: punchCount,
-      dayCount: Number(firstValue(source.total_dias, source.dayCount, rows.length)) || 0,
-      recordCount: Number(firstValue(source.total_registros, source.recordCount, rows.length)) || 0,
-      pendingCount: pendingCount,
-      outsideCompetenceCount: outside,
-      rows: rows,
-      linhas: rows,
-      saved: false,
-    });
+    return importacaoFeature().normalizeImportAnalysis(payload);
   }
 
   function normalizeMarking(item) {
@@ -795,7 +637,7 @@
     var workedMinutes = backendWorked !== null && Number.isFinite(Number(backendWorked)) ? Number(backendWorked) : calculatedJourney.workedMinutes;
     var balanceMinutes = backendBalance !== null && Number.isFinite(Number(backendBalance)) ? Number(backendBalance) : (workedMinutes == null || expectedMinutes == null ? null : workedMinutes - expectedMinutes);
     var confirmed = source.conferido === true || source.confirmed === true;
-    var nonWorkingStatus = ["atestado", "folga", "feriado", "falta", "afastamento", "domingo", "sem_expediente"].indexOf(normalizedStatus) !== -1;
+    var nonWorkingStatus = ["atestado", "folga", "feriado", "falta", "falta_justificada", "afastamento", "domingo", "sem_expediente"].indexOf(normalizedStatus) !== -1;
     var scaleMissing = employee && employee.id !== undefined && firstValue(employee.escala_id, employee.scaleId) === null;
     var incompleteCalculation = !nonWorkingStatus && (!current.entry || !current.exit || Boolean(current.breakStart) !== Boolean(current.breakEnd));
     var pendingCalculationValue = firstValue(source.pendente_calculo, source.pendingCalculation);
@@ -891,11 +733,12 @@
     });
   }
 
-  function replaceAttendanceForCompetence(competenceId, markings) {
-    var remaining = days().filter(function (day) { return !idsEqual(day.competenceId || day.competencia_id, competenceId); });
+  function replaceAttendanceForCompetence(competenceId, markings, employeeId) {
+    var remaining = days().filter(function (day) { return !idsEqual(day.competenceId || day.competencia_id, competenceId) || (employeeId != null && !idsEqual(day.employeeId || day.funcionario_id,employeeId)); });
     var merged = remaining.concat(markings.map(function (marking) {
       var key = String(marking.id);
-      if (pendingDaySaves[key] || activeDaySaves[key]) return findDay(marking.id) || marking;
+      var current=findDay(marking.id);
+      if (pendingDaySaves[key] || activeDaySaves[key] || (current && Number(current.revisao)>Number(marking.revisao))) return current || marking;
       return marking;
     }));
     data.attendanceDays = merged;
@@ -940,69 +783,11 @@
   }
 
   function valueFromAliases(source, aliases) {
-    var object = source && typeof source === "object" ? source : {};
-    for (var index = 0; index < aliases.length; index += 1) {
-      if (object[aliases[index]] !== undefined) return object[aliases[index]];
-    }
-    return null;
+    return storeFeature().valueFromAliases(source,aliases);
   }
 
   function normalizeCompetenceSummary(payload) {
-    var source = payload && payload.data && typeof payload.data === "object" ? payload.data : payload || {};
-    var generalSource = valueFromAliases(source, ["resumo_geral", "resumoGeral", "general_summary", "generalSummary", "general"]);
-    var summaryRows = valueFromAliases(source, ["resumo", "summary", "funcionarios", "employees", "items"]);
-    if (!generalSource || typeof generalSource !== "object" || Array.isArray(generalSource)) generalSource = {};
-    if (!Array.isArray(summaryRows)) summaryRows = [];
-    var pendingRecordsSource = valueFromAliases(source, ["pendencias", "pending_records", "pendingRecords"]);
-    var pendingRecords = Array.isArray(pendingRecordsSource)
-      ? pendingRecordsSource.length
-      : valueFromAliases(generalSource, ["registros_pendentes", "pending_records", "pendingRecords"]);
-    var processedRecordsSource = valueFromAliases(source, ["marcacoes", "records", "markings"]);
-    var processedRecords = Array.isArray(processedRecordsSource)
-      ? processedRecordsSource.length
-      : valueFromAliases(generalSource, ["registros_processados", "processed_records", "processedRecords"]);
-    return {
-      company: valueFromAliases(source, ["empresa", "company"]),
-      competence: valueFromAliases(source, ["competencia", "competence"]),
-      operational: source.operacional || null,
-      closing: source.fechamento || null,
-      importIssues: source.pendencias_importacao || [],
-      generatedAt: valueFromAliases(source, ["gerado_em", "geradoEm", "generated_at", "generatedAt"]),
-      pendingRecords: pendingRecords,
-      processedRecords: processedRecords,
-      markings: Array.isArray(processedRecordsSource) ? processedRecordsSource : [],
-      general: {
-        employees: valueFromAliases(generalSource, ["funcionarios", "total_funcionarios", "employees", "employee_count"]),
-        confirmed: valueFromAliases(generalSource, ["conferidos", "funcionarios_conferidos", "confirmed", "confirmed_employees"]),
-        pending: valueFromAliases(generalSource, ["pendentes", "funcionarios_pendentes", "pending", "pending_employees"]),
-        pendingDays: valueFromAliases(generalSource, ["dias_com_pendencia", "dias_pendentes", "pending_days"]),
-        totalFiles: valueFromAliases(generalSource, ["total_arquivos", "arquivos", "total_files", "file_count"]),
-      },
-      rows: summaryRows.map(function (item) {
-        return {
-          employeeId: valueFromAliases(item, ["funcionario_id", "employee_id", "id"]),
-          employeeName: valueFromAliases(item, ["funcionario", "funcionario_nome", "nome", "employee", "employee_name"]),
-          employeeCode: valueFromAliases(item, ["codigo", "funcionario_codigo", "code", "employee_code"]),
-          bank: item.banco_horas || null,
-          distribution: Object.prototype.hasOwnProperty.call(item, "extra_apurada_minutos") ? {
-            gross:item.extra_apurada_minutos, payroll:item.extra_folha_minutos, bankBase:item.extra_banco_base_minutos,
-            bank:item.extra_banco_minutos, debit:item.debito_banco_minutos, premiums:item.adicionais_folha || [],
-            policies:item.politicas_horas_aplicadas || []
-          } : null,
-          processedDays: valueFromAliases(item, ["dias_processados", "processed_days", "day_count"]),
-          delays: valueFromAliases(item, ["atrasos", "atraso", "total_atrasos", "delays"]),
-          delayMinutes: valueFromAliases(item, ["atrasos_minutos", "atraso_minutos", "delay_minutes"]),
-          extras: valueFromAliases(item, ["extras", "horas_extras", "total_extras", "overtime"]),
-          extraMinutes: valueFromAliases(item, ["extras_minutos", "extra_minutos", "overtime_minutes"]),
-          holidayMinutes: Object.prototype.hasOwnProperty.call(item, "horas_feriado_minutos") ? item.horas_feriado_minutos : null,
-          absences: valueFromAliases(item, ["faltas", "absences"]),
-          certificates: valueFromAliases(item, ["atestados", "certificates", "medical_certificates"]),
-          pending: valueFromAliases(item, ["problemas", "pending", "issues"]),
-          awaiting: valueFromAliases(item, ["aguardando_conferencia"]),
-          situation: valueFromAliases(item, ["situacao", "situation", "status"]),
-        };
-      }),
-    };
+    return storeFeature().normalizeCompetenceSummary(payload);
   }
 
   function applyApurationDetails(competenceId, details) {
@@ -1014,8 +799,14 @@
     days().forEach(function (day) {
       if (!idsEqual(day.competenceId || day.competencia_id, competenceId)) return;
       if (typeof pendingDaySaves !== "undefined" && pendingDaySaves[String(day.id)]) return;
+      if (typeof activeDaySaves !== "undefined" && activeDaySaves[String(day.id)]) return;
       var detail = byId[String(day.id)];
-      if (!detail) return;
+      if (!detail || (detail.revisao != null && Number(detail.revisao)<Number(day.revisao))) return;
+      day.calculoProvisorio = false;
+      if (detail.revisao !== undefined) day.revisao = detail.revisao;
+      day.intervalo_aplicado = detail.intervalo_aplicado;
+      day.origens_horarios_calculo = detail.origens_horarios_calculo;
+      day.dsr = detail.dsr;
       day.occurrences = detail.ocorrencias || [];
       day.occurrenceLabel = detail.ocorrencias_rotulo || "";
       day.calendarNote = detail.fora_vinculo ? "Fora do vínculo" : (detail.feriados || []).join(", ");
@@ -1086,9 +877,35 @@
 
   }
 
+  function invalidateAttendance(competenceId) {
+    var prefix=String(competenceId);
+    Object.keys(loadedCompetenceDays).forEach(function(key){if(key===prefix || key.indexOf(prefix+":")===0) delete loadedCompetenceDays[key];});
+    Object.keys(reviewDaySequences).forEach(function(key){if(key.indexOf(prefix+":")===0) reviewDaySequences[key]+=1;});
+  }
+
+  function loadReviewDays(competenceId,employeeId,settings) {
+    if(state.apiMode!=="online") return Promise.resolve([]);
+    var key=String(competenceId)+":"+String(employeeId);
+    if(loadedCompetenceDays[key] && !(settings && settings.force)) return Promise.resolve(employeeDays(employeeId));
+    var sequence=(reviewDaySequences[key] || 0)+1;reviewDaySequences[key]=sequence;
+    state.reviewLoading=true;
+    return apiRequest("/apuracao/dias?competencia_id="+encodeURIComponent(competenceId)+"&funcionario_id="+encodeURIComponent(employeeId),{timeout:30000}).then(function(payload){
+      if(reviewDaySequences[key]!==sequence) return [];
+      var markings=apiCollection(payload,["registros"]).map(normalizeMarking);
+      replaceAttendanceForCompetence(competenceId,markings,employeeId);
+      applyApurationDetails(competenceId,payload.marcacoes);
+      loadedCompetenceDays[key]=true;
+      if(idsEqual(state.selectedCompetenceId,competenceId) && idsEqual(state.selectedEmployeeId,employeeId)) ensureReviewSelection();
+      return markings;
+    }).finally(function(){
+      if(reviewDaySequences[key]===sequence && idsEqual(state.selectedCompetenceId,competenceId) && idsEqual(state.selectedEmployeeId,employeeId)) state.reviewLoading=false;
+    });
+  }
+
   function loadAttendanceForCompetence(competenceId, options) {
     if (state.apiMode !== "online" || competenceId === null || competenceId === undefined) return Promise.resolve([]);
     var settings = options || {};
+    if ((settings.employeeId != null || state.route === "review") && (settings.employeeId != null || state.selectedEmployeeId != null)) return loadReviewDays(competenceId,settings.employeeId || state.selectedEmployeeId,settings);
     var key = String(competenceId);
     if (settings.force) delete loadedCompetenceDays[key];
     if (loadedCompetenceDays[key] && !settings.force) {
@@ -1141,7 +958,7 @@
       delete loadedCompetenceSummaries[key];
       delete data.competenceSummaries[key];
     }
-    if (loadedCompetenceSummaries[key] && !settings.force) {
+    if (loadedCompetenceSummaries[key] && !settings.force && (data.competenceSummaries[key].summaryMode === (state.route === "review" ? "triagem" : "resumo"))) {
       if (idsEqual(state.selectedCompetenceId, competenceId)) {
         state.competenceSummaryLoading = false;
         state.competenceSummaryError = "";
@@ -1155,9 +972,13 @@
       state.competenceSummaryLoading = true;
       state.competenceSummaryError = "";
     }
-    return apiRequest("/apuracao?competencia_id=" + encodeURIComponent(competenceId)).then(function (payload) {
+    var endpoint = state.route === "review" ? "/apuracao/triagem" : "/apuracao/resumo";
+    var summaryMode = state.route === "review" ? "triagem" : "resumo";
+    return apiRequest(endpoint + "?competencia_id=" + encodeURIComponent(competenceId), { timeout: 60000 }).then(function (payload) {
       if (competenceSummarySequences[key] !== sequence) return null;
       var summary = normalizeCompetenceSummary(payload);
+      summary.apurationDetailed = Array.isArray(payload.marcacoes);
+      summary.summaryMode = summaryMode;
       if (summary.competence) updateCompetenceFromPayload(competenceId, summary.competence);
       data.competenceSummaries[key] = summary;
       var competence = competencies().find(function(c){return idsEqual(c.id, competenceId);});
@@ -1197,12 +1018,12 @@
     // Apuração e marcações são consultas; o calendário nasce da importação ou de ação explícita.
     return summaryPromise.then(function (summary) {
       return Promise.all([
-        loadAttendanceForCompetence(competenceId, settings),
-        loadFilesForCompetence(competenceId, settings),
+        state.route === "review" || state.route === "competency-history" ? loadAttendanceForCompetence(competenceId, settings) : Promise.resolve([]),
+        state.route === "competency-summary" ? Promise.resolve([]) : loadFilesForCompetence(competenceId, settings),
       ]).then(function (results) {
         if (summary) applyApurationDetails(competenceId, summary.markings);
     if (idsEqual(state.selectedCompetenceId, competenceId) && !state.reviewFilterInitialized) {
-      state.reviewFilter = summary && summary.markings.some(function (d) { return d.problema; }) ? "pending" : "all";
+      state.reviewFilter = summary && summary.rows.some(function (d) { return Number(d.pending)>0; }) ? "pending" : "all";
       state.reviewFilterInitialized = true;
     }
         return { markings: results[0], files: results[1], summary: summary };
@@ -1261,7 +1082,12 @@
   }
 
   function bootstrapApiData() {
-    state.apiMode = "loading";
+    if (demonstracaoSolicitada()) {
+      state.apiMode = "offline";
+      state.apiError = "";
+      return Promise.resolve(false);
+    }
+    if (state.apiMode !== "indisponivel") state.apiMode = "loading";
     state.apiError = "";
     return Promise.all([
       apiRequest("/empresas", { timeout: 5000 }),
@@ -1320,8 +1146,7 @@
       state.apiError = "";
       return true;
     }).catch(function (error) {
-      state.apiMode = "offline";
-      state.apiError = error && error.message || "API indisponível.";
+      marcarApiIndisponivel(error);
       return false;
     });
   }
@@ -1413,7 +1238,7 @@
     var scopedEmployees = companyEmployees();
     var competenceDays = days().filter(function (day) { return idsEqual(day.competenceId || day.competencia_id, descriptor.competenceId); });
     var selectedEmployeeHasDays = competenceDays.some(function (day) { return idsEqual(day.employeeId || day.funcionario_id, state.selectedEmployeeId); });
-    if (!scopedEmployees.some(function (item) { return idsEqual(item.id, state.selectedEmployeeId); }) || (!selectedEmployeeHasDays && competenceDays.length)) {
+    if (!scopedEmployees.some(function (item) { return idsEqual(item.id, state.selectedEmployeeId); })) {
       var firstDayEmployeeId = competenceDays[0] && (competenceDays[0].employeeId || competenceDays[0].funcionario_id);
       var firstEmployeeWithDays = scopedEmployees.find(function (item) { return idsEqual(item.id, firstDayEmployeeId); });
       state.selectedEmployeeId = firstEmployeeWithDays ? firstEmployeeWithDays.id : scopedEmployees[0] ? scopedEmployees[0].id : null;
@@ -1480,13 +1305,13 @@
       return updateCompetenceFromPayload(competenceId, payload);
     }).then(function (competence) {
       return loadCompetenceSummary(competenceId, { force: true }).then(function (summary) {
-        var attendanceRequest = options && options.reloadAttendance
+        var attendanceRequest = (state.route === "review" || options && options.reloadAttendance)
           ? loadAttendanceForCompetence(competenceId, { force: true })
           : Promise.resolve(null);
         return attendanceRequest.then(function (markings) {
           if (summary) applyApurationDetails(competenceId, summary.markings);
     if (idsEqual(state.selectedCompetenceId, competenceId) && !state.reviewFilterInitialized) {
-      state.reviewFilter = summary && summary.markings.some(function (d) { return d.problema; }) ? "pending" : "all";
+      state.reviewFilter = summary && summary.rows.some(function (d) { return Number(d.pending)>0; }) ? "pending" : "all";
       state.reviewFilterInitialized = true;
     }
           return { competence: competence, summary: summary, markings: markings };
@@ -1520,13 +1345,11 @@
   }
 
   function dayIsConfirmed(day) {
-    if (!day) return false;
-    return day.confirmed === true || day.conferido === true || day.reviewState === "confirmed" || (day.review && day.review.state === "confirmed");
+    return conferenciaFeature().dayIsConfirmed(day);
   }
 
   function dayHasProblem(day) {
-    if (day.problema !== undefined) return day.problema === true;
-    return day.pendingCalculation === true || day.pendente_calculo === true || (day.issues || []).some(function (i) { return !i.resolved && i.type !== "review" && i.type !== "manual_change"; });
+    return conferenciaFeature().dayHasProblem(day);
   }
 
   function dayIsOperationallyPending(day) {
@@ -1555,7 +1378,7 @@
       var status = day.status || day.status_dia || (day.current && (day.current.situation || day.current.status)) || "normal";
       if (state.reviewFilter === "pending") return dayHasProblem(day);
       if (state.reviewFilter === "unconfirmed") return !dayIsConfirmed(day);
-      if (state.reviewFilter === "absences") return ["falta", "atestado", "folga", "afastamento"].indexOf(status) !== -1;
+      if (state.reviewFilter === "absences") return ["falta", "falta_justificada", "atestado", "folga", "afastamento"].indexOf(status) !== -1;
       return true;
     });
   }
@@ -1706,9 +1529,42 @@
     });
   }
 
+  // Atualização em segundo plano (ex.: depois do salvamento automático) não pode destruir
+  // um horário sendo digitado nem tirar o foco da célula selecionada.
+  function renderInBackground() {
+    if (editSession) {
+      deferredRender = true;
+      return;
+    }
+    var active = document.activeElement;
+    var cell = active && active.closest && active.closest(".editable-time-cell");
+    render(cell && cell.dataset.dayId ? { focus: { dayId: cell.dataset.dayId, field: cell.dataset.field } } : undefined);
+  }
+
   function render(options) {
     var settings = options || {};
+    deferredRender = false;
     var main = byId("mainContent");
+    var semConexao = state.apiMode === "indisponivel" || state.apiMode === "loading" && !demonstracaoSolicitada();
+    byId("topbarContext").hidden = semConexao;
+    var acoesTopo = document.querySelector(".topbar__actions");
+    if (acoesTopo) acoesTopo.hidden = semConexao;
+    if (semConexao) {
+      byId("appSidebar").innerHTML = "";
+      byId("sidebarExpandButton").hidden = true;
+      var contexto = document.querySelector(".topbar__context .eyebrow");
+      if (contexto) contexto.textContent = "Conexão com o On Ponto";
+      main.dataset.route = "api-indisponivel";
+      main.dataset.reviewKey = "";
+      main.innerHTML = '<section class="screen"><section class="work-card" role="status">' + Components.EmptyState({
+        icon: "alert",
+        title: state.apiMode === "loading" ? "Conectando ao On Ponto" : "O On Ponto não está conectado",
+        description: "Abra o On Ponto pelo atalho ou pelo iniciar_onponto.bat e mantenha aberta a janela 'On Ponto API'",
+        action: { action: "tentar-conexao-api", label: "Tentar de novo", variant: "primary", disabled: state.apiMode === "loading" },
+      }) + '<p class="helper-text">A conexão será tentada novamente a cada 5 segundos.</p></section></section>';
+      document.title = "Conexão · On Ponto";
+      return;
+    }
     var reviewKey = state.route === "review" ? JSON.stringify([state.selectedCompanyId, state.selectedCompetenceId, state.selectedEmployeeId, state.reviewFilter]) : "";
     var scroll = captureReviewScroll(main, reviewKey);
     if (state.route === "review") ensureReviewSelection();
@@ -1736,9 +1592,15 @@
     }
     renderContextSelectors();
 
+    var sameReview=state.route === "review" && main.dataset.reviewKey===reviewKey && main.dataset.route === "review";
     main.dataset.route = state.route;
     main.dataset.reviewKey = reviewKey;
-    main.innerHTML = state.route === "calendar" ? root.OnPontoCalendario.render(state, data, Components) : Screens.render(state.route, state, data, Components);
+    var markup=state.route === "calendar" ? root.OnPontoCalendario.render(state,data,Components) : Screens.render(state.route,state,data,Components);
+    if(main._renderedMarkup!==markup) {
+      if(sameReview) globalThis.OnPontoConferencia.patchReview(main,markup);
+      else main.innerHTML=markup;
+      main._renderedMarkup=markup;
+    }
     restoreReviewScroll(main, scroll);
     document.title = screenTitle() + " · On Ponto";
 
@@ -1759,18 +1621,11 @@
   }
 
   function captureReviewScroll(main, key) {
-    if (!key || main.dataset.reviewKey !== key) return null;
-    return [".attendance-table-wrap", ".review-context"].map(function (selector) {
-      var element = main.querySelector(selector);
-      return { selector: selector, top: element ? element.scrollTop : 0, left: element ? element.scrollLeft : 0 };
-    });
+    return conferenciaFeature().captureReviewScroll(main,key);
   }
 
   function restoreReviewScroll(main, positions) {
-    (positions || []).forEach(function (position) {
-      var element = main.querySelector(position.selector);
-      if (element) { element.scrollTop = position.top; element.scrollLeft = position.left; }
-    });
+    return conferenciaFeature().restoreReviewScroll(main,positions);
   }
 
   function screenTitle() {
@@ -1811,7 +1666,9 @@
       if (state.apiMode === "online" && next.competenceId && (summaryRequested || !loadedCompetenceDays[String(next.competenceId)] || !loadedCompetenceFiles[String(next.competenceId)])) {
         var loading = loadCompetenceData(next.competenceId, { summaryForce: summaryRequested });
         render();
+        var navigationSequence=++routeLoadSequence;
         loading.then(function () {
+          if(navigationSequence!==routeLoadSequence) return;
           applyRouteContext(next);
           render({ focusMain: !(options && options.keepFocus) });
         }).catch(function (error) {
@@ -1892,7 +1749,9 @@
       label.className = "dialog-field" + (field.fullWidth ? " dialog-field--full" : "");
       label.dataset.dialogFieldWrap = field.name || "value";
       label.htmlFor = fieldId;
-      label.innerHTML = '<span>' + Utils.escapeHtml(field.label || "Valor") + "</span>" + dialogFieldMarkup(field, fieldId) + (field.help ? '<small class="dialog-field-help">' + Utils.escapeHtml(field.help) + "</small>" : "");
+      // help pode ser uma função dos valores atuais; o texto é refeito a cada digitação.
+      var dynamicHelp = typeof field.help === "function";
+      label.innerHTML = '<span>' + Utils.escapeHtml(field.label || "Valor") + "</span>" + dialogFieldMarkup(field, fieldId) + (field.help ? '<small class="dialog-field-help"' + (dynamicHelp ? ' aria-live="polite"' : "") + ">" + (dynamicHelp ? "" : Utils.escapeHtml(field.help)) + "</small>" : "");
       if (fieldsHost === bodyAnchor.parentNode) fieldsHost.insertBefore(label, bodyAnchor);
       else fieldsHost.appendChild(label);
     });
@@ -1913,6 +1772,7 @@
     pendingDialog = { dialog: dialog, config: config, fields: fields, trigger: trigger, busy: false };
     refreshConditionalDialogFields(pendingDialog);
     dialog.addEventListener("change", function () { refreshConditionalDialogFields(pendingDialog); });
+    dialog.addEventListener("input", function () { refreshConditionalDialogFields(pendingDialog); });
     dialog.addEventListener("cancel", function (event) {
       event.preventDefault();
       closeDialog();
@@ -1965,6 +1825,8 @@
         element.disabled = !visible || current.busy;
         element.required = Boolean(field.required && visible);
       }
+      var help = typeof field.help === "function" && wrapper && wrapper.querySelector(".dialog-field-help");
+      if (help) help.textContent = visible ? field.help(values) || "" : "";
     });
   }
 
@@ -2284,13 +2146,7 @@
   }
 
   function importConflictMessages(payload) {
-    var source = payload || {};
-    var conflicts = firstValue(source.conflitos, source.conflicts, source.erros, []);
-    if (!Array.isArray(conflicts)) conflicts = conflicts ? [conflicts] : [];
-    return conflicts.map(function (conflict) {
-      if (typeof conflict === "string") return conflict;
-      return conflict.message || conflict.mensagem || conflict.detail || "Registro não importado.";
-    });
+    return importacaoFeature().importConflictMessages(payload);
   }
 
   function saveDemoImportAndReview() {
@@ -2364,6 +2220,7 @@
           empresa_id: confirmationCompanyId,
           competencia_id: confirmationCompetenceId,
           arquivo_id: confirmationFileId,
+          revisao_previa: analysis.revisao_previa,
           registros_ids: selectedIds,
         };
         var confirmationPersisted = false;
@@ -2394,7 +2251,7 @@
           }
 
           if (!confirmationContextIsActive()) {
-            delete loadedCompetenceDays[String(confirmationCompetenceId)];
+            invalidateAttendance(confirmationCompetenceId);
             showToast(
               "Importação confirmada.",
               conflicts.length ? "warning" : "success",
@@ -2403,7 +2260,7 @@
             return;
           }
 
-          return loadAttendanceForCompetence(confirmationCompetenceId, { force: true }).then(function (markings) {
+          return loadAttendanceForCompetence(confirmationCompetenceId, { force: true,employeeId:(analysis.rows.find(function(r){return selectedIds.some(function(id){return idsEqual(id,r.id);});}) || {}).employeeId }).then(function (markings) {
             if (!confirmationContextIsActive()) {
               showToast(
                 "Importação confirmada.",
@@ -2503,13 +2360,24 @@
   }
 
   function selectEmployee(id) {
-    var employee = companyEmployees().find(function (item) { return idsEqual(item.id, id); });
-    if (!employee) return;
-    state.selectedEmployeeId = employee.id;
-    state.selectedDayIds = [];
-    var visible = visibleReviewDays();
-    state.selectedDayId = visible[0] ? visible[0].id : null;
-    render();
+    var employee=companyEmployees().find(function(item){return idsEqual(item.id,id);});
+    if(!employee) return Promise.resolve(false);
+    if(editSession && !finishEditing({move:null})) return Promise.resolve(false);
+    var competenceId=state.selectedCompetenceId;
+    var pending=autosaveFlushPromise || Object.keys(pendingDaySaves).length;
+    if(pending && state.settings.autosave===false) {
+      showToast("Salve as alterações antes de trocar de funcionário.","warning");return Promise.resolve(false);
+    }
+    return (pending ? ensureAutosaveFlushedForLifecycle() : Promise.resolve()).then(function(){
+      if(!idsEqual(state.selectedCompetenceId,competenceId)) return false;
+      state.selectedEmployeeId=employee.id;state.selectedDayIds=[];state.selectedDayId=null;
+      if(state.apiMode!=="online") {ensureReviewSelection();render();return true;}
+      render();
+      return loadReviewDays(competenceId,employee.id).then(function(){
+        if(idsEqual(state.selectedCompetenceId,competenceId) && idsEqual(state.selectedEmployeeId,employee.id)) {ensureReviewSelection();render();}
+        return true;
+      });
+    }).catch(function(error){showToast("A troca de funcionário foi interrompida.","error",error.message);return false;});
   }
 
   function moveToProblemEmployee() {
@@ -2545,6 +2413,7 @@
   }
 
   function updateDayFromMarking(day, marking) {
+    if (marking.revisao !== undefined) day.revisao = marking.revisao;
     day.batidas_desconsideradas = marking.batidas_desconsideradas || [];
     if (Array.isArray(marking.historico)) {
       day.history = marking.historico;
@@ -2585,7 +2454,7 @@
         validate: function (text) { return String(text || "").trim().length < 10 ? "Informe uma justificativa com ao menos dez caracteres." : ""; } }],
       onConfirm: function (values) {
         return originalPunchDecision(dayId, function () {
-          return apiRequest("/marcacoes/" + encodeURIComponent(day.id) + "/batidas-desconsideradas", { method: "POST", body: { indice: index, justificativa: String(values.justificativa).trim() } });
+          return apiRequest("/marcacoes/" + encodeURIComponent(day.id) + "/batidas-desconsideradas", { method: "POST", body: { indice: index, justificativa: String(values.justificativa).trim(), revisao: day.revisao } });
         }, "Batida desconsiderada.");
       },
     });
@@ -2596,7 +2465,7 @@
     var day = findDay(dayId);
     if (!day || dayIsConfirmed(day)) return showToast("Reabra a conferência antes de restaurar uma batida.", "warning");
     originalPunchDecision(dayId, function () {
-      return apiRequest("/marcacoes/" + encodeURIComponent(day.id) + "/batidas-desconsideradas/" + encodeURIComponent(index), { method: "DELETE" });
+      return apiRequest("/marcacoes/" + encodeURIComponent(day.id) + "/batidas-desconsideradas/" + encodeURIComponent(index) + "?revisao=" + encodeURIComponent(day.revisao), { method: "DELETE" });
     }, "Batida restaurada.").catch(function (error) {
       showToast("Não foi possível restaurar a batida.", "error", error && error.message);
     });
@@ -2704,7 +2573,7 @@
       day.pendencia_tipo = "escala_nao_cadastrada";
       day.pendingReason = "Escala não cadastrada para o funcionário.";
       day.pendencia_motivo = day.pendingReason;
-    } else if (["atestado", "folga", "feriado", "falta", "afastamento", "domingo", "sem_expediente"].indexOf(status) !== -1) {
+    } else if (["atestado", "folga", "feriado", "falta", "falta_justificada", "afastamento", "domingo", "sem_expediente"].indexOf(status) !== -1) {
       day.pendingCalculation = false;
       day.pendente_calculo = false;
     }
@@ -2776,6 +2645,14 @@
   function reopenDay(day) {
     if (!day || !dayIsConfirmed(day)) return;
     if (!ensureCompetencyWritable("A reabertura do dia")) return;
+    if(state.apiMode==="online") {
+      var competenceId=day.competenceId || day.competencia_id || state.selectedCompetenceId;
+      return ensureAutosaveFlushedForLifecycle().then(function(){
+        return apiRequest("/marcacoes/"+encodeURIComponent(day.id),{method:"PATCH",body:{conferido:false,revisao:day.revisao}});
+      }).then(function(){return refreshAffectedCompetence(competenceId,{reloadAttendance:true});}).then(function(){
+        render();showToast("Conferência reaberta.","success");
+      }).catch(function(error){showToast("Não foi possível reabrir o dia.","error",error.message);return false;});
+    }
     day.confirmed = false;
     day.conferido = false;
     day.reviewState = "reopened";
@@ -2821,18 +2698,7 @@
   }
 
   function recalculateDay(day) {
-    var result = Utils.calculateJourney(currentSlots(day), day.expectedMinutes || day.jornadaPrevistaMinutos);
-    // O saldo definitivo depende das tolerâncias e ocorrências apuradas na API.
-    if (state.apiMode === "online") result.balanceMinutes = null;
-    day.workedMinutes = result.workedMinutes;
-    day.jornadaApuradaMinutos = result.workedMinutes;
-    day.balanceMinutes = result.balanceMinutes;
-    day.saldoMinutos = result.balanceMinutes;
-    if (day.current) {
-      day.current.workedMinutes = result.workedMinutes;
-      day.current.expectedMinutes = result.expectedMinutes;
-      day.current.balanceMinutes = result.balanceMinutes;
-    }
+    return conferenciaFeature().recalculateDay(day);
   }
 
   function applySlot(day, field, value) {
@@ -2849,6 +2715,7 @@
   function daySavePayload(day) {
     var slots = currentSlots(day);
     return {
+      revisao: day.revisao,
       entrada: slots.entry || null,
       saida_almoco: slots.breakStart || null,
       retorno_almoco: slots.breakEnd || null,
@@ -2857,6 +2724,44 @@
       conferido: dayIsConfirmed(day),
       observacoes: day.observation || day.observacao || day.current && (day.current.observation || day.current.observacao) || null,
     };
+  }
+
+  function resolveDaySaveConflict(entry) {
+    return apiRequest("/marcacoes/" + encodeURIComponent(entry.id)).then(function (server) {
+      var local = pendingDaySaves[String(entry.id)] || entry;
+      var fields = ["entrada", "saida_almoco", "retorno_almoco", "saida", "status_dia", "conferido", "observacoes"];
+      var labels = {entrada: "Entrada", saida_almoco: "Saída para almoço", retorno_almoco: "Retorno do almoço", saida: "Saída", status_dia: "Situação", conferido: "Conferido", observacoes: "Observação"};
+      var rows = fields.map(function (field) {
+        return "<tr><th>" + Utils.escapeHtml(labels[field]) + "</th><td>" + Utils.escapeHtml(String(server[field] == null ? "—" : server[field])) +
+          "</td><td>" + Utils.escapeHtml(String(local.payload[field] == null ? "—" : local.payload[field])) + "</td></tr>";
+      }).join("");
+      showDialog({title: "Este dia foi alterado em outra janela", confirmLabel: "Aplicar escolha", cancelLabel: "Continuar revisando",
+        description: "Sua edição está preservada e o envio foi suspenso. Compare os valores antes de continuar.",
+        html: "<table><thead><tr><th>Campo</th><th>Salvo no servidor</th><th>Sua edição</th></tr></thead><tbody>" + rows + "</tbody></table>",
+        field: {type: "select", label: "Como resolver", value: "server", options: [
+          {value: "server", label: "Usar os valores salvos no servidor"},
+          {value: "local", label: "Salvar minha edição após esta revisão"}]},
+        onConfirm: function (choice) {
+          var key = String(entry.id);
+          var current = pendingDaySaves[key] || local;
+          if (choice === "local") {
+            current.payload.revisao = server.revisao;
+            delete current.conflict;
+            pendingDaySaves[key] = current;
+            var day = findDay(entry.id);
+            if (day) day.revisao = server.revisao;
+            return flushPendingDaySaves().then(function (results) {
+              if (results.some(function (r) { return !r.ok; })) throw new Error("O salvamento ainda exige revisão.");
+            });
+          }
+          delete pendingDaySaves[key];
+          state.undoStack = (state.undoStack || []).filter(function (item) { return !idsEqual(item.dayId, entry.id); });
+          return refreshAffectedCompetence(entry.competenceId, {reloadAttendance: true}).then(function () {
+            state.autosaveStatus = Object.keys(pendingDaySaves).length ? "unsaved" : "saved";
+            render();
+          });
+        }});
+    }).catch(function (error) { showToast("Não foi possível carregar o dia para revisão.", "error", error.message); });
   }
 
   function flushPendingDaySaves() {
@@ -2882,6 +2787,7 @@
     autosaveFlushPromise = keys.reduce(function (chain, key) {
       return chain.then(function (results) {
         var entry = batch[key];
+        if (entry.conflict) return results.concat({ok: false, entry: entry, error: entry.conflict});
         return apiRequest("/marcacoes/" + encodeURIComponent(entry.id), {
           method: "PATCH",
           body: entry.payload,
@@ -2889,6 +2795,11 @@
           keepalive: true,
         }).then(function (response) {
           var day = findDay(entry.id);
+          if (response.revisao !== undefined) {
+            if (day && (day.revisao == null || day.revisao <= response.revisao)) day.revisao = response.revisao;
+            var newer = pendingDaySaves[key];
+            if (newer && newer.payload.revisao === entry.payload.revisao) newer.payload.revisao = response.revisao;
+          }
           if (day && Array.isArray(response.historico)) {
             day.history = response.historico;
             day.historico = response.historico;
@@ -2905,10 +2816,13 @@
       retryableFailures.forEach(function (result) {
         var key = String(result.entry.id);
         if (!pendingDaySaves[key]) pendingDaySaves[key] = result.entry;
+        if (isRevisionConflictError(result.error)) pendingDaySaves[key].conflict = result.error;
       });
       if (failed.length) {
         state.autosaveStatus = "error";
         updateAutosaveIndicator();
+        var conflict = failed.find(function (result) { return isRevisionConflictError(result.error); });
+        if (conflict) resolveDaySaveConflict(pendingDaySaves[String(conflict.entry.id)] || conflict.entry);
         if (closedFailures.length) {
           showToast("A competência foi fechada antes do salvamento.", "error", "As alterações recusadas não serão reenviadas automaticamente. Reabra a competência antes de editar.");
         } else {
@@ -2918,6 +2832,7 @@
         state.autosaveStatus = "saved";
         updateAutosaveIndicator();
       }
+      results.forEach(function(r){if(r.ok) delete activeDaySaves[String(r.entry.id)];});
       var competencesToRefresh = Object.create(null);
       results.forEach(function (result) {
         if ((result.ok && result.entry.syncCompetence) || (!result.ok && isClosedCompetenceError(result.error))) {
@@ -2942,7 +2857,7 @@
           return null;
         });
       })).then(function () {
-        if (Object.keys(competencesToRefresh).some(function (key) { return idsEqual(key, state.selectedCompetenceId); })) render();
+        if (Object.keys(competencesToRefresh).some(function (key) { return idsEqual(key, state.selectedCompetenceId); })) renderInBackground();
         return results;
       });
     }).finally(function () {
@@ -2964,11 +2879,13 @@
     state.autosaveRevision += 1;
     var revision = state.autosaveRevision;
     if (state.apiMode === "online" && day && day.id !== null && day.id !== undefined) {
+      var existingConflict = pendingDaySaves[String(day.id)] && pendingDaySaves[String(day.id)].conflict;
       pendingDaySaves[String(day.id)] = {
         id: day.id,
         competenceId: day.competenceId || day.competencia_id || state.selectedCompetenceId,
         payload: daySavePayload(day),
         syncCompetence: true,
+        conflict: existingConflict,
       };
     }
     if (!state.settings.autosave && !force) {
@@ -3064,6 +2981,18 @@
     editSession = null;
     restoreCell(session.cell, session.original);
     session.cell.focus();
+    // Horário inválido descartado não é falha de salvamento: retoma o que estava agendado.
+    if (state.autosaveStatus === "error" && !autosaveFlushPromise && !competencyIsClosed()) {
+      if (Object.keys(pendingDaySaves).length) queueAutosave(null);
+      else {
+        state.autosaveStatus = "saved";
+        updateAutosaveIndicator();
+      }
+    }
+    if (deferredRender) {
+      renderFocus = { dayId: session.dayId, field: session.field };
+      render();
+    }
   }
 
   function restoreCell(cell, value) {
@@ -3105,7 +3034,10 @@
     editSession = null;
     if (normalized === session.original) {
       restoreCell(session.cell, normalized);
-      if (move) moveFromCell(session.dayId, session.field, move);
+      if (deferredRender) {
+        renderFocus = movementTarget(session.dayId, session.field, move) || { dayId: session.dayId, field: session.field };
+        render();
+      } else if (move) moveFromCell(session.dayId, session.field, move);
       return true;
     }
 
@@ -3182,7 +3114,7 @@
     }
     queueAutosave(day);
     render();
-    showToast("Última alteração desfeita.", "success");
+    showToast(state.apiMode==="online" ? "Última alteração desfeita localmente." : "Última alteração desfeita.", state.apiMode==="online" ? "info" : "success");
   }
 
   function setObservation(day, value, options) {
@@ -3203,7 +3135,7 @@
     queueAutosave(day);
     if (!(options && options.silent)) {
       render();
-      showToast("Observação salva.", "success");
+      showToast(state.apiMode==="online" ? "Observação alterada localmente; aguarde o salvamento." : "Observação salva.", state.apiMode==="online" ? "info" : "success");
     }
   }
 
@@ -3220,7 +3152,7 @@
         targets.forEach(function (target) { setObservation(target, value.trim(), { silent: true }); });
         state.selectedDayIds = bulk ? [] : state.selectedDayIds;
         render();
-        showToast("Observação aplicada a " + targets.length + " registro" + (targets.length === 1 ? "" : "s") + ".", "success");
+        showToast("Observação alterada em " + targets.length + " registro(s).", state.apiMode==="online" ? "info" : "success",state.apiMode==="online" ? "Alteração local; aguarde o salvamento." : "");
       },
     });
   }
@@ -3238,7 +3170,7 @@
         targets.forEach(function (target) { setDayStatus(target, value, { noUndo: true }); });
         state.selectedDayIds = bulk ? [] : state.selectedDayIds;
         render();
-        showToast("Situação aplicada a " + targets.length + " registro" + (targets.length === 1 ? "" : "s") + ".", "success");
+        showToast("Situação alterada em " + targets.length + " registro(s).", state.apiMode==="online" ? "info" : "success",state.apiMode==="online" ? "Alteração local; aguarde o salvamento." : "");
       },
     });
   }
@@ -3246,7 +3178,9 @@
   function confirmDaysOnServer(targets) {
     var competenceId = state.selectedCompetenceId;
     return ensureAutosaveFlushedForLifecycle().then(function () {
-      return apiRequest("/marcacoes/conferir-lote", {method: "POST", body: {competencia_id: competenceId, marcacoes_ids: targets.map(function(d){return d.id;})}});
+      var revisoes = {};
+      targets.forEach(function (d) { revisoes[d.id] = (findDay(d.id) || d).revisao; });
+      return apiRequest("/marcacoes/conferir-lote", {method: "POST", body: {competencia_id: competenceId, marcacoes_ids: targets.map(function(d){return d.id;}), revisoes: revisoes}});
     }).then(function (result) {
       return refreshAffectedCompetence(competenceId, {reloadAttendance: true}).then(function () {
         state.selectedDayIds = [];
@@ -3427,7 +3361,7 @@
     setDayStatus(day, "normal", { noUndo: true });
     addHistory(day, "Interpretação atual mantida pelo operador.", "Operador local");
     render();
-    showToast("Interpretação mantida.", "success", "O dia ainda precisa ser marcado como conferido.");
+    showToast("Interpretação selecionada.", "info", "Aguarde o salvamento e a apuração; o dia ainda precisa ser conferido.");
   }
 
   function focusFirstTime(dayId) {
@@ -3484,46 +3418,15 @@
   }
 
   function exportFilename(response, competence, company) {
-    var disposition = response && response.headers && response.headers.get("Content-Disposition") || "";
-    var encodedMatch = disposition.match(/filename\*\s*=\s*UTF-8''([^;]+)/i);
-    var plainMatch = disposition.match(/filename\s*=\s*"?([^";]+)"?/i);
-    var name = encodedMatch ? encodedMatch[1] : plainMatch ? plainMatch[1] : "";
-    if (name) {
-      try { name = decodeURIComponent(name.trim()); }
-      catch (error) { name = name.trim(); }
-    }
-    if (!name) {
-      var companyName = company && (company.name || company.nome) || "empresa";
-      var companySlug = String(companyName).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "empresa";
-      var month = Number(competence && (competence.month || competence.mes));
-      var year = Number(competence && (competence.year || competence.ano));
-      var period = Number.isFinite(year) && Number.isFinite(month) ? year + "-" + String(month).padStart(2, "0") : "competencia";
-      name = "on_ponto_" + companySlug + "_" + period + ".xlsx";
-    }
-    name = String(name).replace(/[\\/:*?"<>|\r\n]+/g, "_").trim();
-    return /\.xlsx$/i.test(name) ? name : name + ".xlsx";
+    return relatoriosFeature().exportFilename(response,competence,company);
   }
 
   function exportResponseError(response) {
-    return response.text().then(function (textValue) {
-      var payload = null;
-      if (textValue) {
-        try { payload = JSON.parse(textValue); }
-        catch (error) { payload = { detail: textValue }; }
-      }
-      var requestError = new Error(apiErrorMessage(payload, "A API respondeu com erro " + response.status + "."));
-      requestError.status = response.status;
-      throw requestError;
-    });
+    return relatoriosFeature().exportResponseError(response);
   }
 
   function exportErrorDetail(error) {
-    if (error && error.name === "AbortError") return "A geração da planilha demorou mais que o esperado. Tente novamente.";
-    if (error && error.status) return error.message;
-    if (error && /fetch|network|rede|conex[aã]o/i.test(String(error.message || ""))) {
-      return "Não foi possível conectar à API para gerar a planilha.";
-    }
-    return error && error.message || "A planilha não pôde ser gerada.";
+    return relatoriosFeature().exportErrorDetail(error);
   }
 
   function exportCompetenceExcel() {
@@ -3552,7 +3455,7 @@
       headers: { Accept: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" },
     };
     if (controller) requestOptions.signal = controller.signal;
-    return root.fetch(configuredApiBase() + "/relatorios/excel?competencia_id=" + encodeURIComponent(competenceId), requestOptions).then(function (response) {
+    return apiFeature().authenticatedFetch("/relatorios/excel?competencia_id=" + encodeURIComponent(competenceId), requestOptions).then(function (response) {
       if (!response.ok) return exportResponseError(response);
       var filename = exportFilename(response, competence, company);
       return response.blob().then(function (blob) {
@@ -3597,6 +3500,10 @@
   }
 
   function acceptOcrPreview() {
+    if (!demonstracaoSolicitada()) {
+      showToast("Leitura simulada disponível apenas na demonstração.", "warning");
+      return;
+    }
     if (!ensureCompetencyWritable("A confirmação da leitura")) return;
     var company = currentCompany();
     var competence = currentCompetency();
@@ -3695,6 +3602,9 @@
       var failed = results.filter(function (result) { return result && result.ok === false; });
       if (failed.length) {
         throw new Error(failed.length + (failed.length === 1 ? " alteração não pôde" : " alterações não puderam") + " ser salva antes de continuar.");
+      }
+      if(editSession || autosaveFlushPromise || Object.keys(pendingDaySaves).length || state.autosaveStatus==="error") {
+        throw new Error("Há alterações novas ou pendentes. Conclua o salvamento antes de continuar.");
       }
       return results;
     });
@@ -3822,6 +3732,7 @@
   }
 
   function resetDemo() {
+    if (!demonstracaoSolicitada()) return;
     showDialog({
       title: "Restaurar dados simulados?",
       description: "Todas as edições desta sessão serão descartadas e os mocks voltarão ao estado inicial.",
@@ -3877,65 +3788,26 @@
     competencies().forEach(function (competence) {
       if (!idsEqual(competence.companyId || competence.empresa_id, companyId)) return;
       var key = String(competence.id);
-      delete loadedCompetenceDays[key];
+      invalidateAttendance(key);
       delete loadedCompetenceSummaries[key];
       if (data.competenceSummaries) delete data.competenceSummaries[key];
     });
   }
 
   function dialogTimeMinutes(value) {
-    var match = String(value || "").match(/^(\d{2}):(\d{2})$/);
-    if (!match) return null;
-    return Number(match[1]) * 60 + Number(match[2]);
+    return escalasFeature().dialogTimeMinutes(value);
   }
 
   function nullableDialogNumber(value) {
-    return value === "" || value === null || value === undefined ? null : Number(value);
+    return escalasFeature().nullableDialogNumber(value);
   }
 
   function hourPolicyFields(entity) {
-    var p = entity && entity.politica_horas || {};
-    var explicit = function(v){ return v.politica_modo !== "legado"; };
-    var bank = function(v){ return explicit(v) && v.politica_modo !== "folha"; };
-    var choices = function(items){ return items.map(function(i){return {value:i[0],label:i[1]};}); };
-    var field = function(name,label,type,value,extra){return Object.assign({name:"politica_"+name,label:label,type:type,value:value == null ? "" : value,visibleWhen:explicit},extra || {});};
-    var fields = [
-      field("modo","Destino das horas extras","select",p.modo || "legado",{fullWidth:true,visibleWhen:null,options:choices([["legado","Manter configuração anterior"],["folha","100% folha"],["banco","100% banco"],["misto","Dividir entre folha e banco"]]),help:"Políticas explícitas se aplicam às competências abertas. Fechamentos preservam a regra usada."}),
-      field("referencia","Referência da regra (opcional)","text",p.referencia,{fullWidth:true,maxlength:240}),
-      field("percentual_folha","Parcela destinada à folha (%)","number",p.percentual_folha == null ? 50 : p.percentual_folha,{required:true,min:0.0001,max:99.9999,step:0.0001,visibleWhen:function(v){return v.politica_modo === "misto";},help:"O restante, até 100%, será destinado ao banco. Atrasos são tratados separadamente."}),
-      field("adicional_folha_percentual","Adicional da folha (%)","number",p.adicional_folha_percentual,{min:0,max:1000,step:0.01,help:"Informe o adicional aplicável. Sem definição, dias com HE para folha exigirão revisão."}),
-      field("ciclo_dias","Duração do ciclo (dias)","number",p.ciclo_dias,{visibleWhen:bank,required:true,min:1,max:3660,step:1}),
-      field("inicio_ciclo","Início de um ciclo de referência","date",p.inicio_ciclo,{visibleWhen:bank,required:true,help:"Define períodos consecutivos com a duração informada, inclusive antes desta data."}),
-      field("debitar_atrasos","Atrasos geram débito no banco?","select",String(p.debitar_atrasos !== false),{visibleWhen:bank,options:choices([["true","Sim"],["false","Não"]])}),
-      field("permite_saldo_negativo","Permitir saldo negativo no ciclo?","select",String(p.permite_saldo_negativo !== false),{visibleWhen:bank,options:choices([["true","Sim"],["false","Não"]])})
-    ];
-    [["normal","Dia normal"],["sabado","Sábado"],["domingo","Domingo"],["feriado","Feriado"]].forEach(function(entry){
-      var key=entry[0],label=entry[1],rule=p[key] || {};
-      fields.push(field(key+"_fator",label+": fator de crédito","number",rule.fator_banco == null ? 1 : rule.fator_banco,{visibleWhen:bank,required:true,min:0.0001,max:10,step:0.0001}),
-        field(key+"_base",label+": base do fator","select",rule.base_fator || "decidir",{visibleWhen:bank,options:choices([["decidir","Definir antes de apurar fator diferente de 1"],["parcela_banco","Aplicar sobre a parcela destinada ao banco"],["extra_integral","Aplicar sobre toda a HE apurada"]])}),
-        field(key+"_adicional",label+": adicional específico (%)","number",rule.adicional_folha_percentual,{min:0,max:1000,step:0.01,help:"Em branco, segue o adicional da folha acima."}));
-    });
-    [["fim_ciclo_credor","Crédito restante no fim do ciclo",[["decidir","Decisão humana pendente"],["pagar","Encaminhar horas para pagamento"]]],
-      ["fim_ciclo_devedor","Débito restante no fim do ciclo",[["decidir","Decisão humana pendente"],["transportar","Sinalizar transporte para outro ciclo"]]],
-      ["desligamento_credor","Crédito no desligamento",[["decidir","Decisão humana pendente"],["pagar","Encaminhar horas para pagamento"]]],
-      ["desligamento_devedor","Débito no desligamento",[["decidir","Decisão humana pendente"],["descontar","Encaminhar para desconto"],["dispensar","Sinalizar dispensa do débito"]]]].forEach(function(entry){
-        fields.push(field(entry[0],entry[1],"select",p[entry[0]] || "decidir",{visibleWhen:bank,options:choices(entry[2]),help:"Gera indicação para conferência; qualquer baixa ou transporte exige ajuste justificado."}));
-      });
-    fields.push(field("adicional_saldo_percentual","Adicional do saldo credor a pagar (%)","number",p.adicional_saldo_percentual,{visibleWhen:bank,min:0,max:1000,step:0.01}));
-    return fields;
+    return escalasFeature().hourPolicyFields(entity);
   }
 
   function hourPolicyPayload(v) {
-    if (v.politica_modo === "legado") return null;
-    var folha = v.politica_modo === "folha" ? 100 : v.politica_modo === "banco" ? 0 : Number(v.politica_percentual_folha);
-    var p={versao:1,modo:v.politica_modo,referencia:v.politica_referencia || null,percentual_folha:folha,
-      percentual_banco:Number((100-folha).toFixed(4)),adicional_folha_percentual:nullableDialogNumber(v.politica_adicional_folha_percentual),
-      debitar_atrasos:v.politica_debitar_atrasos === "true",permite_saldo_negativo:v.politica_permite_saldo_negativo === "true",
-      ciclo_dias:folha === 100 ? null : Number(v.politica_ciclo_dias),inicio_ciclo:folha === 100 ? null : v.politica_inicio_ciclo,
-      adicional_saldo_percentual:nullableDialogNumber(v.politica_adicional_saldo_percentual)};
-    ["normal","sabado","domingo","feriado"].forEach(function(key){p[key]={fator_banco:folha === 100 ? 1 : Number(v["politica_"+key+"_fator"]),base_fator:v["politica_"+key+"_base"] || "decidir",adicional_folha_percentual:nullableDialogNumber(v["politica_"+key+"_adicional"])};});
-    ["fim_ciclo_credor","fim_ciclo_devedor","desligamento_credor","desligamento_devedor"].forEach(function(key){p[key]=v["politica_"+key] || "decidir";});
-    return p;
+    return escalasFeature().hourPolicyPayload(v);
   }
 
   function openScaleDialog(id, options) {
@@ -3971,15 +3843,25 @@
       fieldLayout: "grid",
       fields: [
         { name: "nome", type: "text", label: "Nome da escala", value: entity ? entity.name || entity.nome : "", required: true, maxlength: 120, fullWidth: true },
+        { name: "vigente_desde", type: "date", label: "Início da vigência da regra", value: "", fullWidth: true, help: entity ? "Informe a data da nova regra. Em branco, usa a próxima vigência futura disponível. Dias abertos afetados precisam de nova conferência." : "Se a vigência histórica for desconhecida, deixe em branco; essa limitação será preservada." },
         { name: "modo_apuracao", type: "select", label: "Modo de apuração", value: mode, required: true, fullWidth: true, options: [{ value: "carga_horaria", label: "Carga horária" }, { value: "horario_fixo", label: "Horário fixo" }] },
         { name: "jornada_seg_sex_horas", type: "number", label: "Jornada de segunda a sexta (horas)", value: entity && entity.jornada_seg_sex_horas !== null && entity.jornada_seg_sex_horas !== undefined ? entity.jornada_seg_sex_horas : "8", required: true, min: 0, max: 24, step: 0.01, visibleWhen: isWorkload },
         { name: "jornada_sabado_horas", type: "number", label: "Jornada de sábado (horas)", value: entity && entity.jornada_sabado_horas !== null && entity.jornada_sabado_horas !== undefined ? entity.jornada_sabado_horas : "", min: 0, max: 24, step: 0.01, visibleWhen: isWorkload },
         { name: "horario_entrada_prevista", type: "time", label: "Entrada prevista", value: entity ? normalizedTime(entity.horario_entrada_prevista) : "", required: true, visibleWhen: isFixed },
         { name: "horario_saida_prevista", type: "time", label: "Saída prevista", value: entity ? normalizedTime(entity.horario_saida_prevista) : "", required: true, visibleWhen: isFixed },
-        { name: "horario_saida_almoco_prevista", type: "time", label: "Saída para almoço", value: entity ? normalizedTime(entity.horario_saida_almoco_prevista) : "", visibleWhen: isFixed },
-        { name: "horario_retorno_almoco_prevista", type: "time", label: "Retorno do almoço", value: entity ? normalizedTime(entity.horario_retorno_almoco_prevista) : "", visibleWhen: isFixed },
+        { name: "horario_saida_almoco_prevista", type: "time", label: "Saída para almoço prevista", value: entity ? normalizedTime(entity.horario_saida_almoco_prevista) : "", visibleWhen: function(v){return isFixed(v) || v.tipo_intervalo==="fixo" || v.registro_intervalo==="pre_assinalado";} },
+        { name: "horario_retorno_almoco_prevista", type: "time", label: "Retorno do almoço previsto", value: entity ? normalizedTime(entity.horario_retorno_almoco_prevista) : "", visibleWhen: function(v){return isFixed(v) || v.tipo_intervalo==="fixo" || v.registro_intervalo==="pre_assinalado";} },
+        { name: "tipo_intervalo", type: "select", label: "Tipo de intervalo", value: entity && entity.tipo_intervalo || "legado", options: [{value:"legado",label:"Preservar regra anterior"},{value:"fixo",label:"Fixo"},{value:"flexivel",label:"Flexível"},{value:"sem_intervalo",label:"Sem intervalo"}], help:"Nova configuração passa a valer na vigência informada." },
+        { name: "registro_intervalo", type: "select", label: "Registro do intervalo", value: entity && entity.registro_intervalo || "batidas", options:[{value:"batidas",label:"Batidas reais"},{value:"pre_assinalado",label:"Pré-assinalado explicitamente"}], visibleWhen:function(v){return v.tipo_intervalo!=="legado";} },
+        { name: "duracao_intervalo_minutos", type: "number", label: "Duração do intervalo (min)", value: entity && entity.duracao_intervalo_minutos!=null ? entity.duracao_intervalo_minutos : 60, min:1,max:1440,step:1,visibleWhen:function(v){return v.tipo_intervalo==="fixo" || v.tipo_intervalo==="flexivel";} },
         { name: "regime_sabado", type: "select", label: "Regime de sábado", value: entity ? entity.regime_sabado : "nao_trabalha", required: true, options: [{ value: "trabalha", label: "Trabalha" }, { value: "compensado", label: "Compensado" }, { value: "nao_trabalha", label: "Não trabalha" }] },
         { name: "regime_domingo", type: "select", label: "Regime de domingo", value: entity ? entity.regime_domingo : "nao_trabalha", required: true, options: [{ value: "trabalha", label: "Trabalha" }, { value: "nao_trabalha", label: "Não trabalha" }] },
+        { name: "sabado_proprio", type:"select",label:"Horários próprios de sábado",value:entity && entity.jornadas_semana && entity.jornadas_semana["5"] ? "preservar":"false",options:[{value:"preservar",label:"Manter jornada diária salva"},{value:"false",label:"Usar jornada da escala"},{value:"true",label:"Informar entrada e saída sem almoço"}],visibleWhen:function(v){return v.regime_sabado==="trabalha";} },
+        { name: "sabado_entrada",type:"time",label:"Entrada de sábado",value:entity && entity.jornadas_semana && entity.jornadas_semana["5"] && entity.jornadas_semana["5"].horario_entrada_prevista || "08:00",visibleWhen:function(v){return v.regime_sabado==="trabalha" && v.sabado_proprio==="true";} },
+        { name: "sabado_saida",type:"time",label:"Saída de sábado",value:entity && entity.jornadas_semana && entity.jornadas_semana["5"] && entity.jornadas_semana["5"].horario_saida_prevista || "12:00",visibleWhen:function(v){return v.regime_sabado==="trabalha" && v.sabado_proprio==="true";} },
+        { name:"dsr_modo",type:"select",label:"Desconto de DSR",value:entity && entity.politica_dsr ? "falta":"legado",options:[{value:"legado",label:"Preservar regra anterior, sem desconto"},{value:"falta",label:"Descontar por falta injustificada"}],help:"Nos seis dias anteriores ao descanso: uma ou mais faltas injustificadas causam perda de um descanso semanal. Justificadas, atestados, abonos e atrasos não causam perda." },
+        { name:"dsr_dia",type:"select",label:"Dia do descanso semanal",value:entity && entity.politica_dsr ? String(entity.politica_dsr.dia_descanso):"6",options:["Segunda","Terça","Quarta","Quinta","Sexta","Sábado","Domingo"].map(function(d,i){return {value:String(i),label:d};}),visibleWhen:function(v){return v.dsr_modo==="falta";} },
+        { name:"dsr_feriados",type:"select",label:"Descontar feriados do período",value:entity && entity.politica_dsr && entity.politica_dsr.descontar_feriados===false ? "false":"true",options:[{value:"true",label:"Sim"},{value:"false",label:"Não"}],visibleWhen:function(v){return v.dsr_modo==="falta";} },
         { name: "tolerancia_atraso_minutos", type: "number", label: "Tolerância de atraso (min)", value: entity ? entity.tolerancia_atraso_minutos : 0, required: true, min: 0, max: 1440, step: 1 },
         { name: "tolerancia_extra_minutos", type: "number", label: "Tolerância de extra (min)", value: entity ? entity.tolerancia_extra_minutos : 0, required: true, min: 0, max: 1440, step: 1 },
         { name: "tolerancia_intervalo_minutos", type: "number", label: "Tolerância de intervalo (min)", value: entity && entity.tolerancia_intervalo_minutos != null ? entity.tolerancia_intervalo_minutos : "", help: "Deixe em branco para usar a mesma tolerância de atraso da escala.", min: 0, max: 1440, step: 1 },
@@ -4029,7 +3911,22 @@
           politica_horas: hourPolicyPayload(values),
           usa_banco_horas: values.politica_modo === "legado" ? values.usa_banco_horas === "true" : values.politica_modo !== "folha",
           ativa: values.ativa === "true",
+          tipo_intervalo: values.tipo_intervalo && values.tipo_intervalo!=="legado" ? values.tipo_intervalo:null,
+          registro_intervalo: values.tipo_intervalo && values.tipo_intervalo!=="legado" ? values.registro_intervalo:null,
+          duracao_intervalo_minutos: values.tipo_intervalo==="sem_intervalo" ? 0 : values.tipo_intervalo && values.tipo_intervalo!=="legado" ? nullableDialogNumber(values.duracao_intervalo_minutos):null,
+          politica_dsr: values.dsr_modo==="falta" ? {versao:1,dia_descanso:Number(values.dsr_dia),descontar_feriados:values.dsr_feriados!=="false",referencia:entity && entity.politica_dsr && entity.politica_dsr.referencia || "Política definida pelo operador"}:null,
         };
+        if (values.tipo_intervalo && values.tipo_intervalo!=="legado") {
+          payload.horario_saida_almoco_prevista = values.tipo_intervalo==="sem_intervalo" ? null:values.horario_saida_almoco_prevista || null;
+          payload.horario_retorno_almoco_prevista = values.tipo_intervalo==="sem_intervalo" ? null:values.horario_retorno_almoco_prevista || null;
+        }
+        if (values.sabado_proprio!==undefined) {
+          payload.jornadas_semana=Object.assign({},entity && entity.jornadas_semana || {});
+          if (values.sabado_proprio==="true") {
+            payload.jornadas_semana["5"]={jornada_minutos:dialogTimeMinutes(values.sabado_saida)-dialogTimeMinutes(values.sabado_entrada),horario_entrada_prevista:values.sabado_entrada,horario_saida_prevista:values.sabado_saida,tipo_intervalo:"sem_intervalo",registro_intervalo:"batidas",duracao_intervalo_minutos:0};
+          } else if (values.sabado_proprio==="false") delete payload.jornadas_semana["5"];
+        }
+        if (values.vigente_desde) payload.vigente_desde = values.vigente_desde;
         if (online) {
           var endpoint = "/escalas" + (entity ? "/" + encodeURIComponent(entity.id) : "");
           return apiRequest(endpoint, { method: entity ? "PUT" : "POST", body: payload }).then(function (response) {
@@ -4265,6 +4162,11 @@
     var element = event.target.closest("[data-action]");
     if (!element) return;
     var action = element.dataset.action;
+    if (action === "tentar-conexao-api") {
+      event.preventDefault();
+      return conectarApi();
+    }
+    if (state.apiMode === "indisponivel") return;
 
     if (root.OnPontoOcorrencias.action(action, element, event)) return;
     if (root.OnPontoBancoHoras && root.OnPontoBancoHoras.action(action, element, event)) return;
@@ -4523,6 +4425,7 @@
   }
 
   function handleKeydown(event) {
+    if (state.apiMode === "indisponivel") return;
     var target = event.target;
     if (competencyIsClosed() && state.route === "review") {
       var closedShortcut = (event.ctrlKey || event.metaKey) && ["s", "z"].indexOf(event.key.toLowerCase()) !== -1;
@@ -4583,7 +4486,14 @@
   function handleBlur(event) {
     if (!editSession || event.target !== editSession.input) return;
     root.setTimeout(function () {
-      if (editSession && document.activeElement !== editSession.input) finishEditing({ move: null });
+      if (!editSession || document.activeElement === editSession.input) return;
+      // Campo removido por um redesenho: um horário digitado pela metade (ex.: "12")
+      // nunca deve ser gravado; o valor salvo continua o anterior.
+      if (!editSession.input.isConnected) {
+        editSession = null;
+        return;
+      }
+      finishEditing({ move: null });
     }, 0);
   }
 
@@ -4648,6 +4558,10 @@
 
   function syncRouteFromLocation(options) {
     if (state.apiMode === "loading") return Promise.resolve();
+    if (state.apiMode === "indisponivel") {
+      render(options);
+      return Promise.resolve();
+    }
     if (editSession && !finishEditing({ move: null })) {
       root.history.replaceState(null, "", routeHash({
         view: state.route,
@@ -4658,6 +4572,22 @@
     }
     var sequence = ++routeLoadSequence;
     var route = validateRoute(parseHashRoute(root.location.hash));
+    if(state.apiMode==="online" && !(options && options.flushed) &&
+        (!optionalIdsEqual(state.selectedCompanyId,route.companyId) || !optionalIdsEqual(state.selectedCompetenceId,route.competenceId)) &&
+        (autosaveFlushPromise || Object.keys(pendingDaySaves).length)) {
+      var previousHash=routeHash({view:state.route,companyId:state.selectedCompanyId,competenceId:state.selectedCompetenceId});
+      if (!state.settings.autosave && Object.keys(pendingDaySaves).length) {
+        root.history.replaceState(null,"",previousHash);
+        showToast("Salve as alterações antes de mudar de contexto.","warning");
+        return Promise.resolve();
+      }
+      return ensureAutosaveFlushedForLifecycle().then(function(){
+        if(sequence===routeLoadSequence) return syncRouteFromLocation(Object.assign({},options,{flushed:true}));
+      }).catch(function(error){
+        if(sequence===routeLoadSequence) root.history.replaceState(null,"",previousHash);
+        showToast("A navegação foi interrompida para preservar suas alterações.","error",error.message);
+      });
+    }
     var canonicalHash = routeHash(route);
     if (root.location.hash !== canonicalHash) root.history.replaceState(null, "", canonicalHash);
     applyRouteContext(route);
@@ -4741,14 +4671,9 @@
       reloadAttendance: loadAttendanceForCompetence,
       apiBase: configuredApiBase,
     };
-    bootstrapApiData().then(function (online) {
-      return syncRouteFromLocation().then(function () {
-        if (!online) showToast("API indisponível: usando dados de demonstração.", "warning", state.apiError + " Configure onponto.apiBase para alterar o endereço da API.");
-      });
-    }).catch(function (error) {
-      state.apiMode = "offline";
-      state.apiError = error && error.message || "API indisponível.";
-      syncRouteFromLocation();
+    if (!demonstracaoSolicitada()) render();
+    conectarApi().catch(function (error) {
+      showToast("Não foi possível carregar esta tela.", "error", error && error.message);
     });
   }
 

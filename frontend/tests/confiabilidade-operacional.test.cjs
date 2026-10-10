@@ -4,7 +4,7 @@ const fs=require('node:fs');
 const path=require('node:path');
 const vm=require('node:vm');
 function setup(){
-  const c={URLSearchParams,localStorage:{getItem:()=>null}};c.window=c;vm.createContext(c);
+  const c={URLSearchParams,localStorage:{getItem:()=>null}};c.window=c;require('./module-loader.cjs').context(c);
   for(const file of ['mocks','utils','components','screens'])vm.runInContext(fs.readFileSync(path.join(__dirname,'../js/'+file+'.js'),'utf8'),c);
   vm.runInContext(fs.readFileSync(path.join(__dirname,'../app.js'),'utf8').replace('\n  init();','\n root.testApi={state,data,normalizeCompetence,normalizeCompetenceSummary,dayHasProblem,visibleReviewDays};'),c);
   return c;

@@ -6,6 +6,7 @@ class ConfirmacaoImportacao(BaseModel):
     competencia_id: int
     arquivo_id: int
     registros_ids: list[str] = Field(default_factory=list)
+    revisao_previa: int | None = Field(default=None,ge=1)
 
 
 class DescartePendencias(BaseModel):

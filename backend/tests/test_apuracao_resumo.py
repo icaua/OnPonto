@@ -320,12 +320,13 @@ class ApuracaoResumoTest(unittest.TestCase):
         self.assertEqual(resultado["resumo"][0]["dias_processados"], 0)
         self.assertEqual(resultado["resumo"][0]["situacao"], "indisponivel")
 
-    def test_status_dia_expoe_somente_os_nove_motivos(self) -> None:
+    def test_status_dia_inclui_falta_justificada_explicita(self) -> None:
         self.assertEqual(
             STATUS_DIA,
             {
                 "normal",
                 "falta",
+                "falta_justificada",
                 "atestado",
                 "folga",
                 "feriado",

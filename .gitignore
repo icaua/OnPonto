@@ -1,6 +1,9 @@
 # Ambientes Python
 .venv/
 .venv-linux/
+# Ambiente anterior guardado pelo instalador até a nova .venv passar nos testes
+.venv-anterior-*/
+.venv-falhou-*/
 venv/
 backend/.venv/
 backend/.venv-linux/

@@ -14,7 +14,7 @@ function setup() {
   const ctx = {URLSearchParams, localStorage: {getItem: () => null},
     document: {getElementById: id => nodes[id]}, location: {hash: '#/empresas/1/competencias/11/conferencia'}};
   ctx.window = ctx;
-  vm.createContext(ctx);
+  require('./module-loader.cjs').context(ctx);
   for (const file of ['mocks', 'utils', 'components', 'screens'])
     vm.runInContext(fs.readFileSync(path.join(__dirname, '../js/' + file + '.js'), 'utf8'), ctx);
   const source = fs.readFileSync(path.join(__dirname, '../app.js'), 'utf8');

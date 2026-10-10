@@ -7,7 +7,7 @@ const vm = require('node:vm');
 function setup() {
   const ctx = {URLSearchParams, localStorage: {getItem: () => null}};
   ctx.window = ctx;
-  vm.createContext(ctx);
+  require('./module-loader.cjs').context(ctx);
   for (const file of ['mocks', 'utils', 'components', 'screens']) {
     vm.runInContext(fs.readFileSync(path.join(__dirname, '../js/' + file + '.js'), 'utf8'), ctx);
   }

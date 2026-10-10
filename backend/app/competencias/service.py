@@ -29,12 +29,20 @@ def contar_pendencias_operacionais(
     *,
     gerar_calendario: bool = False,
 ) -> int:
-    resultado = apurar_competencia(
-        db,
-        competencia_id,
-        gerar_calendario=gerar_calendario,
-    )
-    return len(resultado["pendencias"]) + resultado.get("operacional", {}).get("conflitos_importacao", 0) if resultado else 0
+    from app.apuracao.triagem import consultar_triagem
+    if gerar_calendario:
+        from app.apuracao.service import gerar_dias_faltantes
+        competencia=db.get(Competencia,competencia_id)
+        if competencia: gerar_dias_faltantes(db,competencia)
+    resultado=consultar_triagem(db,competencia_id,persistir=True)
+    contagens=resultado.get("operacional",{}) if resultado else {}
+    return sum(contagens.get(k,0) for k in ("problemas","aguardando_conferencia","conflitos_importacao","analises_pendentes","dias_sem_registro"))
+
+
+def sincronizar_abertas_empresa(db, empresa_id):
+    db.flush()
+    for competencia in db.query(Competencia).filter(Competencia.empresa_id==empresa_id,Competencia.status!="fechada"):
+        sincronizar_status_competencia(db,competencia)
 
 
 def mensagem_pendencias(total_pendencias: int) -> str:

@@ -7,7 +7,7 @@ import logging
 from sqlalchemy import Connection, Engine, inspect
 
 
-SCHEMA_VERSION = 13
+SCHEMA_VERSION = 19
 logger = logging.getLogger(__name__)
 
 COLUNAS_EMPRESA_LEGADAS = (
@@ -426,6 +426,78 @@ def _migrar_banco_horas(conexao: Connection, tabelas: set[str]) -> None:
         CompensacaoBancoHoras.__table__.create(conexao, checkfirst=True)
 
 
+def _migrar_versoes_escalas(conexao,tabelas):
+    if "escalas" not in tabelas: return
+    import json
+    from dataclasses import fields,MISSING
+    from app.database.models import EscalaVersao
+    from app.dominio.contratos import RegraVigente
+    if "jornadas_semana_json" not in _nomes_colunas(conexao,"escalas"):
+        conexao.exec_driver_sql("ALTER TABLE escalas ADD COLUMN jornadas_semana_json TEXT")
+    for coluna, tipo in {"tipo_intervalo":"VARCHAR(20)", "registro_intervalo":"VARCHAR(20)",
+                         "duracao_intervalo_minutos":"INTEGER", "politica_dsr_json":"TEXT"}.items():
+        if coluna not in _nomes_colunas(conexao, "escalas"):
+            conexao.exec_driver_sql(f"ALTER TABLE escalas ADD COLUMN {coluna} {tipo}")
+    EscalaVersao.__table__.create(conexao,checkfirst=True)
+    campos=[f for f in fields(RegraVigente) if f.name not in {"id","versao_id","jornada_dia_minutos"}]
+    for escala in conexao.exec_driver_sql("SELECT * FROM escalas").mappings():
+        if conexao.exec_driver_sql("SELECT 1 FROM escala_versoes WHERE escala_id=? LIMIT 1",(escala["id"],)).first(): continue
+        config={f.name:escala.get(f.name,f.default if f.default is not MISSING else None) for f in campos}
+        config["politica_horas"]=json.loads(escala["politica_horas_json"]) if escala.get("politica_horas_json") else None
+        config["jornadas_semana"]=json.loads(escala["jornadas_semana_json"]) if escala.get("jornadas_semana_json") else None
+        config["politica_dsr"]=json.loads(escala["politica_dsr_json"]) if escala.get("politica_dsr_json") else None
+        config["usa_banco_horas"]=bool(config["usa_banco_horas"])
+        from datetime import time
+        for campo in config:
+            if campo.startswith("horario_") and config[campo]:
+                config[campo]=time.fromisoformat(config[campo]).isoformat()
+        conexao.exec_driver_sql("""INSERT INTO escala_versoes
+            (escala_id,numero,vigente_desde,vigente_ate,configuracao_json,origem,created_at)
+            VALUES (?,1,NULL,NULL,?,'legado_vigencia_desconhecida',CURRENT_TIMESTAMP)""",
+            (escala["id"],json.dumps(config,ensure_ascii=False,sort_keys=True)))
+    conexao.exec_driver_sql("CREATE UNIQUE INDEX IF NOT EXISTS ux_escala_versao_inicio ON escala_versoes(escala_id,vigente_desde)")
+    conexao.exec_driver_sql("CREATE UNIQUE INDEX IF NOT EXISTS ux_escala_versao_legado ON escala_versoes(escala_id) WHERE vigente_desde IS NULL")
+    conexao.exec_driver_sql("""CREATE TRIGGER IF NOT EXISTS escala_versao_config_imutavel BEFORE UPDATE ON escala_versoes
+        WHEN OLD.configuracao_json IS NOT NEW.configuracao_json OR OLD.escala_id IS NOT NEW.escala_id
+          OR OLD.numero IS NOT NEW.numero OR OLD.origem IS NOT NEW.origem OR OLD.vigente_desde IS NOT NEW.vigente_desde
+        BEGIN SELECT RAISE(ABORT,'Configuracao de escala versionada e imutavel'); END""")
+    conexao.exec_driver_sql("""CREATE TRIGGER IF NOT EXISTS escala_versao_nao_apagar BEFORE DELETE ON escala_versoes
+        BEGIN SELECT RAISE(ABORT,'Versao de escala deve ser preservada'); END""")
+    for acao in ("INSERT","UPDATE"):
+        conexao.exec_driver_sql(f"""CREATE TRIGGER IF NOT EXISTS escala_versao_sem_sobreposicao_{acao.lower()}
+            BEFORE {acao} ON escala_versoes WHEN EXISTS(SELECT 1 FROM escala_versoes v
+            WHERE v.escala_id=NEW.escala_id AND v.id!=COALESCE(NEW.id,-1)
+            AND NOT(COALESCE(NEW.vigente_ate,'9999-12-31')<COALESCE(v.vigente_desde,'0001-01-01')
+                 OR COALESCE(NEW.vigente_desde,'0001-01-01')>COALESCE(v.vigente_ate,'9999-12-31')))
+            BEGIN SELECT RAISE(ABORT,'Vigencias de escala sobrepostas'); END""")
+
+
+def _migrar_fechamentos_revisoes(conexao, tabelas):
+    from app.database.models import FechamentoVersao, ReaberturaFechamento
+    if "marcacoes_ponto" in tabelas and "revisao" not in _nomes_colunas(conexao, "marcacoes_ponto"):
+        conexao.exec_driver_sql("ALTER TABLE marcacoes_ponto ADD COLUMN revisao INTEGER NOT NULL DEFAULT 1")
+    if "competencias" not in tabelas:
+        return
+    FechamentoVersao.__table__.create(conexao, checkfirst=True)
+    ReaberturaFechamento.__table__.create(conexao, checkfirst=True)
+    divergente = conexao.exec_driver_sql("""SELECT c.id FROM competencias c JOIN fechamentos_versoes v
+        ON v.competencia_id=c.id AND v.numero=c.versao_fechamento
+        WHERE c.status='fechada' AND c.apuracao_fechada IS NOT v.snapshot LIMIT 1""").first()
+    if divergente:
+        raise RuntimeError("Snapshot corrente diverge da versão preservada; migração interrompida sem sobrescrita.")
+    # Guarda bytes originais, inclusive snapshots cujo contador legado era zero.
+    conexao.exec_driver_sql("""INSERT INTO fechamentos_versoes
+        (competencia_id,numero,snapshot,regras_json,origem,created_at)
+        SELECT c.id,c.versao_fechamento,c.apuracao_fechada,'[]',
+            CASE WHEN c.apuracao_fechada IS NULL THEN 'fechamento_legado_sem_snapshot' ELSE 'snapshot_corrente_legado' END,CURRENT_TIMESTAMP
+        FROM competencias c WHERE (c.apuracao_fechada IS NOT NULL OR c.status='fechada') AND NOT EXISTS
+        (SELECT 1 FROM fechamentos_versoes v WHERE v.competencia_id=c.id AND v.numero=c.versao_fechamento)""")
+    for tabela in ("fechamentos_versoes", "reaberturas_fechamento"):
+        for acao in ("UPDATE", "DELETE"):
+            conexao.exec_driver_sql(f"""CREATE TRIGGER IF NOT EXISTS {tabela}_imutavel_{acao.lower()}
+                BEFORE {acao} ON {tabela} BEGIN SELECT RAISE(ABORT,'Historico de fechamento imutavel'); END""")
+
+
 def _aplicar_sqlite(conexao: Connection) -> dict[str, int]:
     tabelas = {
         linha[0]
@@ -545,6 +617,27 @@ def _aplicar_sqlite(conexao: Connection) -> dict[str, int]:
             for coluna, tipo in colunas.items():
                 if coluna not in existentes:
                     conexao.exec_driver_sql(f"ALTER TABLE {tabela} ADD COLUMN {coluna} {tipo}")
+    _migrar_versoes_escalas(conexao,set(inspect(conexao).get_table_names()))
+    _migrar_fechamentos_revisoes(conexao,set(inspect(conexao).get_table_names()))
+    if "competencias" in tabelas and "funcionarios" in tabelas:
+        from app.database.models import CacheConferencia
+        CacheConferencia.__table__.create(conexao,checkfirst=True)
+    if "marcacoes_ponto" in tabelas:
+        from app.database.models import DependenciaFechamento
+        DependenciaFechamento.__table__.create(conexao, checkfirst=True)
+        for acao in ("UPDATE", "DELETE"):
+            conexao.exec_driver_sql(f"""CREATE TRIGGER IF NOT EXISTS dependencia_fechamento_{acao.lower()}
+                BEFORE {acao} ON dependencias_fechamento BEGIN SELECT RAISE(ABORT,'Dependencia historica imutavel'); END""")
+    from app.database.evidencias_migracao import migrar
+    migrar(conexao)
+    indices={
+        'marcacoes_ponto':('ix_marcacao_comp_arquivo',('competencia_id','arquivo_origem_id')),
+        'historico_vinculo_escala':('ix_vinculo_func_inicio_fim',('funcionario_id','vigente_desde DESC','id DESC','vigente_ate')),
+    }
+    atuais=set(inspect(conexao).get_table_names())
+    for tabela,(nome,colunas) in indices.items():
+        if tabela in atuais and {c.split()[0] for c in colunas}<=_nomes_colunas(conexao,tabela):
+            conexao.exec_driver_sql(f"CREATE INDEX IF NOT EXISTS {nome} ON {tabela}({','.join(colunas)})")
     if versao_atual < SCHEMA_VERSION:
         conexao.exec_driver_sql(f"PRAGMA user_version = {SCHEMA_VERSION}")
     return {"escalas_intervalo_convertidas": convertidas}
@@ -587,6 +680,12 @@ def aplicar_migracoes_compativeis(engine: Engine) -> dict[str, int] | None:
                 raise RuntimeError(
                     f"Migração gerou violações de chave estrangeira: {violacoes!r}"
                 )
+            if conexao.exec_driver_sql("PRAGMA integrity_check").scalar_one()!="ok":
+                raise RuntimeError("Migração falhou na verificação de integridade.")
+            conexao.commit()
+            # Otimização limitada, apenas depois da transação de migração.
+            conexao.exec_driver_sql("PRAGMA analysis_limit=400")
+            conexao.exec_driver_sql("PRAGMA optimize")
             conexao.commit()
             if resultado["escalas_intervalo_convertidas"]:
                 logger.warning("Schema 6: %s escala(s) com tolerância de intervalo zero histórico convertidas para NULL (seguir tolerância geral).",
