@@ -87,6 +87,13 @@ def extra_bruta(dia, escala, marcacao):
         return 0
     if dia.get("feriado_aplicado") or dia["status_dia"] == "feriado":
         return dia.get("horas_feriado_minutos", 0)
+    if getattr(escala, "tipo_intervalo", None) in {"flexivel", "sem_intervalo"} or "pre_assinalado" in (dia.get("origens_horarios_calculo") or {}).values():
+        trabalhados = dia.get("horas_trabalhadas_minutos")
+        previstos = dia.get("jornada_prevista_minutos")
+        if trabalhados is None or previstos is None:
+            return None
+        minutos = max(trabalhados - previstos, 0)
+        return 0 if minutos <= escala.tolerancia_extra_minutos else minutos
     if escala.modo_apuracao == "horario_fixo" and dia["status_dia"] == "normal":
         from app.ocorrencias.interpretacao import intervalos, minutos_cobertos
         realizados = intervalos(marcacao.entrada, marcacao.saida_almoco, marcacao.retorno_almoco, marcacao.saida)

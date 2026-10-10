@@ -103,7 +103,7 @@
     conferir: "needs_review", pendente: "needs_review", pendente_conferencia: "needs_review", pending: "needs_review", pending_review: "needs_review", revisar: "needs_review", review: "needs_review",
     normal: "normal",
     inconsistente: "inconsistent", inconsistencia: "inconsistent", inconsistent: "inconsistent", error: "inconsistent", erro: "inconsistent",
-    falta: "absence", ausente: "absence", absence: "absence", absent: "absence",
+    falta: "absence", falta_justificada: "absence", ausente: "absence", absence: "absence", absent: "absence",
     atestado: "medical_leave", medical_leave: "medical_leave", sick_note: "medical_leave",
     folga: "day_off", day_off: "day_off",
     feriado: "holiday", holiday: "holiday",
@@ -497,6 +497,8 @@
     return '<aside id="day-details-panel" class="day-details-panel" data-component="day-details-panel" data-day-id="' + text(dayId) + '" aria-labelledby="day-details-title">' +
       '<header class="details-header day-details-panel__header"><div><p class="details-eyebrow">' + text(Utils.formatWeekday(date, { long: true })) + '</p><h2 id="day-details-title">' + text(Utils.formatDate(date)) + "</h2></div>" + (day.problema === true ? problemBadge(day) : StatusChip(day.effectiveStatus || dayStatus(day))) + "</header>" + (day.calendarNote ? '<p class="context-note">' + text(day.calendarNote) + "</p>" : "") +
       (day.occurrenceLabel ? '<p class="context-note"><strong>' + text(day.occurrenceLabel) + '</strong> · Abono calculado: ' + text(day.excusedMinutes || 0) + ' min. As batidas permanecem preservadas.</p>' : "") +
+      (day.origens_horarios_calculo && day.origens_horarios_calculo.saida_almoco === "pre_assinalado" ? '<p class="context-note"><strong>Intervalo pré-assinalado</strong>: ' + text(day.intervalo_aplicado.inicio_previsto) + '–' + text(day.intervalo_aplicado.fim_previsto) + '. Estes horários são previstos e não são batidas originais.</p>' : "") +
+      (day.dsr ? '<p class="context-note">DSR/feriado: desconto de ' + text(day.dsr.desconto_dias==null ? "valor pendente" : day.dsr.desconto_dias + " dia(s)") + '. Referência: ' + text(day.dsr.periodo_inicio) + ' a ' + text(day.dsr.periodo_fim) + '.</p>' : "") +
       OriginalPunchesList({ punches: punches, dayId: dayId, discarded: discardedPunches, editable: editablePunches,
         assist: editablePunches && !integralOccurrence && punches.length - discardedPunches.length <= 4,
         allowDiscard: editablePunches && !integralOccurrence && day.problema === true,

@@ -44,6 +44,8 @@ def nova_versao(db,escala,dados,desde=None):
             desde=max(desde,atual.vigente_desde+timedelta(days=1))
     if atual.vigente_desde is not None and desde<=atual.vigente_desde:
         raise HTTPException(409,"A vigência deve ser posterior à última versão; versões anteriores não podem ser reescritas.")
+    from app.competencias.dependencias import exigir_referencias_editaveis
+    exigir_referencias_editaveis(db,empresa_id=escala.empresa_id,inicio=desde)
     for competencia in db.query(Competencia).filter_by(empresa_id=escala.empresa_id,status="fechada"):
         fim=date(competencia.ano,competencia.mes,monthrange(competencia.ano,competencia.mes)[1])
         if fim>=desde:

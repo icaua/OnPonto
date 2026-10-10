@@ -1,6 +1,6 @@
 import json
 
-from app.database.models import FechamentoVersao, ReaberturaFechamento, Funcionario, MarcacaoPonto
+from app.database.models import FechamentoVersao, ReaberturaFechamento, Funcionario, MarcacaoPonto, DependenciaFechamento
 from app.funcionarios.historico_escalas import ResolvedorEscalas
 
 
@@ -29,6 +29,13 @@ def guardar_fechamento(db, competencia, origem="fechamento_local"):
     registro = FechamentoVersao(competencia_id=competencia.id, numero=competencia.versao_fechamento,
         snapshot=competencia.apuracao_fechada, regras_json=json.dumps(sorted(regras, key=str)), origem=origem)
     db.add(registro)
+    db.flush()
+    dependencias = {}
+    for dia in json.loads(competencia.apuracao_fechada).get("marcacoes",[]):
+        for ref in (dia.get("dsr") or {}).get("dependencias",[]):
+            dependencias[ref["marcacao_id"]] = ref["revisao"]
+    for id, revisao in dependencias.items():
+        db.add(DependenciaFechamento(fechamento_id=registro.id,marcacao_id=id,revisao=revisao))
     db.flush()
     return registro
 

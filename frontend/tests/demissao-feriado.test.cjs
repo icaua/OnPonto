@@ -34,7 +34,7 @@ test('resumo exibe horas 100 separadas e cadastro lista demissao',()=>{
     competencies:[{id:2,companyId:1,month:6,year:2026,status:'aberta'}],competenceSummaries:{2:{general:{},rows:[{employeeName:'Pessoa',delays:'00:00',extras:'00:00',holidayMinutes:240,situation:'conferido'}]}}};
   const state={apiMode:'online',selectedCompanyId:1,selectedCompetenceId:2};
   const html=ctx.OnPontoScreens.renderCompetencySummary(state,data,ctx.OnPontoComponents);
-  assert.match(html,/>Horas 100% \(feriado\)</);assert.match(html,/<td>04:00<\/td>/);
+  assert.match(html,/>Horas em feriado</);assert.match(html,/<td>04:00<\/td>/);
   const cadastro=ctx.OnPontoScreens.renderCompanyEmployees(state,data,ctx.OnPontoComponents);
   assert.match(cadastro,/<th>Demissão<\/th>/);assert.match(cadastro,/15\/06\/2026/);
 });

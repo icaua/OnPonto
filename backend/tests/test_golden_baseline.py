@@ -60,7 +60,12 @@ def capturar():
 class GoldenBaselineTest(unittest.TestCase):
     def test_resultados_legados_e_exportacao(self):
         self.maxDiff=4000
-        self.assertEqual(capturar(),json.loads(GOLDEN.read_text(encoding="utf-8")))
+        esperado=json.loads(GOLDEN.read_text(encoding="utf-8"))
+        # Correção deliberada de legenda no pacote 04: feriado não implica
+        # adicional 100%. Só o cabeçalho é normalizado; todos os valores ficam.
+        for linhas in esperado["excel"].values():
+            linhas[0]=["Horas em feriado" if v=="Horas 100% (feriado)" else v for v in linhas[0]]
+        self.assertEqual(capturar(),esperado)
 
 
 if __name__=="__main__":

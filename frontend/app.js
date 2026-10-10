@@ -111,7 +111,8 @@
 
   var DAY_STATUS_LABELS = {
     normal: "Normal",
-    falta: "Falta",
+    falta: "Falta injustificada",
+    falta_justificada: "Falta justificada",
     atestado: "Atestado",
     folga: "Folga",
     feriado: "Feriado",
@@ -831,7 +832,7 @@
     var workedMinutes = backendWorked !== null && Number.isFinite(Number(backendWorked)) ? Number(backendWorked) : calculatedJourney.workedMinutes;
     var balanceMinutes = backendBalance !== null && Number.isFinite(Number(backendBalance)) ? Number(backendBalance) : (workedMinutes == null || expectedMinutes == null ? null : workedMinutes - expectedMinutes);
     var confirmed = source.conferido === true || source.confirmed === true;
-    var nonWorkingStatus = ["atestado", "folga", "feriado", "falta", "afastamento", "domingo", "sem_expediente"].indexOf(normalizedStatus) !== -1;
+    var nonWorkingStatus = ["atestado", "folga", "feriado", "falta", "falta_justificada", "afastamento", "domingo", "sem_expediente"].indexOf(normalizedStatus) !== -1;
     var scaleMissing = employee && employee.id !== undefined && firstValue(employee.escala_id, employee.scaleId) === null;
     var incompleteCalculation = !nonWorkingStatus && (!current.entry || !current.exit || Boolean(current.breakStart) !== Boolean(current.breakEnd));
     var pendingCalculationValue = firstValue(source.pendente_calculo, source.pendingCalculation);
@@ -1020,6 +1021,8 @@
           employeeName: valueFromAliases(item, ["funcionario", "funcionario_nome", "nome", "employee", "employee_name"]),
           employeeCode: valueFromAliases(item, ["codigo", "funcionario_codigo", "code", "employee_code"]),
           bank: item.banco_horas || null,
+          dsrDays: item.dsr_dias,
+          dsrDiscount: item.dsr_desconto_dias,
           distribution: Object.prototype.hasOwnProperty.call(item, "extra_apurada_minutos") ? {
             gross:item.extra_apurada_minutos, payroll:item.extra_folha_minutos, bankBase:item.extra_banco_base_minutos,
             bank:item.extra_banco_minutos, debit:item.debito_banco_minutos, premiums:item.adicionais_folha || [],
@@ -1054,6 +1057,9 @@
       var detail = byId[String(day.id)];
       if (!detail) return;
       if (detail.revisao !== undefined) day.revisao = detail.revisao;
+      day.intervalo_aplicado = detail.intervalo_aplicado;
+      day.origens_horarios_calculo = detail.origens_horarios_calculo;
+      day.dsr = detail.dsr;
       day.occurrences = detail.ocorrencias || [];
       day.occurrenceLabel = detail.ocorrencias_rotulo || "";
       day.calendarNote = detail.fora_vinculo ? "Fora do vínculo" : (detail.feriados || []).join(", ");
@@ -1597,7 +1603,7 @@
       var status = day.status || day.status_dia || (day.current && (day.current.situation || day.current.status)) || "normal";
       if (state.reviewFilter === "pending") return dayHasProblem(day);
       if (state.reviewFilter === "unconfirmed") return !dayIsConfirmed(day);
-      if (state.reviewFilter === "absences") return ["falta", "atestado", "folga", "afastamento"].indexOf(status) !== -1;
+      if (state.reviewFilter === "absences") return ["falta", "falta_justificada", "atestado", "folga", "afastamento"].indexOf(status) !== -1;
       return true;
     });
   }
@@ -2785,7 +2791,7 @@
       day.pendencia_tipo = "escala_nao_cadastrada";
       day.pendingReason = "Escala não cadastrada para o funcionário.";
       day.pendencia_motivo = day.pendingReason;
-    } else if (["atestado", "folga", "feriado", "falta", "afastamento", "domingo", "sem_expediente"].indexOf(status) !== -1) {
+    } else if (["atestado", "folga", "feriado", "falta", "falta_justificada", "afastamento", "domingo", "sem_expediente"].indexOf(status) !== -1) {
       day.pendingCalculation = false;
       day.pendente_calculo = false;
     }
@@ -4126,10 +4132,19 @@
         { name: "jornada_sabado_horas", type: "number", label: "Jornada de sábado (horas)", value: entity && entity.jornada_sabado_horas !== null && entity.jornada_sabado_horas !== undefined ? entity.jornada_sabado_horas : "", min: 0, max: 24, step: 0.01, visibleWhen: isWorkload },
         { name: "horario_entrada_prevista", type: "time", label: "Entrada prevista", value: entity ? normalizedTime(entity.horario_entrada_prevista) : "", required: true, visibleWhen: isFixed },
         { name: "horario_saida_prevista", type: "time", label: "Saída prevista", value: entity ? normalizedTime(entity.horario_saida_prevista) : "", required: true, visibleWhen: isFixed },
-        { name: "horario_saida_almoco_prevista", type: "time", label: "Saída para almoço", value: entity ? normalizedTime(entity.horario_saida_almoco_prevista) : "", visibleWhen: isFixed },
-        { name: "horario_retorno_almoco_prevista", type: "time", label: "Retorno do almoço", value: entity ? normalizedTime(entity.horario_retorno_almoco_prevista) : "", visibleWhen: isFixed },
+        { name: "horario_saida_almoco_prevista", type: "time", label: "Saída para almoço prevista", value: entity ? normalizedTime(entity.horario_saida_almoco_prevista) : "", visibleWhen: function(v){return isFixed(v) || v.tipo_intervalo==="fixo" || v.registro_intervalo==="pre_assinalado";} },
+        { name: "horario_retorno_almoco_prevista", type: "time", label: "Retorno do almoço previsto", value: entity ? normalizedTime(entity.horario_retorno_almoco_prevista) : "", visibleWhen: function(v){return isFixed(v) || v.tipo_intervalo==="fixo" || v.registro_intervalo==="pre_assinalado";} },
+        { name: "tipo_intervalo", type: "select", label: "Tipo de intervalo", value: entity && entity.tipo_intervalo || "legado", options: [{value:"legado",label:"Preservar regra anterior"},{value:"fixo",label:"Fixo"},{value:"flexivel",label:"Flexível"},{value:"sem_intervalo",label:"Sem intervalo"}], help:"Nova configuração passa a valer na vigência informada." },
+        { name: "registro_intervalo", type: "select", label: "Registro do intervalo", value: entity && entity.registro_intervalo || "batidas", options:[{value:"batidas",label:"Batidas reais"},{value:"pre_assinalado",label:"Pré-assinalado explicitamente"}], visibleWhen:function(v){return v.tipo_intervalo!=="legado";} },
+        { name: "duracao_intervalo_minutos", type: "number", label: "Duração do intervalo (min)", value: entity && entity.duracao_intervalo_minutos!=null ? entity.duracao_intervalo_minutos : 60, min:1,max:1440,step:1,visibleWhen:function(v){return v.tipo_intervalo==="fixo" || v.tipo_intervalo==="flexivel";} },
         { name: "regime_sabado", type: "select", label: "Regime de sábado", value: entity ? entity.regime_sabado : "nao_trabalha", required: true, options: [{ value: "trabalha", label: "Trabalha" }, { value: "compensado", label: "Compensado" }, { value: "nao_trabalha", label: "Não trabalha" }] },
         { name: "regime_domingo", type: "select", label: "Regime de domingo", value: entity ? entity.regime_domingo : "nao_trabalha", required: true, options: [{ value: "trabalha", label: "Trabalha" }, { value: "nao_trabalha", label: "Não trabalha" }] },
+        { name: "sabado_proprio", type:"select",label:"Horários próprios de sábado",value:entity && entity.jornadas_semana && entity.jornadas_semana["5"] ? "preservar":"false",options:[{value:"preservar",label:"Manter jornada diária salva"},{value:"false",label:"Usar jornada da escala"},{value:"true",label:"Informar entrada e saída sem almoço"}],visibleWhen:function(v){return v.regime_sabado==="trabalha";} },
+        { name: "sabado_entrada",type:"time",label:"Entrada de sábado",value:entity && entity.jornadas_semana && entity.jornadas_semana["5"] && entity.jornadas_semana["5"].horario_entrada_prevista || "08:00",visibleWhen:function(v){return v.regime_sabado==="trabalha" && v.sabado_proprio==="true";} },
+        { name: "sabado_saida",type:"time",label:"Saída de sábado",value:entity && entity.jornadas_semana && entity.jornadas_semana["5"] && entity.jornadas_semana["5"].horario_saida_prevista || "12:00",visibleWhen:function(v){return v.regime_sabado==="trabalha" && v.sabado_proprio==="true";} },
+        { name:"dsr_modo",type:"select",label:"Desconto de DSR",value:entity && entity.politica_dsr ? "falta":"legado",options:[{value:"legado",label:"Preservar regra anterior, sem desconto"},{value:"falta",label:"Descontar por falta injustificada"}],help:"Nos seis dias anteriores ao descanso: uma ou mais faltas injustificadas causam perda de um descanso semanal. Justificadas, atestados, abonos e atrasos não causam perda." },
+        { name:"dsr_dia",type:"select",label:"Dia do descanso semanal",value:entity && entity.politica_dsr ? String(entity.politica_dsr.dia_descanso):"6",options:["Segunda","Terça","Quarta","Quinta","Sexta","Sábado","Domingo"].map(function(d,i){return {value:String(i),label:d};}),visibleWhen:function(v){return v.dsr_modo==="falta";} },
+        { name:"dsr_feriados",type:"select",label:"Descontar feriados do período",value:entity && entity.politica_dsr && entity.politica_dsr.descontar_feriados===false ? "false":"true",options:[{value:"true",label:"Sim"},{value:"false",label:"Não"}],visibleWhen:function(v){return v.dsr_modo==="falta";} },
         { name: "tolerancia_atraso_minutos", type: "number", label: "Tolerância de atraso (min)", value: entity ? entity.tolerancia_atraso_minutos : 0, required: true, min: 0, max: 1440, step: 1 },
         { name: "tolerancia_extra_minutos", type: "number", label: "Tolerância de extra (min)", value: entity ? entity.tolerancia_extra_minutos : 0, required: true, min: 0, max: 1440, step: 1 },
         { name: "tolerancia_intervalo_minutos", type: "number", label: "Tolerância de intervalo (min)", value: entity && entity.tolerancia_intervalo_minutos != null ? entity.tolerancia_intervalo_minutos : "", help: "Deixe em branco para usar a mesma tolerância de atraso da escala.", min: 0, max: 1440, step: 1 },
@@ -4179,7 +4194,21 @@
           politica_horas: hourPolicyPayload(values),
           usa_banco_horas: values.politica_modo === "legado" ? values.usa_banco_horas === "true" : values.politica_modo !== "folha",
           ativa: values.ativa === "true",
+          tipo_intervalo: values.tipo_intervalo && values.tipo_intervalo!=="legado" ? values.tipo_intervalo:null,
+          registro_intervalo: values.tipo_intervalo && values.tipo_intervalo!=="legado" ? values.registro_intervalo:null,
+          duracao_intervalo_minutos: values.tipo_intervalo==="sem_intervalo" ? 0 : values.tipo_intervalo && values.tipo_intervalo!=="legado" ? nullableDialogNumber(values.duracao_intervalo_minutos):null,
+          politica_dsr: values.dsr_modo==="falta" ? {versao:1,dia_descanso:Number(values.dsr_dia),descontar_feriados:values.dsr_feriados!=="false",referencia:entity && entity.politica_dsr && entity.politica_dsr.referencia || "Política definida pelo operador"}:null,
         };
+        if (values.tipo_intervalo && values.tipo_intervalo!=="legado") {
+          payload.horario_saida_almoco_prevista = values.tipo_intervalo==="sem_intervalo" ? null:values.horario_saida_almoco_prevista || null;
+          payload.horario_retorno_almoco_prevista = values.tipo_intervalo==="sem_intervalo" ? null:values.horario_retorno_almoco_prevista || null;
+        }
+        if (values.sabado_proprio!==undefined) {
+          payload.jornadas_semana=Object.assign({},entity && entity.jornadas_semana || {});
+          if (values.sabado_proprio==="true") {
+            payload.jornadas_semana["5"]={jornada_minutos:dialogTimeMinutes(values.sabado_saida)-dialogTimeMinutes(values.sabado_entrada),horario_entrada_prevista:values.sabado_entrada,horario_saida_prevista:values.sabado_saida,tipo_intervalo:"sem_intervalo",registro_intervalo:"batidas",duracao_intervalo_minutos:0};
+          } else if (values.sabado_proprio==="false") delete payload.jornadas_semana["5"];
+        }
         if (values.vigente_desde) payload.vigente_desde = values.vigente_desde;
         if (online) {
           var endpoint = "/escalas" + (entity ? "/" + encodeURIComponent(entity.id) : "");

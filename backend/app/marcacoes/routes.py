@@ -9,6 +9,7 @@ from app.competencias.service import exigir_competencia_editavel, sincronizar_st
 from app.database.models import Competencia, Funcionario, MarcacaoPonto
 from app.database.session import get_db
 from app.database.transacoes import atomica
+from app.competencias.dependencias import exigir_referencias_editaveis
 from app.marcacoes.batidas import desconsideradas_em_uso
 from app.marcacoes.schemas import DesconsideracaoBatida, MarcacaoCreate, MarcacaoRead, MarcacaoUpdate, ORIGENS, STATUS_DIA
 from app.apuracao.service import apurar_competencia
@@ -100,6 +101,7 @@ def salvar_marcacao(payload: MarcacaoCreate, db: Session = Depends(get_db), requ
     antes = estado(marcacao) if marcacao else None
     if marcacao:
         db.refresh(marcacao)
+        exigir_referencias_editaveis(db,marcacao_id=marcacao.id)
         exigir_revisao(marcacao, payload.revisao, request)
         for campo, valor in payload.model_dump(exclude={"revisao"}).items():
             if campo == "origem" and marcacao.arquivo_origem_id is not None:
@@ -158,6 +160,7 @@ def conferir_lote(payload: ConferenciaLote, db: Session = Depends(get_db), reque
             raise HTTPException(422, "Seleção contém registro que não pertence à competência.")
         db.refresh(marcacao)
         exigir_revisao(marcacao, (payload.revisoes or {}).get(id), request)
+        exigir_referencias_editaveis(db,marcacao_id=marcacao.id)
     for id in dict.fromkeys(payload.marcacoes_ids):
         dia = por_id.get(id)
         if dia is None:
@@ -200,6 +203,7 @@ def atualizar_marcacao(
         raise HTTPException(status_code=404, detail="Competência não encontrada.")
     db.refresh(competencia_original)
     exigir_competencia_editavel(competencia_original)
+    exigir_referencias_editaveis(db,marcacao_id=marcacao.id)
     exigir_revisao(marcacao, payload.revisao, request)
 
     dados = payload.model_dump(exclude_unset=True)
@@ -241,6 +245,7 @@ def marcacao_para_decisao_de_batida(db: Session, marcacao_id: int) -> tuple[Marc
     competencia = db.get(Competencia, marcacao.competencia_id)
     db.refresh(competencia)
     exigir_competencia_editavel(competencia)
+    exigir_referencias_editaveis(db,marcacao_id=marcacao.id)
     if marcacao.conferido:
         raise HTTPException(status_code=409, detail="Reabra a conferência do dia antes de alterar o destino de uma batida.")
     try:

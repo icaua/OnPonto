@@ -1,5 +1,6 @@
 from app.dominio import apuracao as motor
 from app.apuracao import adaptadores
+from app.apuracao.dsr import preparar_dsr, resumir_dsr
 from app.dominio.contratos import ContextoCalendario
 # Nomes públicos preservados para módulos e ferramentas existentes.
 from app.dominio.apuracao import (minutos_hora,diferenca_minutos,formatar_minutos,formatar_hora,
@@ -40,6 +41,8 @@ def configuracao_calendario(funcionario: Funcionario, data_referencia: date) -> 
     escala = funcionario.escala
     if not escala:
         return "normal", False
+    if getattr(escala,"politica_dsr",None) and data_referencia.weekday()==escala.politica_dsr["dia_descanso"]:
+        return "sem_expediente",True
 
     dia_semana = data_referencia.weekday()
     if dia_semana == 6:
@@ -112,6 +115,9 @@ def gerar_dias_faltantes(db: Session, competencia: Competencia) -> int:
     }
     ultimo_dia = monthrange(competencia.ano, competencia.mes)[1]
     resolvedor=ResolvedorEscalas(db,competencia.empresa_id)
+    from app.database.models import DependenciaFechamento
+    referenciadas={id for id, in db.query(DependenciaFechamento.marcacao_id).join(MarcacaoPonto,
+                  MarcacaoPonto.id==DependenciaFechamento.marcacao_id).filter(MarcacaoPonto.competencia_id==competencia.id)}
     criadas = 0
     for funcionario in funcionarios:
         for dia in range(1, ultimo_dia + 1):
@@ -119,6 +125,8 @@ def gerar_dias_faltantes(db: Session, competencia: Competencia) -> int:
             chave = (funcionario.id, data_marcacao)
             contexto=SimpleNamespace(escala=resolvedor.regra_no_dia(funcionario,data_marcacao))
             existente = existentes.get(chave)
+            if existente is not None and existente.id in referenciadas:
+                continue
             if not dentro_vinculo(funcionario, data_marcacao):
                 if existente is not None and placeholder_calendario_intocado(existente):
                     db.delete(existente)
@@ -238,6 +246,7 @@ def apurar_competencia(
         ocorrencias_por_funcionario.setdefault(ocorrencia.funcionario_id, []).append(ocorrencia)
 
     acumuladores_politica = {}
+    dsr_por_dia, calculos_dsr = preparar_dsr(db,competencia,empresa,funcionarios,resolvedor_escalas)
     for marcacao in marcacoes:
         funcionario = funcionarios_por_id.get(marcacao.funcionario_id)
         if not funcionario:
@@ -249,10 +258,16 @@ def apurar_competencia(
         escala_apuracao = escala_dia
         contexto = SimpleNamespace(**{c.name: getattr(funcionario, c.name) for c in Funcionario.__table__.columns},
                                    escala=escala_apuracao, empresa=funcionario.empresa)
-        detalhe = motor.apurar_dia(adaptadores.funcionario(contexto),adaptadores.marcacoes(marcacao),
+        detalhe = (calculos_dsr.get(marcacao.id) or motor.apurar_dia(adaptadores.funcionario(contexto),adaptadores.marcacoes(marcacao),
             ContextoCalendario(tuple(feriados.get(marcacao.data,[]))),
-            adaptadores.ocorrencias(ocorrencias_por_funcionario.get(funcionario.id,[]))).para_api_legada()
+            adaptadores.ocorrencias(ocorrencias_por_funcionario.get(funcionario.id,[])))).para_api_legada()
         detalhe["revisao"] = marcacao.revisao
+        dsr = dsr_por_dia.get((funcionario.id,marcacao.data))
+        if dsr:
+            detalhe["dsr"] = dsr
+            if dsr["desconto_dias"] is None:
+                detalhe.update(pendente_calculo=True,pendencia_tipo="dsr_requer_revisao",
+                    pendencia_motivo="DSR exige conferir os seis dias anteriores ao descanso: " + ", ".join(dsr["dias_pendentes"]))
         distribuir_dia(detalhe, escala_dia, marcacao, empresa, acumuladores_politica)
         classificar_dia(detalhe)
         detalhes.append(detalhe)
@@ -315,6 +330,7 @@ def apurar_competencia(
 
     resumo_funcionarios = list(resumo.values())
     resumir_distribuicao(resumo_funcionarios, detalhes)
+    resumir_dsr(resumo_funcionarios, detalhes)
     resumo_geral = {
         "funcionarios": len(resumo_funcionarios),
         "conferidos": sum(1 for item in resumo_funcionarios if item["situacao"] == "conferido"),

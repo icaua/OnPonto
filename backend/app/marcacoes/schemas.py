@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 StatusDia = Literal[
     "normal",
     "falta",
+    "falta_justificada",
     "atestado",
     "folga",
     "feriado",
@@ -20,6 +21,7 @@ StatusDia = Literal[
 STATUS_DIA = {
     "normal",
     "falta",
+    "falta_justificada",
     "atestado",
     "folga",
     "feriado",

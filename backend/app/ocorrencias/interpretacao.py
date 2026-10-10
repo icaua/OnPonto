@@ -75,6 +75,12 @@ def aplicar_ocorrencias(detalhe, funcionario, marcacao, ocorrencias):
         pendencia(detalhe, "Abono parcial requer horários válidos de escala e batidas completas para evitar suposições.")
         return detalhe
     previstos_set = minutos_cobertos(previstos) if detalhe["jornada_prevista_minutos"] else set()
+    if getattr(escala,"tipo_intervalo",None)=="flexivel" and detalhe["jornada_prevista_minutos"]:
+        # Almoço flexível não cria ausência apenas porque se deslocou.
+        inicio_intervalo=minuto(marcacao.saida_almoco)
+        fim_intervalo=inicio_intervalo+escala.duracao_intervalo_minutos
+        previstos_set=set(range(minuto(escala.horario_entrada_prevista),minuto(escala.horario_saida_prevista)))
+        previstos_set-=set(range(inicio_intervalo,fim_intervalo))
     trabalhados_set = minutos_cobertos(realizados)
     abonados_set = minutos_cobertos([(minuto(o.hora_inicio), minuto(o.hora_fim)) for o in do_dia])
     ausentes = previstos_set - trabalhados_set

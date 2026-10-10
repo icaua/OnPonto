@@ -7,7 +7,7 @@ import logging
 from sqlalchemy import Connection, Engine, inspect
 
 
-SCHEMA_VERSION = 15
+SCHEMA_VERSION = 16
 logger = logging.getLogger(__name__)
 
 COLUNAS_EMPRESA_LEGADAS = (
@@ -434,6 +434,10 @@ def _migrar_versoes_escalas(conexao,tabelas):
     from app.dominio.contratos import RegraVigente
     if "jornadas_semana_json" not in _nomes_colunas(conexao,"escalas"):
         conexao.exec_driver_sql("ALTER TABLE escalas ADD COLUMN jornadas_semana_json TEXT")
+    for coluna, tipo in {"tipo_intervalo":"VARCHAR(20)", "registro_intervalo":"VARCHAR(20)",
+                         "duracao_intervalo_minutos":"INTEGER", "politica_dsr_json":"TEXT"}.items():
+        if coluna not in _nomes_colunas(conexao, "escalas"):
+            conexao.exec_driver_sql(f"ALTER TABLE escalas ADD COLUMN {coluna} {tipo}")
     EscalaVersao.__table__.create(conexao,checkfirst=True)
     campos=[f for f in fields(RegraVigente) if f.name not in {"id","versao_id","jornada_dia_minutos"}]
     for escala in conexao.exec_driver_sql("SELECT * FROM escalas").mappings():
@@ -441,6 +445,7 @@ def _migrar_versoes_escalas(conexao,tabelas):
         config={f.name:escala.get(f.name,f.default if f.default is not MISSING else None) for f in campos}
         config["politica_horas"]=json.loads(escala["politica_horas_json"]) if escala.get("politica_horas_json") else None
         config["jornadas_semana"]=json.loads(escala["jornadas_semana_json"]) if escala.get("jornadas_semana_json") else None
+        config["politica_dsr"]=json.loads(escala["politica_dsr_json"]) if escala.get("politica_dsr_json") else None
         config["usa_banco_horas"]=bool(config["usa_banco_horas"])
         from datetime import time
         for campo in config:
@@ -614,6 +619,12 @@ def _aplicar_sqlite(conexao: Connection) -> dict[str, int]:
                     conexao.exec_driver_sql(f"ALTER TABLE {tabela} ADD COLUMN {coluna} {tipo}")
     _migrar_versoes_escalas(conexao,set(inspect(conexao).get_table_names()))
     _migrar_fechamentos_revisoes(conexao,set(inspect(conexao).get_table_names()))
+    if "marcacoes_ponto" in tabelas:
+        from app.database.models import DependenciaFechamento
+        DependenciaFechamento.__table__.create(conexao, checkfirst=True)
+        for acao in ("UPDATE", "DELETE"):
+            conexao.exec_driver_sql(f"""CREATE TRIGGER IF NOT EXISTS dependencia_fechamento_{acao.lower()}
+                BEFORE {acao} ON dependencias_fechamento BEGIN SELECT RAISE(ABORT,'Dependencia historica imutavel'); END""")
     if versao_atual < SCHEMA_VERSION:
         conexao.exec_driver_sql(f"PRAGMA user_version = {SCHEMA_VERSION}")
     return {"escalas_intervalo_convertidas": convertidas}

@@ -37,6 +37,8 @@ def validar_fechadas(db, dados):
     funcionario = db.get(Funcionario, dados.funcionario_id)
     if not funcionario:
         raise HTTPException(404, "Funcionário não encontrado.")
+    from app.competencias.dependencias import exigir_referencias_editaveis
+    exigir_referencias_editaveis(db,funcionario_id=dados.funcionario_id,inicio=dados.data_inicio,fim=dados.data_fim)
     for competencia in db.query(Competencia).filter_by(empresa_id=funcionario.empresa_id, status="fechada"):
         inicio = date(competencia.ano, competencia.mes, 1)
         fim = date(competencia.ano, competencia.mes, monthrange(competencia.ano, competencia.mes)[1])

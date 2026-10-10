@@ -19,8 +19,8 @@ Não haverá merge automático. Somente dados fictícios/temporários são usado
 | 00 | validado | `17c366c` | backend 350/350; Node 95/95; compileall/diff OK; Playwright OK nas duas resoluções | nenhuma | `docs/benchmarks/00-baseline.json`, 3 portes completos | nenhum |
 | 01 | validado | `2d9faa6` | backend 357/357; Node 95/95; golden sem regeneração; compileall/diff OK | nenhuma | `01-nucleo-50.json` | nenhum |
 | 02 | validado | `12b823e` | backend 363/363; Node 95/95; Playwright nas duas resoluções; golden/compileall/diff OK | regra histórica substitui edição retroativa | `02-versoes-50.json` | nenhum |
-| 03 | validado | commit identificado no próximo checkpoint | backend 375/375; Node 98/98; Playwright duas janelas; golden/compileall/diff OK | nenhuma trabalhista | `03-revisoes-50.json` | nenhum |
-| 04 | não iniciado | — | — | — | — | depende de 01–03 |
+| 03 | validado | `ad3025c` | backend 375/375; Node 98/98; Playwright duas janelas; golden/compileall/diff OK | nenhuma trabalhista | `03-revisoes-50.json` | nenhum |
+| 04 | validado | checkpoint deste commit | backend 395/395; Node 101/101; Playwright duas resoluções/duas janelas; golden/compileall/diff OK | intervalo e DSR explícitos; legenda neutra de feriado | `04-intervalos-dsr-50.json` | nenhum |
 | 05 | não iniciado | — | — | — | — | depende de 01–04 |
 | 06 | não iniciado | — | — | — | — | depende de 01–05 |
 | 07 | não iniciado | — | — | — | — | depende de 04–06 |
@@ -73,3 +73,11 @@ Checkpoint: 375 testes backend OK (47,284 s), 98 Node OK, compileall/diff OK. Pl
 ## Definição de DSR recebida
 
 Usuário definiu domingo e feriado como padrão, com dia de descanso configurável na escala. Política confirmada: os seis dias anteriores ao descanso são a referência; uma ou várias faltas injustificadas descontam no máximo um descanso semanal; atestados, abonos, atrasos e faltas justificadas não causam perda; feriados do mesmo período também são descontados. Unidade: dias de descanso/feriado, sem conversão salarial inventada. Pacote 04 implementará configuração explícita versionada e fixtures de fronteira mensal; escala legada não receberá desconto silencioso.
+
+## Pacote 04
+
+Migração aditiva 16 e ADR 0005: intervalo fixo/flexível/sem intervalo, registro real/pré-assinalado, jornadas próprias e DSR versionados. Pré-assinalação nunca altera originais nem completa batida parcial. Falta justificada com motivo, descanso configurável, seis dias de referência, perda limitada a um descanso e feriados aplicáveis. Dados futuros ausentes deixam desconto indisponível e bloqueiam fechamento. Referências entre competências são guardadas no snapshot e protegidas contra edição de marcação, ocorrência, calendário, vínculo ou escala até reabertura. Versões fechadas permanecem imutáveis.
+
+Backend 395 testes OK (51,019 s), Node 101 OK; Playwright 1366×768 e 1920×1080 passou com duas janelas, autosave e resolução explícita de 409, sem overflow/erro JS. Compilação e diff OK. Após remoção de bloco redundante de migração, suite DSR/migração (7) repetida com sucesso. Integração verifica resultado diário/resumo/ledger/Excel/espelho, adicional 60%, destinação 50/50, originais sem preenchimento sintético, tolerâncias, atestado integral/parcial, sábado 240 e referência cruzando mês. Golden não regenerado: somente dois cabeçalhos Excel antigos são normalizados para a legenda neutra “Horas em feriado”, com valores, snapshots e ledger intactos. Quatro expectativas antigas de enum/legenda foram atualizadas deliberadamente; nenhum resultado numérico mudou.
+
+Benchmark 50: GET 341 queries, 1.349/1.177/1.245 ms; PATCH 361 queries, 2.170 ms; fechamento 730 queries, 2.734 ms. Todas as operações HTTP deram 200. Sem ganho alegado; pacote 05 tratará consultas e triagem. Migração aplicada apenas a DB fictício; rollback conforme ADR 0005, sem downgrade sobre dados reais. Pacote 05 liberado pelas dependências.

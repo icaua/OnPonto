@@ -194,6 +194,12 @@ def gerar_previa(db: Session, competencia: Competencia, registro: ArquivoRecebid
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     preview = resultado["registros"]
+    from app.funcionarios.historico_escalas import ResolvedorEscalas
+    from app.apuracao import adaptadores
+    from app.dominio.contratos import MarcacoesDoDia
+    from app.dominio.apuracao import apurar_dia
+    from dataclasses import replace
+    resolvedor = ResolvedorEscalas(db,competencia.empresa_id)
     # Preserva os adapters homologados, mas sinaliza associações divergentes
     # antes da seleção automática na prévia operacional.
     por_id = {f.id: f for f in funcionarios}
@@ -203,6 +209,16 @@ def gerar_previa(db: Session, competencia: Competencia, registro: ArquivoRecebid
     for item in preview:
         info = item["funcionario"]
         candidato = por_id.get(info.get("id"))
+        if candidato and not item["fora_da_competencia"] and len(item["batidas_originais"])==2:
+            dia = date.fromisoformat(item["data"])
+            regra = resolvedor.regra_no_dia(candidato,dia)
+            if regra and regra.tipo_intervalo is not None:
+                interpretacao=item["interpretacao"]
+                m=MarcacoesDoDia(0,dia,entrada=hora_interpretada(interpretacao.get("entrada")),
+                    saida=hora_interpretada(interpretacao.get("saida")))
+                calculo=apurar_dia(replace(adaptadores.funcionario(candidato),escala=regra),m)
+                item["avaliacao_escala"]={"disponibilidade":calculo.disponibilidade,"trabalhados_minutos":calculo.trabalhados_minutos,
+                    "intervalo":calculo.dados_legados.get("intervalo_aplicado"),"pendencia":calculo.pendencia}
         if candidato and adaptador.NOME_ADAPTER.startswith("txt_"):
             codigo = info.get("codigo_origem")
             nome = info.get("nome_origem")

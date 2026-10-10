@@ -35,6 +35,20 @@ class Escala(Base, TimestampMixin):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     empresa_id: Mapped[int] = mapped_column(ForeignKey("empresas.id"), nullable=False, index=True)
     nome: Mapped[str] = mapped_column(String(120), nullable=False)
+    tipo_intervalo: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    registro_intervalo: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    duracao_intervalo_minutos: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    politica_dsr_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    @property
+    def politica_dsr(self):
+        import json
+        return json.loads(self.politica_dsr_json) if self.politica_dsr_json else None
+
+    @politica_dsr.setter
+    def politica_dsr(self, valor):
+        import json
+        self.politica_dsr_json = json.dumps(valor, ensure_ascii=False) if valor is not None else None
     modo_apuracao: Mapped[str] = mapped_column(
         String(20), nullable=False, default="carga_horaria"
     )
@@ -176,6 +190,16 @@ class ReaberturaFechamento(Base):
     fechamento_id: Mapped[int] = mapped_column(ForeignKey("fechamentos_versoes.id"), nullable=False, unique=True)
     origem: Mapped[str] = mapped_column(String(60), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class DependenciaFechamento(Base):
+    __tablename__ = "dependencias_fechamento"
+    __table_args__ = (UniqueConstraint("fechamento_id", "marcacao_id", name="uq_dependencia_fechamento"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    fechamento_id: Mapped[int] = mapped_column(ForeignKey("fechamentos_versoes.id"), nullable=False, index=True)
+    marcacao_id: Mapped[int] = mapped_column(ForeignKey("marcacoes_ponto.id"), nullable=False, index=True)
+    revisao: Mapped[int] = mapped_column(Integer, nullable=False)
 
 
 class ArquivoRecebido(Base):

@@ -23,6 +23,10 @@ class RegraVigente:
     tolerancia_intervalo_minutos: int | None = None
     usa_banco_horas: bool = False
     politica_horas: dict | None = None
+    tipo_intervalo: str | None = None
+    registro_intervalo: str | None = None
+    duracao_intervalo_minutos: int | None = None
+    politica_dsr: dict | None = None
     jornadas_semana: dict | None = None
     jornada_dia_minutos: int | None = None
     versao_id: int | None = None
@@ -33,7 +37,9 @@ class RegraVigente:
         if dados is None: return self
         horarios={campo:time.fromisoformat(dados[campo]) if dados.get(campo) else None for campo in
             ("horario_entrada_prevista","horario_saida_almoco_prevista","horario_retorno_almoco_prevista","horario_saida_prevista")}
-        return replace(self,jornada_dia_minutos=dados["jornada_minutos"],**horarios)
+        intervalo = {campo:dados[campo] for campo in ("tipo_intervalo", "registro_intervalo", "duracao_intervalo_minutos")
+                     if dados.get(campo) is not None}
+        return replace(self,jornada_dia_minutos=dados["jornada_minutos"],**horarios,**intervalo)
 
 
 @dataclass(frozen=True)

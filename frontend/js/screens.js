@@ -155,6 +155,7 @@
       conferir: { label: "Conferir", icon: "!", tone: "warning" },
       inconsistente: { label: "Inconsistente", icon: "×", tone: "danger" },
       falta: { label: "Falta", icon: "!", tone: "danger" },
+      falta_justificada: { label: "Falta justificada", icon: "!", tone: "neutral" },
       atestado: { label: "Atestado", icon: "+", tone: "info" },
       folga: { label: "Folga", icon: "○", tone: "neutral" },
       feriado: { label: "Feriado", icon: "★", tone: "neutral" },
@@ -1085,7 +1086,7 @@
     var rows = asArray(summary.rows);
     var table = rows.length ? [
       '<div class="table-frame"><table class="data-table"><caption class="sr-only">Resumo da apuração por funcionário</caption><thead><tr>',
-      '<th scope="col">Funcionário</th><th scope="col">Dias processados</th><th scope="col">Atrasos</th><th scope="col">Extras</th><th scope="col">Horas 100% (feriado)</th><th scope="col">Faltas</th><th scope="col">Atestados</th><th scope="col">Problemas</th><th scope="col">Aguardando conferência</th><th scope="col">Situação</th>',
+      '<th scope="col">Funcionário</th><th scope="col">Dias processados</th><th scope="col">Atrasos</th><th scope="col">Extras</th><th scope="col">Horas em feriado</th><th scope="col">Faltas</th><th scope="col">Atestados</th><th scope="col">Problemas</th><th scope="col">Aguardando conferência</th><th scope="col">Situação</th>',
       "</tr></thead><tbody>",
       rows.map(function (row) {
         var name = availableSummaryValue(row.employeeName);
@@ -1110,6 +1111,8 @@
     );
 
     var bankRows = rows.filter(function(row){return row.bank;});
+    var dsrRows = rows.filter(function(row){return row.dsrDays!==undefined;});
+    var dsrTable = dsrRows.length ? '<section class="work-card"><h2>DSR e feriados</h2><p>Desconto em dias conforme a política da escala.</p><div class="table-frame"><table class="data-table"><thead><tr><th>Funcionário</th><th>Dias de descanso/feriado</th><th>Dias descontados</th></tr></thead><tbody>' + dsrRows.map(function(row){return '<tr><th>'+escapeHtml(row.employeeName)+'</th><td>'+escapeHtml(row.dsrDays)+'</td><td>'+escapeHtml(row.dsrDiscount==null ? 'Pendente' : row.dsrDiscount)+'</td></tr>';}).join('')+'</tbody></table></div></section>' : '';
     var bankTable = bankRows.length ? '<section class="work-card"><div class="section-heading"><div><h2>Banco de horas</h2><p>Saldos dos lançamentos consolidados. A competência aberta entra no banco ao fechar.</p></div><button type="button" class="button button--secondary" data-action="navigate" data-route="company-banco-horas">Ver extrato</button></div><div class="table-frame"><table class="data-table"><thead><tr><th>Funcionário</th><th>Saldo anterior</th><th>Créditos da competência</th><th>Débitos da competência</th><th>Saldo final</th><th>Compensados 1:1</th><th>Desligamento</th></tr></thead><tbody>' + bankRows.map(function(row){
       var b=row.bank, format=root.OnPontoBancoHoras.duration;
       return '<tr><th scope="row">'+escapeHtml(row.employeeName)+'</th><td>'+format(b.saldo_anterior_minutos,true)+'</td><td>'+format(b.creditos_competencia_minutos,true)+'</td><td>'+format(-b.debitos_competencia_minutos,true)+'</td><td><strong>'+format(b.saldo_final_minutos,true)+'</strong></td><td>'+summaryDurationMarkup(null,b.compensados_minutos)+'</td><td>'+(b.data_demissao ? escapeHtml(formatDate(b.data_demissao))+': <strong>'+format(b.saldo_demissao_minutos,true)+'</strong>' : '—')+'</td></tr>';
@@ -1121,7 +1124,7 @@
         summaryItem("Problemas", availableSummaryValue(summary.operational && summary.operational.problemas)) +
         summaryItem("Aguardando conferência", availableSummaryValue(summary.operational && summary.operational.aguardando_conferencia)) +
         summaryItem("Arquivos recebidos", availableSummaryValue(general.totalFiles)) +
-      '</dl></section><section class="work-card"><div class="section-heading"><div><h2>Resumo por funcionário</h2><p>Totais calculados pela apuração desta competência.</p></div></div>' + table + "</section>" + distributionTable(rows) + bankTable + "</section>";
+      '</dl></section><section class="work-card"><div class="section-heading"><div><h2>Resumo por funcionário</h2><p>Totais calculados pela apuração desta competência.</p></div></div>' + table + "</section>" + distributionTable(rows) + bankTable + dsrTable + "</section>";
   }
 
   function renderCompetencySummary(state, data, components) {
@@ -1459,7 +1462,7 @@
       var issues = asArray(valueOf(day, ["issues", "pendencias"], []));
       if (filter === "pending") return day.problema !== undefined ? day.problema : day.pendingCalculation === true || issues.some(function(issue){return !issue.resolved && issue.type !== "review" && issue.type !== "manual_change";});
       if (filter === "unconfirmed") return !dayConfirmed(day);
-      if (filter === "absences") return ["falta", "atestado", "folga", "afastamento"].indexOf(normalized) !== -1;
+      if (filter === "absences") return ["falta", "falta_justificada", "atestado", "folga", "afastamento"].indexOf(normalized) !== -1;
       return true;
     });
     var selectedDayId = valueOf(context.state, ["selectedDayId", "dayId", "diaSelecionadoId"], null);

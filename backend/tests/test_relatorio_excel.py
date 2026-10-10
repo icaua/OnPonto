@@ -30,7 +30,7 @@ CABECALHO_RESUMO = [
     "Pendências",
     "Situação",
     "Observações",
-    "Horas 100% (feriado)",
+    "Horas em feriado",
 ]
 
 CABECALHO_MARCACOES = [
@@ -45,7 +45,7 @@ CABECALHO_MARCACOES = [
     "Status",
     "Conferido",
     "Observações",
-    "Horas 100% (feriado)",
+    "Horas em feriado",
 ]
 
 

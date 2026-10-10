@@ -13,6 +13,7 @@ STATUS_SEM_CALCULO = {
     "atestado",
     "folga",
     "falta",
+    "falta_justificada",
     "afastamento",
     "domingo",
     "sem_expediente",
@@ -62,13 +63,18 @@ def jornada_horario_fixo_minutos(escala: RegraVigente) -> int | None:
     retorno_almoco = escala.horario_retorno_almoco_prevista
     if bool(saida_almoco) != bool(retorno_almoco):
         return None
+    if escala.tipo_intervalo == "sem_intervalo":
+        return diferenca_minutos(entrada, saida)
     if saida_almoco and retorno_almoco:
         manha = diferenca_minutos(entrada, saida_almoco)
         tarde = diferenca_minutos(retorno_almoco, saida)
         if manha is None or tarde is None:
             return None
         return manha + tarde
-    return diferenca_minutos(entrada, saida)
+    total = diferenca_minutos(entrada, saida)
+    if escala.tipo_intervalo == "flexivel" and total is not None:
+        return max(total - (escala.duracao_intervalo_minutos or 0), 0)
+    return total
 
 
 def jornada_prevista_minutos(funcionario: FuncionarioDoDia, data_referencia: date) -> int | None:
@@ -77,6 +83,8 @@ def jornada_prevista_minutos(funcionario: FuncionarioDoDia, data_referencia: dat
         return None
 
     dia_semana = data_referencia.weekday()
+    if escala.politica_dsr and dia_semana==escala.politica_dsr["dia_descanso"]:
+        return 0
     if dia_semana == 6 and escala.regime_domingo != "trabalha":
         return 0
     if dia_semana == 5 and escala.regime_sabado != "trabalha":
@@ -124,6 +132,16 @@ def calcular_atraso_horario_fixo(
         atraso_entrada = 0
 
     excesso_intervalo = 0
+    if escala.tipo_intervalo == "sem_intervalo":
+        return atraso_entrada
+    if escala.tipo_intervalo == "flexivel":
+        if not marcacao.saida_almoco or not marcacao.retorno_almoco:
+            return None
+        realizado = diferenca_minutos(marcacao.saida_almoco, marcacao.retorno_almoco)
+        if realizado is None or escala.duracao_intervalo_minutos is None:
+            return None
+        excesso = max(realizado - escala.duracao_intervalo_minutos, 0)
+        return atraso_entrada + (0 if excesso <= tolerancia_intervalo_efetiva(escala) else excesso)
     if escala.horario_saida_almoco_prevista and escala.horario_retorno_almoco_prevista:
         if not marcacao.saida_almoco or not marcacao.retorno_almoco:
             return None
@@ -201,7 +219,7 @@ def detalhe_marcacao(
         pendencia_tipo = "escala_incompleta"
         motivo_pendencia = "A escala não possui dados suficientes para apurar o dia."
 
-    if status_dia == "falta":
+    if status_dia in {"falta", "falta_justificada"}:
         falta = 1
         atestado = 0
     elif status_dia == "atestado":
@@ -369,9 +387,28 @@ def apurar_dia(funcionario: FuncionarioDoDia,marcacoes: MarcacoesDoDia,
     from dataclasses import replace
     if funcionario.escala:
         funcionario=replace(funcionario,escala=funcionario.escala.para_dia(marcacoes.data))
-    dados=detalhe_marcacao(funcionario,marcacoes,{marcacoes.data:list(calendario.feriados)})
+    from app.dominio.intervalos import preparar
+    efetivas, origens, erro_intervalo = preparar(funcionario.escala, marcacoes)
+    # Dias sem trabalho e ocorrências integrais não exigem intervalo fictício.
+    calcula = marcacoes.status_dia not in STATUS_SEM_CALCULO and (
+        not calendario.feriados or any((marcacoes.entrada, marcacoes.saida)))
+    dados=detalhe_marcacao(funcionario,efetivas if calcula else marcacoes,{marcacoes.data:list(calendario.feriados)})
     if not dados["fora_vinculo"]:
-        aplicar_ocorrencias(dados,funcionario,marcacoes,ocorrencias.itens)
+        aplicar_ocorrencias(dados,funcionario,efetivas if calcula else marcacoes,ocorrencias.itens)
+        if origens is not None:
+            # API de horários permanece exclusivamente real/corrigida.
+            for campo in origens:
+                dados[campo] = formatar_hora(getattr(marcacoes, campo))
+            dados["origens_horarios_calculo"] = origens
+            dados["intervalo_aplicado"] = {"tipo": funcionario.escala.tipo_intervalo,
+                "registro": funcionario.escala.registro_intervalo, "duracao_minutos": funcionario.escala.duracao_intervalo_minutos,
+                "inicio_previsto": formatar_hora(funcionario.escala.horario_saida_almoco_prevista),
+                "fim_previsto": formatar_hora(funcionario.escala.horario_retorno_almoco_prevista)}
+            if erro_intervalo and calcula and not dados.get("ocorrencia_integral"):
+                dados.update(pendente_calculo=True, pendencia_tipo="intervalo_requer_revisao", pendencia_motivo=erro_intervalo)
+        if marcacoes.status_dia == "falta_justificada" and len((marcacoes.observacoes or "").strip())<10:
+            dados.update(pendente_calculo=True,pendencia_tipo="falta_justificada_sem_motivo",
+                pendencia_motivo="Informe o motivo da falta justificada com pelo menos dez caracteres.")
     classificar_dia(dados)
     incompleto=dados["pendente_calculo"] or dados["problema"]
     disponibilidade="indisponivel" if dados["jornada_prevista_minutos"] is None else "incompleto" if incompleto else "completo"

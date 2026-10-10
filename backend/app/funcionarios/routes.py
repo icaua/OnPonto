@@ -95,6 +95,9 @@ def atualizar_funcionario(
         raise HTTPException(status_code=404, detail="Funcionário não encontrado.")
 
     dados = payload.model_dump(exclude_unset=True)
+    if any(campo in dados and dados[campo]!=getattr(funcionario,campo) for campo in ("empresa_id","escala_id","data_admissao","data_demissao","ativo")):
+        from app.competencias.dependencias import exigir_referencias_editaveis
+        exigir_referencias_editaveis(db,funcionario_id=funcionario.id)
     try:
         DatasVinculo(data_admissao=dados.get("data_admissao", funcionario.data_admissao),
                     data_demissao=dados.get("data_demissao", funcionario.data_demissao))
