@@ -1,0 +1,383 @@
+{
+  "python": "3.12.14",
+  "sqlite": "3.53.1",
+  "sqlalchemy": "2.1.1",
+  "fastapi": "0.141.1",
+  "plataforma": "Windows-10-10.0.19045-SP0",
+  "cenario": "synthetic_scenarios.criar_cenario v1",
+  "metodo": "HTTP real em loopback; SQL via evento engine; pico incremental tracemalloc do handler; latência inclui transferência. GET repetido 3 vezes; mutações 1 vez. Tracing ativo em todas as fases.",
+  "cenarios": [
+    {
+      "funcionarios": 50,
+      "dias": [
+        30,
+        31
+      ],
+      "marcacoes": 3050,
+      "db_bytes": 3964928,
+      "medicoes": [
+        {
+          "operacao": "GET /apuracao",
+          "metodo": "GET",
+          "path": "/apuracao?competencia_id=1",
+          "status": 200,
+          "sql_queries": 340,
+          "latencia_ms": 989.066,
+          "pico_python_incremental_bytes": 9617188,
+          "response_bytes": 2533611,
+          "repeticao": 1
+        },
+        {
+          "operacao": "GET /apuracao",
+          "metodo": "GET",
+          "path": "/apuracao?competencia_id=1",
+          "status": 200,
+          "sql_queries": 340,
+          "latencia_ms": 833.976,
+          "pico_python_incremental_bytes": 7749993,
+          "response_bytes": 2533611,
+          "repeticao": 2
+        },
+        {
+          "operacao": "GET /apuracao",
+          "metodo": "GET",
+          "path": "/apuracao?competencia_id=1",
+          "status": 200,
+          "sql_queries": 340,
+          "latencia_ms": 825.995,
+          "pico_python_incremental_bytes": 7262345,
+          "response_bytes": 2533611,
+          "repeticao": 3
+        },
+        {
+          "operacao": "PATCH marcação",
+          "metodo": "PATCH",
+          "path": "/marcacoes/31",
+          "status": 200,
+          "sql_queries": 355,
+          "latencia_ms": 1397.436,
+          "pico_python_incremental_bytes": 7366386,
+          "response_bytes": 750
+        },
+        {
+          "operacao": "confirmar lote",
+          "metodo": "POST",
+          "path": "/marcacoes/conferir-lote",
+          "status": 200,
+          "sql_queries": 400,
+          "latencia_ms": 1432.404,
+          "pico_python_incremental_bytes": 11846753,
+          "response_bytes": 305
+        },
+        {
+          "operacao": "abrir conferência",
+          "metodo": "GET",
+          "path": "/marcacoes?competencia_id=1",
+          "status": 200,
+          "sql_queries": 1,
+          "latencia_ms": 95.564,
+          "pico_python_incremental_bytes": 7953861,
+          "response_bytes": 702664
+        },
+        {
+          "operacao": "fechar",
+          "metodo": "POST",
+          "path": "/competencias/2/fechar",
+          "status": 200,
+          "sql_queries": 720,
+          "latencia_ms": 1889.855,
+          "pico_python_incremental_bytes": 16688174,
+          "response_bytes": 145
+        },
+        {
+          "operacao": "exportar Excel",
+          "metodo": "GET",
+          "path": "/relatorios/excel?competencia_id=2",
+          "status": 200,
+          "sql_queries": 1,
+          "latencia_ms": 2331.95,
+          "pico_python_incremental_bytes": 13457848,
+          "response_bytes": 84028
+        },
+        {
+          "operacao": "extrato",
+          "metodo": "GET",
+          "path": "/banco-horas/extrato?funcionario_id=2",
+          "status": 200,
+          "sql_queries": 8,
+          "latencia_ms": 51.899,
+          "pico_python_incremental_bytes": 234252,
+          "response_bytes": 1706
+        },
+        {
+          "operacao": "saldo",
+          "metodo": "GET",
+          "path": "/banco-horas/saldo?funcionario_id=2",
+          "status": 200,
+          "sql_queries": 3,
+          "latencia_ms": 29.659,
+          "pico_python_incremental_bytes": 62165,
+          "response_bytes": 58
+        },
+        {
+          "operacao": "reabrir",
+          "metodo": "POST",
+          "path": "/competencias/2/reabrir",
+          "status": 200,
+          "sql_queries": 479,
+          "latencia_ms": 940.653,
+          "pico_python_incremental_bytes": 10907975,
+          "response_bytes": 145
+        }
+      ]
+    },
+    {
+      "funcionarios": 250,
+      "dias": [
+        30,
+        31
+      ],
+      "marcacoes": 15250,
+      "db_bytes": 19079168,
+      "medicoes": [
+        {
+          "operacao": "GET /apuracao",
+          "metodo": "GET",
+          "path": "/apuracao?competencia_id=1",
+          "status": 200,
+          "sql_queries": 1670,
+          "latencia_ms": 4500.076,
+          "pico_python_incremental_bytes": 38990701,
+          "response_bytes": 12777761,
+          "repeticao": 1
+        },
+        {
+          "operacao": "GET /apuracao",
+          "metodo": "GET",
+          "path": "/apuracao?competencia_id=1",
+          "status": 200,
+          "sql_queries": 1670,
+          "latencia_ms": 4428.623,
+          "pico_python_incremental_bytes": 37227597,
+          "response_bytes": 12777761,
+          "repeticao": 2
+        },
+        {
+          "operacao": "GET /apuracao",
+          "metodo": "GET",
+          "path": "/apuracao?competencia_id=1",
+          "status": 200,
+          "sql_queries": 1670,
+          "latencia_ms": 4332.387,
+          "pico_python_incremental_bytes": 37356719,
+          "response_bytes": 12777761,
+          "repeticao": 3
+        },
+        {
+          "operacao": "PATCH marcação",
+          "metodo": "PATCH",
+          "path": "/marcacoes/31",
+          "status": 200,
+          "sql_queries": 1685,
+          "latencia_ms": 7598.835,
+          "pico_python_incremental_bytes": 38002244,
+          "response_bytes": 750
+        },
+        {
+          "operacao": "confirmar lote",
+          "metodo": "POST",
+          "path": "/marcacoes/conferir-lote",
+          "status": 200,
+          "sql_queries": 1930,
+          "latencia_ms": 7454.909,
+          "pico_python_incremental_bytes": 61340271,
+          "response_bytes": 1392
+        },
+        {
+          "operacao": "abrir conferência",
+          "metodo": "GET",
+          "path": "/marcacoes?competencia_id=1",
+          "status": 200,
+          "sql_queries": 1,
+          "latencia_ms": 617.759,
+          "pico_python_incremental_bytes": 39790271,
+          "response_bytes": 3523594
+        },
+        {
+          "operacao": "fechar",
+          "metodo": "POST",
+          "path": "/competencias/2/fechar",
+          "status": 200,
+          "sql_queries": 3514,
+          "latencia_ms": 9502.643,
+          "pico_python_incremental_bytes": 83558662,
+          "response_bytes": 145
+        },
+        {
+          "operacao": "exportar Excel",
+          "metodo": "GET",
+          "path": "/relatorios/excel?competencia_id=2",
+          "status": 200,
+          "sql_queries": 1,
+          "latencia_ms": 16402.782,
+          "pico_python_incremental_bytes": 70879009,
+          "response_bytes": 380028
+        },
+        {
+          "operacao": "extrato",
+          "metodo": "GET",
+          "path": "/banco-horas/extrato?funcionario_id=2",
+          "status": 200,
+          "sql_queries": 8,
+          "latencia_ms": 50.649,
+          "pico_python_incremental_bytes": 95732,
+          "response_bytes": 1708
+        },
+        {
+          "operacao": "saldo",
+          "metodo": "GET",
+          "path": "/banco-horas/saldo?funcionario_id=2",
+          "status": 200,
+          "sql_queries": 3,
+          "latencia_ms": 6.009,
+          "pico_python_incremental_bytes": 63264,
+          "response_bytes": 58
+        },
+        {
+          "operacao": "reabrir",
+          "metodo": "POST",
+          "path": "/competencias/2/reabrir",
+          "status": 200,
+          "sql_queries": 2341,
+          "latencia_ms": 5439.448,
+          "pico_python_incremental_bytes": 28676686,
+          "response_bytes": 145
+        }
+      ]
+    },
+    {
+      "funcionarios": 1000,
+      "dias": [
+        30,
+        31
+      ],
+      "marcacoes": 61000,
+      "db_bytes": 76267520,
+      "medicoes": [
+        {
+          "operacao": "GET /apuracao",
+          "metodo": "GET",
+          "path": "/apuracao?competencia_id=1",
+          "status": 200,
+          "sql_queries": 6670,
+          "latencia_ms": 19544.723,
+          "pico_python_incremental_bytes": 152887150,
+          "response_bytes": 51169403,
+          "repeticao": 1
+        },
+        {
+          "operacao": "GET /apuracao",
+          "metodo": "GET",
+          "path": "/apuracao?competencia_id=1",
+          "status": 200,
+          "sql_queries": 6670,
+          "latencia_ms": 19662.273,
+          "pico_python_incremental_bytes": 149415441,
+          "response_bytes": 51169403,
+          "repeticao": 2
+        },
+        {
+          "operacao": "GET /apuracao",
+          "metodo": "GET",
+          "path": "/apuracao?competencia_id=1",
+          "status": 200,
+          "sql_queries": 6670,
+          "latencia_ms": 19621.162,
+          "pico_python_incremental_bytes": 149504613,
+          "response_bytes": 51169403,
+          "repeticao": 3
+        },
+        {
+          "operacao": "PATCH marcação",
+          "metodo": "PATCH",
+          "path": "/marcacoes/31",
+          "status": 200,
+          "sql_queries": 6685,
+          "latencia_ms": 31743.789,
+          "pico_python_incremental_bytes": 154099919,
+          "response_bytes": 750
+        },
+        {
+          "operacao": "confirmar lote",
+          "metodo": "POST",
+          "path": "/marcacoes/conferir-lote",
+          "status": 200,
+          "sql_queries": 7680,
+          "latencia_ms": 32984.01,
+          "pico_python_incremental_bytes": 247834193,
+          "response_bytes": 5893
+        },
+        {
+          "operacao": "abrir conferência",
+          "metodo": "GET",
+          "path": "/marcacoes?competencia_id=1",
+          "status": 200,
+          "sql_queries": 1,
+          "latencia_ms": 2600.294,
+          "pico_python_incremental_bytes": 162878888,
+          "response_bytes": 14120699
+        },
+        {
+          "operacao": "fechar",
+          "metodo": "POST",
+          "path": "/competencias/2/fechar",
+          "status": 200,
+          "sql_queries": 14014,
+          "latencia_ms": 41168.736,
+          "pico_python_incremental_bytes": 333695902,
+          "response_bytes": 145
+        },
+        {
+          "operacao": "exportar Excel",
+          "metodo": "GET",
+          "path": "/relatorios/excel?competencia_id=2",
+          "status": 200,
+          "sql_queries": 1,
+          "latencia_ms": 159885.875,
+          "pico_python_incremental_bytes": 284430963,
+          "response_bytes": 1460960
+        },
+        {
+          "operacao": "extrato",
+          "metodo": "GET",
+          "path": "/banco-horas/extrato?funcionario_id=2",
+          "status": 200,
+          "sql_queries": 8,
+          "latencia_ms": 50.6,
+          "pico_python_incremental_bytes": 93312,
+          "response_bytes": 1708
+        },
+        {
+          "operacao": "saldo",
+          "metodo": "GET",
+          "path": "/banco-horas/saldo?funcionario_id=2",
+          "status": 200,
+          "sql_queries": 3,
+          "latencia_ms": 5.889,
+          "pico_python_incremental_bytes": 63476,
+          "response_bytes": 58
+        },
+        {
+          "operacao": "reabrir",
+          "metodo": "POST",
+          "path": "/competencias/2/reabrir",
+          "status": 200,
+          "sql_queries": 9341,
+          "latencia_ms": 20745.306,
+          "pico_python_incremental_bytes": 151720818,
+          "response_bytes": 145
+        }
+      ]
+    }
+  ]
+}

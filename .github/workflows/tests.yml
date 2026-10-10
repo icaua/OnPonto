@@ -1,0 +1,20 @@
+name: Regressão local
+on: [push, pull_request, workflow_dispatch]
+jobs:
+  suites:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: python -m pip install -r backend/requirements.txt -c setup/constraints.txt
+      - run: python -m unittest discover -s backend/tests -v
+      - run: node --test frontend/tests/*.test.cjs
+      - run: python -m compileall -q backend/app backend/tests seed_demo.py
