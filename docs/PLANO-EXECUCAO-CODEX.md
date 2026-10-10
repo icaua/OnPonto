@@ -16,8 +16,8 @@ Não haverá merge automático. Somente dados fictícios/temporários são usado
 
 | Pacote | Estado | Branch/commit/PR | Testes | Diferenças de cálculo | Benchmark | Bloqueios |
 |--------|--------|------------------|--------|-----------------------|-----------|----------|
-| 00 | validado | commit identificado no próximo checkpoint | backend 350/350; Node 95/95; compileall/diff OK; Playwright OK nas duas resoluções | nenhuma | `docs/benchmarks/00-baseline.json`, 3 portes completos | nenhum |
-| 01 | não iniciado | — | — | — | — | depende de 00 |
+| 00 | validado | `17c366c` | backend 350/350; Node 95/95; compileall/diff OK; Playwright OK nas duas resoluções | nenhuma | `docs/benchmarks/00-baseline.json`, 3 portes completos | nenhum |
+| 01 | validado | commit identificado no próximo checkpoint | backend 357/357; Node 95/95; golden sem regeneração; compileall/diff OK | nenhuma | `01-nucleo-50.json` | nenhum |
 | 02 | não iniciado | — | — | — | — | depende de 01 |
 | 03 | não iniciado | — | — | — | — | depende de 02 |
 | 04 | não iniciado | — | — | — | — | depende de 01–03 |
@@ -47,3 +47,9 @@ Benchmark HTTP dos três portes terminou com status 200 em todas as operações 
 Próximo pacote autorizado pela dependência: 01, núcleo puro e adaptadores equivalentes ao golden master. DSR no pacote 04 depende da definição solicitada ao usuário; não há implementação existente a preservar nem fórmula fornecida pelo plano. Ver ADR 0001.
 
 Rollback: reverter os commits da iniciativa; não manipular DB/uploads reais. OCR funcional permanece fora do escopo.
+
+## Pacote 01
+
+Núcleo puro extraído, dataclasses e adaptadores adicionados, classificação do dia compartilhada. Motor importa com `python -S`, sem FastAPI, SQLAlchemy ou banco. Resultado incompleto/indisponível usa `None` no domínio; API legada preserva campos e números existentes acompanhados de pendências. Nenhuma mudança de schema/endpoints/frontend.
+
+Backend: 357 testes OK (36,564 s); Node: 95 OK; compileall e diff check OK. Golden master completo passa sem regeneração. Tabela de tolerâncias, falta/atestado, cronologia, feriado, ocorrência parcial sem referência e ausência de escala testados. Benchmark HTTP 50 executado com o mesmo harness e runtime; consultas mantidas em 340 para GET /apuracao. Nenhum ganho de performance alegado. ADR 0002 registra limites e rollback. Pacote 02 liberado pela dependência.
