@@ -38,6 +38,85 @@ class EvidenciasPropostasTest(unittest.TestCase):
         return ConfirmacaoImportacao(empresa_id=self.f.empresa_id,competencia_id=self.c.id,arquivo_id=previa['arquivo']['id'],
             registros_ids=[r['id'] for r in previa['preview']],revisao_previa=previa['revisao_previa'])
 
+    def test_upload_falha_de_validacao_io_nao_deixa_arquivo(self):
+        from app.arquivos.routes import enviar_arquivo
+        with patch('app.arquivos.routes.UPLOADS_DIR', self.uploads), \
+                patch('app.seguranca.arquivos.validar_conteudo', side_effect=OSError('caminho interno fictício')):
+            with self.assertRaises(HTTPException) as erro:
+                enviar_arquivo(self.c.id, None, UploadFile(filename='ficticio.txt', file=BytesIO(self.conteudo)), self.db)
+        self.assertEqual(erro.exception.status_code, 500)
+        self.assertNotIn('interno', str(erro.exception.detail))
+        self.assertEqual(list(self.uploads.rglob('*.txt')), [])
+        self.assertEqual(self.db.query(ArquivoRecebido).count(), 0)
+
+    def test_upload_falha_de_commit_novo_e_reenvio_reverte_transacao(self):
+        from app.arquivos.routes import enviar_arquivo
+        for reenvio in (False, True):
+            with self.subTest(reenvio=reenvio), patch('app.arquivos.routes.UPLOADS_DIR', self.uploads):
+                if reenvio:
+                    original = enviar_arquivo(self.c.id, None,
+                        UploadFile(filename='ficticio.txt', file=BytesIO(self.conteudo)), self.db)
+                arquivos_antes = sorted(p for p in self.uploads.rglob('*') if p.is_file())
+                eventos_antes = self.db.query(EventoAuditoria).count()
+                with patch.object(self.db, 'commit', side_effect=SQLAlchemyError('caminho interno fictício')):
+                    with self.assertRaises(HTTPException) as erro:
+                        enviar_arquivo(self.c.id, None,
+                            UploadFile(filename='ficticio.txt', file=BytesIO(self.conteudo)), self.db)
+                self.assertEqual(erro.exception.status_code, 500)
+                self.assertNotIn('interno', str(erro.exception.detail))
+                self.assertFalse(self.db.new)
+                self.assertFalse(self.db.dirty)
+                self.assertEqual(self.db.query(EventoAuditoria).count(), eventos_antes)
+                self.assertEqual(sorted(p for p in self.uploads.rglob('*') if p.is_file()), arquivos_antes)
+                self.assertEqual(self.db.query(ArquivoRecebido).count(), int(reenvio))
+                if reenvio:
+                    self.assertEqual(Path(original.caminho_arquivo).read_bytes(), self.conteudo)
+
+    def test_download_recusa_fora_travessia_prefixo_e_ausente(self):
+        from app.arquivos.routes import enviar_arquivo, baixar_arquivo
+        from app.evidencias.caminhos import resolver_referencia
+        fora = self.uploads.parent / 'uploads-vizinho'
+        fora.mkdir()
+        (fora / 'fora.txt').write_bytes(self.conteudo)
+        with patch('app.arquivos.routes.UPLOADS_DIR', self.uploads):
+            a = enviar_arquivo(self.c.id, None, UploadFile(filename='ficticio.txt', file=BytesIO(self.conteudo)), self.db)
+            for referencia, codigo in (
+                (fora / 'fora.txt', 400),
+                (self.uploads / '..' / 'uploads-vizinho' / 'fora.txt', 400),
+                (self.uploads / 'ausente.txt', 404),
+            ):
+                with self.subTest(referencia=referencia):
+                    a.caminho_arquivo = str(referencia)
+                    self.db.commit()
+                    with self.assertRaises(HTTPException) as erro:
+                        baixar_arquivo(a.id, self.db)
+                    self.assertEqual(erro.exception.status_code, codigo)
+                    self.assertNotIn(str(self.uploads.parent), str(erro.exception.detail))
+                    if codigo == 400:
+                        with self.assertRaises(ValueError):
+                            resolver_referencia(str(referencia), self.uploads, self.uploads.parent)
+        self.assertEqual((fora / 'fora.txt').read_bytes(), self.conteudo)
+
+    def test_download_e_referencia_recusam_symlink_para_fora_da_raiz(self):
+        from app.arquivos.routes import baixar_arquivo
+        from app.evidencias.caminhos import resolver_referencia
+        externo = self.uploads.parent / 'fora.txt'
+        externo.write_bytes(self.conteudo)
+        link = self.uploads / 'link.txt'
+        try:
+            link.symlink_to(externo)
+        except OSError as exc:
+            self.skipTest(f'Sistema sem permissão para symlink: {exc.errno}')
+        a = ArquivoRecebido(competencia_id=self.c.id, nome_original='link.txt', tipo_arquivo='txt', caminho_arquivo=str(link))
+        self.db.add(a)
+        self.db.commit()
+        with patch('app.arquivos.routes.UPLOADS_DIR', self.uploads):
+            with self.assertRaises(HTTPException) as erro:
+                baixar_arquivo(a.id, self.db)
+            self.assertEqual(erro.exception.status_code, 400)
+        with self.assertRaises(ValueError):
+            resolver_referencia(str(link), self.uploads, self.uploads.parent)
+
     def test_upload_generico_valida_conteudo_hash_download_e_caminho(self):
         from app.arquivos.routes import enviar_arquivo,baixar_arquivo
         with patch('app.arquivos.routes.UPLOADS_DIR',self.uploads):
@@ -45,7 +124,7 @@ class EvidenciasPropostasTest(unittest.TestCase):
             self.assertEqual(list(self.uploads.rglob('*.pdf')),[])
             a=enviar_arquivo(self.c.id,None,UploadFile(filename='../../FICTICIO.txt',file=BytesIO(self.conteudo)),self.db)
             resposta=baixar_arquivo(a.id,self.db);caminho=Path(resposta.path)
-            self.assertTrue(caminho.is_relative_to(self.uploads));self.assertEqual(caminho.read_bytes(),self.conteudo)
+            self.assertTrue(caminho.resolve().is_relative_to(self.uploads.resolve()));self.assertEqual(caminho.read_bytes(),self.conteudo)
             self.assertEqual(resposta.media_type,'application/octet-stream');self.assertEqual(a.nome_original,'FICTICIO.txt')
             self.assertTrue(a.sha256);self.assertEqual(self.db.query(DocumentoEvidencia).filter_by(arquivo_id=a.id).count(),1)
             caminho.write_bytes(b'ADULTERADO FICTICIO')

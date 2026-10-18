@@ -43,7 +43,9 @@ class BackupAutomaticoTest(unittest.TestCase):
         with self.assertLogs("app.database.backup", level="INFO") as logs:
             self.subir()
         copia, = (self.pasta / "backups").glob(f"onponto-v12-antes-da-v{SCHEMA_VERSION}-*.db")
-        self.assertIn(str(copia), "\n".join(logs.output))
+        caminhos_logados = [Path(r.args[0]) for r in logs.records
+                           if r.msg == "Backup automático criado: %s"]
+        self.assertTrue(any(copia.samefile(p) for p in caminhos_logados))
         with closing(sqlite3.connect(copia)) as db:
             self.assertEqual(db.execute("PRAGMA user_version").fetchone()[0], 12)
             self.assertEqual(db.execute("SELECT * FROM prova").fetchall(), [("preservado",)])

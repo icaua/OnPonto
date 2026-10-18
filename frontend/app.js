@@ -3644,8 +3644,10 @@
     });
   }
 
-  function showCloseCompetencyDialog(competenceId) {
-    showDialog({title: "Fechar esta competência?", description: "A apuração será preservada e novas alterações exigirão reabertura.",
+  function showCloseCompetencyDialog(competenceId, summary) {
+    var warnings = summary && Array.isArray(summary.linkWarnings) ? summary.linkWarnings : [];
+    var notice = warnings.length ? " Atenção: " + warnings.length + " vínculo(s) histórico(s) incompleto(s). Revise as datas de admissão e demissão no cadastro. Dias ausentes não foram presumidos." : "";
+    showDialog({title: "Fechar esta competência?", description: "A apuração será preservada e novas alterações exigirão reabertura." + notice,
       confirmLabel: "Fechar competência", busyLabel: "Fechando...", destructive: true,
       onConfirm: function(){return persistCompetenceLifecycle(competenceId, "fechar", false);}});
   }
@@ -3692,7 +3694,7 @@
         throw new Error(summary.closing && summary.closing.motivo_bloqueio || "A API não confirmou que a competência pode ser fechada.");
       }
       setLifecycleState(competenceId, false, "", "");
-      showCloseCompetencyDialog(competenceId);
+      showCloseCompetencyDialog(competenceId, summary);
     }).catch(function (error) {
       if (!lifecycleContextIsActive(competenceId)) return;
       setLifecycleState(competenceId, false, "", error && error.message || "Não foi possível validar o fechamento.");
@@ -4273,7 +4275,7 @@
     if (action === "keep-interpretation") return keepInterpretation(findDay(element.dataset.dayId || state.selectedDayId));
     if (action === "initialize-calendar") {
       var calendarCompetenceId = state.selectedCompetenceId;
-      return showDialog({title:"Inicializar calendário?", description:"Criar os dias ausentes dos vínculos ativos para conferência manual. Marcações existentes serão preservadas.", confirmLabel:"Inicializar", onConfirm:function(){return apiRequest("/competencias/"+calendarCompetenceId+"/inicializar-calendario",{method:"POST"}).then(function(){return loadCompetenceData(calendarCompetenceId,{force:true,summaryForce:true});}).then(function(){render();});}});
+      return showDialog({title:"Inicializar calendário?", description:"Criar os dias ausentes dos vínculos conhecidos nesta competência para conferência manual. Marcações existentes serão preservadas.", confirmLabel:"Inicializar", onConfirm:function(){return apiRequest("/competencias/"+calendarCompetenceId+"/inicializar-calendario",{method:"POST"}).then(function(){return loadCompetenceData(calendarCompetenceId,{force:true,summaryForce:true});}).then(function(){render();});}});
     }
     if (action === "resume-import") return resumeImport(element.dataset.fileId);
     if (action === "discard-original-punch") return discardOriginalPunch(element.dataset.dayId, Number(element.dataset.punchIndex));

@@ -15,6 +15,7 @@
     var competenceBreadcrumbs=deps.competenceBreadcrumbs;
     var competenceIsClosed=deps.competenceIsClosed;
     var competenceSummaryFor=deps.competenceSummaryFor;
+    var historicalLinkNotice=deps.historicalLinkNotice || function(){return "";};
     var competencyAreaNavigation=deps.competencyAreaNavigation;
     var component=deps.component;
     var demoBanner=deps.demoBanner;
@@ -327,6 +328,7 @@
       }),
       competencyAreaNavigation("review"),
       closedCompetenceNotice(entities.competence),
+      historicalLinkNotice(context, entities.competence),
       '<section class="review-toolbar work-card">',
       employeeSearchField(context),
       '<button class="button button--secondary next-problem" type="button" data-action="next-problem-employee"' + (!nextProblem ? ' disabled' : '') + '>' + (nextProblem ? 'Próximo com problema →' : 'Sem próximo com problema') + '</button>',
