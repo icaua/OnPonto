@@ -5,6 +5,7 @@ import sys
 import tempfile
 import unittest
 import json
+from unittest.mock import patch
 from datetime import date,time
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
@@ -18,6 +19,64 @@ from app.evidencias.inventario import verificar
 
 
 class RecuperacaoConjuntoTest(unittest.TestCase):
+    def conjunto_minimo(self, root):
+        banco = root / 'ficticio.db'
+        with closing(sqlite3.connect(banco)) as db:
+            db.executescript("CREATE TABLE arquivos_recebidos (id INTEGER PRIMARY KEY, caminho_arquivo TEXT);"
+                "INSERT INTO arquivos_recebidos VALUES (1, 'uploads/ficticio.txt');")
+        uploads = root / 'uploads'
+        uploads.mkdir()
+        (uploads / 'ficticio.txt').write_bytes(b'FICTICIO')
+        criar_conjunto(banco, uploads, root / 'backup', offline=True)
+        return root / 'backup'
+
+    def test_restore_sem_mapeamento_nao_deixa_destino_parcial(self):
+        with tempfile.TemporaryDirectory(prefix='onponto-restore-falha-') as temp:
+            root = Path(temp)
+            origem = self.conjunto_minimo(root)
+            manifesto = origem / 'manifest.json'
+            dados = json.loads(manifesto.read_text(encoding='utf-8'))
+            dados['referencias'] = {}
+            manifesto.write_text(json.dumps(dados), encoding='utf-8')
+            with self.assertRaisesRegex(RuntimeError, 'Referência sem mapeamento'):
+                restaurar_conjunto(origem, root / 'restaurado')
+            self.assertFalse((root / 'restaurado').exists())
+            self.assertEqual((origem / 'uploads' / 'ficticio.txt').read_bytes(), b'FICTICIO')
+
+    def test_restore_falha_apos_copia_limpa_apenas_destino_novo(self):
+        with tempfile.TemporaryDirectory(prefix='onponto-restore-falha-') as temp:
+            root = Path(temp)
+            origem = self.conjunto_minimo(root)
+            hash_antes = sha256(origem / 'onponto.db')
+            from app.database.recuperacao import verificar_db
+            def verificar(path):
+                if Path(path).parent.resolve() == (root / 'restaurado').resolve():
+                    raise RuntimeError('Falha fictícia de verificação final')
+                return verificar_db(path)
+            with patch('app.database.recuperacao.verificar_db', side_effect=verificar):
+                with self.assertRaisesRegex(RuntimeError, 'Falha fictícia'):
+                    restaurar_conjunto(origem, root / 'restaurado')
+            self.assertFalse((root / 'restaurado').exists())
+            self.assertEqual(sha256(origem / 'onponto.db'), hash_antes)
+            self.assertEqual((origem / 'uploads' / 'ficticio.txt').read_bytes(), b'FICTICIO')
+
+    def test_restore_arquivo_ausente_ou_referencia_invalida_recusa_sem_escrever(self):
+        for caso in ('ausente', 'travessia', 'fora', 'tipo_invalido'):
+            with self.subTest(caso=caso), tempfile.TemporaryDirectory(prefix='onponto-restore-invalido-') as temp:
+                root = Path(temp)
+                origem = self.conjunto_minimo(root)
+                manifesto = origem / 'manifest.json'
+                dados = json.loads(manifesto.read_text(encoding='utf-8'))
+                if caso == 'ausente':
+                    (origem / 'uploads' / 'ficticio.txt').unlink()
+                else:
+                    dados['referencias']['uploads/ficticio.txt'] = {
+                        'travessia': '../fora.txt', 'fora': str(root / 'fora.txt'), 'tipo_invalido': 1}[caso]
+                    manifesto.write_text(json.dumps(dados), encoding='utf-8')
+                with self.assertRaises(RuntimeError):
+                    restaurar_conjunto(origem, root / 'restaurado')
+                self.assertFalse((root / 'restaurado').exists())
+
     def test_backup_restore_schema_antigo_e_evidencias(self):
         with tempfile.TemporaryDirectory(prefix="onponto-conjunto-") as temp:
             root=Path(temp)
@@ -90,7 +149,7 @@ class RecuperacaoConjuntoTest(unittest.TestCase):
                 with Session(novo) as db:
                     invent=verificar(db,root/'nova'/'uploads',root/'nova')
                     self.assertEqual(invent['ausentes'],[]);self.assertEqual(invent['hash_divergente'],[]);self.assertEqual(invent['referencias_invalidas'],[])
-                    self.assertTrue(Path(db.get(ArquivoRecebido,1).caminho_arquivo).is_relative_to(root/'nova'))
+                    self.assertTrue(Path(db.get(ArquivoRecebido,1).caminho_arquivo).resolve().is_relative_to((root/'nova').resolve()))
                 with closing(sqlite3.connect(root/'nova'/'onponto.db')) as db:
                     for t,linhas in antigos.items():self.assertEqual(db.execute('SELECT * FROM '+t).fetchall(),linhas)
                     self.assertEqual(db.execute('PRAGMA integrity_check').fetchone(),('ok',));self.assertEqual(db.execute('PRAGMA foreign_key_check').fetchall(),[])

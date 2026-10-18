@@ -63,6 +63,7 @@
       competenceBreadcrumbs:typeof competenceBreadcrumbs === "undefined" ? undefined : competenceBreadcrumbs,
       competenceIsClosed:typeof competenceIsClosed === "undefined" ? undefined : competenceIsClosed,
       competenceSummaryFor:typeof competenceSummaryFor === "undefined" ? undefined : competenceSummaryFor,
+      historicalLinkNotice:historicalLinkNotice,
       competencyAreaNavigation:typeof competencyAreaNavigation === "undefined" ? undefined : competencyAreaNavigation,
       component:typeof component === "undefined" ? undefined : component,
       demoBanner:typeof demoBanner === "undefined" ? undefined : demoBanner,
@@ -843,6 +844,17 @@
     return value === null || value === undefined || value === "" ? "Indisponível" : value;
   }
 
+  function historicalLinkNotice(context, competence) {
+    var summary = competenceSummaryFor(context, competence);
+    var warnings = summary && asArray(summary.linkWarnings) || [];
+    if (!warnings.length) return "";
+    return '<section class="work-card" role="note" aria-label="Vínculos históricos incompletos"><h2>Vínculos históricos incompletos</h2><ul>' + warnings.map(function (warning) {
+      var row = asArray(summary.rows).find(function (item) { return idsEqual(item.employeeId, warning.funcionario_id); });
+      var name = row && row.employeeName || "Funcionário " + warning.funcionario_id;
+      return '<li><strong>' + escapeHtml(name) + '</strong>: ' + escapeHtml(warning.mensagem) + '</li>';
+    }).join("") + '</ul><p>O aviso não bloqueia sozinho o fechamento. Revise o cadastro antes de concluir.</p><button type="button" class="button button--secondary" data-action="navigate" data-route="company-employees">Revisar cadastros</button></section>';
+  }
+
   function summaryDuration(value, minutes) {
     if (value !== null && value !== undefined && value !== "") return value;
     if (minutes === null || minutes === undefined || minutes === "") return "Indisponível";
@@ -955,6 +967,7 @@
       return prefix + '<section class="work-card"><div class="empty-state" role="status"><span aria-hidden="true">□</span><h2>Resumo indisponível</h2><p>A API não retornou a apuração desta competência.</p><button class="button button--primary" type="button" data-action="retry-competence-summary">Tentar novamente</button></div></section></section>';
     }
 
+    prefix += historicalLinkNotice(context, competence);
     var general = summary.general || {};
     var rows = asArray(summary.rows);
     var table = rows.length ? [
@@ -964,7 +977,7 @@
       rows.map(function (row) {
         var name = availableSummaryValue(row.employeeName);
         var code = row.employeeCode === null || row.employeeCode === undefined || row.employeeCode === "" ? "" : '<small>Código ' + escapeHtml(row.employeeCode) + "</small>";
-        return '<tr><th scope="row"><div class="summary-employee"><strong>' + escapeHtml(name) + "</strong>" + code + "</div></th>" +
+        return '<tr><th scope="row"><div class="summary-employee"><strong>' + escapeHtml(name) + "</strong>" + code + (row.observations ? '<small>' + escapeHtml(row.observations) + '</small>' : '') + "</div></th>" +
           "<td>" + escapeHtml(availableSummaryValue(row.processedDays)) + "</td>" +
           "<td>" + summaryDurationMarkup(row.delays, row.delayMinutes) + "</td>" +
           "<td>" + summaryDurationMarkup(row.extras, row.extraMinutes) + "</td>" +

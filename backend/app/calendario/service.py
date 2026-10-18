@@ -16,6 +16,16 @@ def dentro_vinculo(funcionario: Funcionario, data: date) -> bool:
     return dentro_periodo(data, funcionario.data_admissao, funcionario.data_demissao)
 
 
+def vinculo_permite_calendario(funcionario: Funcionario) -> bool:
+    """Ativos legados mantêm o contrato; inativos exigem limites históricos.
+
+    A inativação não informa quando houve trabalho. Sem ambas as datas, manter
+    as evidências existentes e pedir revisão cadastral, sem presumir faltas.
+    """
+    return bool(funcionario.ativo or (
+        funcionario.data_admissao is not None and funcionario.data_demissao is not None))
+
+
 def vinculo_intersecta_periodo(funcionario: Funcionario, inicio: date, fim: date) -> bool:
     return (funcionario.data_admissao is None or funcionario.data_admissao <= fim) and (
         funcionario.data_demissao is None or funcionario.data_demissao >= inicio)

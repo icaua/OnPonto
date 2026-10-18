@@ -92,17 +92,24 @@ def restaurar_conjunto(origem,destino):
     for relativo in manifest.get('referencias',{}).values():
         if not isinstance(relativo,str) or not (origem/'uploads'/relativo).resolve().is_relative_to((origem/'uploads').resolve()) or relativo not in manifest['arquivos']:
             raise RuntimeError('Mapeamento de referência inválido.')
-    shutil.copytree(origem,destino)
-    if manifest['versao']==2:
-        with closing(sqlite3.connect(destino/'onponto.db')) as db:
-            if db.execute("SELECT 1 FROM sqlite_master WHERE name='arquivos_recebidos'").fetchone():
-                for id,referencia in db.execute('SELECT id,caminho_arquivo FROM arquivos_recebidos').fetchall():
-                    relativo=manifest['referencias'].get(referencia)
-                    if relativo is None:raise RuntimeError('Referência sem mapeamento; restauração não concluída.')
-                    db.execute('UPDATE arquivos_recebidos SET caminho_arquivo=? WHERE id=?',((destino/'uploads'/relativo).as_posix(),id))
-                db.commit()
-        (destino/'restauracao.json').write_text(json.dumps({'versao':1,'referencias':manifest['referencias'],'banco_origem_sha256':manifest['banco_sha256'],'banco_restaurado_sha256':sha256(destino/'onponto.db')},ensure_ascii=False,indent=2),encoding='utf-8')
-    verificar_db(destino/"onponto.db")
+    # Reserva exclusiva: a limpeza só pode atingir o diretório novo desta chamada.
+    # Um destino preexistente (inclusive criado após a validação) nunca entra no try.
+    destino.mkdir(parents=True)
+    try:
+        shutil.copytree(origem,destino,dirs_exist_ok=True)
+        if manifest['versao']==2:
+            with closing(sqlite3.connect(destino/'onponto.db')) as db:
+                if db.execute("SELECT 1 FROM sqlite_master WHERE name='arquivos_recebidos'").fetchone():
+                    for id,referencia in db.execute('SELECT id,caminho_arquivo FROM arquivos_recebidos').fetchall():
+                        relativo=manifest['referencias'].get(referencia)
+                        if relativo is None:raise RuntimeError('Referência sem mapeamento; restauração não concluída.')
+                        db.execute('UPDATE arquivos_recebidos SET caminho_arquivo=? WHERE id=?',((destino/'uploads'/relativo).as_posix(),id))
+                    db.commit()
+            (destino/'restauracao.json').write_text(json.dumps({'versao':1,'referencias':manifest['referencias'],'banco_origem_sha256':manifest['banco_sha256'],'banco_restaurado_sha256':sha256(destino/'onponto.db')},ensure_ascii=False,indent=2),encoding='utf-8')
+        verificar_db(destino/"onponto.db")
+    except Exception:
+        shutil.rmtree(destino)
+        raise
     return manifest
 
 if __name__=='__main__':
