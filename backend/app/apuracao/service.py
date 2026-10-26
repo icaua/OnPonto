@@ -19,7 +19,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 from app.ocorrencias.service import consultar as consultar_ocorrencias
 from app.banco_horas.service import complementar_apuracao, bloqueios_saldo_projetado
-from app.calendario.service import dentro_vinculo, feriados_da_competencia, motivo_fora_vinculo, vinculo_intersecta_periodo
+from app.calendario.service import dentro_vinculo, feriados_da_competencia, motivo_fora_vinculo, vinculo_intersecta_periodo, vinculo_permite_calendario
 
 from app.database.models import (
     ArquivoRecebido,
@@ -98,7 +98,6 @@ def gerar_dias_faltantes(db: Session, competencia: Competencia) -> int:
         db.query(Funcionario)
         .filter(
             Funcionario.empresa_id == competencia.empresa_id,
-            Funcionario.ativo.is_(True),
         )
         .all()
     )
@@ -120,6 +119,8 @@ def gerar_dias_faltantes(db: Session, competencia: Competencia) -> int:
                   MarcacaoPonto.id==DependenciaFechamento.marcacao_id).filter(MarcacaoPonto.competencia_id==competencia.id)}
     criadas = 0
     for funcionario in funcionarios:
+        if not vinculo_permite_calendario(funcionario):
+            continue
         for dia in range(1, ultimo_dia + 1):
             data_marcacao = date(competencia.ano, competencia.mes, dia)
             chave = (funcionario.id, data_marcacao)

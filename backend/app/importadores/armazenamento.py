@@ -71,39 +71,40 @@ def salvar_arquivo_original(
     except ValueError:
         caminho_armazenado = destino.resolve().as_posix()
 
-    if not total_bytes:
-        destino.unlink(missing_ok=True)
-        raise HTTPException(400, "O arquivo está vazio.")
-    digest = hash.hexdigest()
-    from app.seguranca.arquivos import validar_conteudo,nome_original
-    try:validar_conteudo(destino,Path(original).suffix.lower())
-    except HTTPException:
-        destino.unlink(missing_ok=True);raise
-    anteriores = db.query(ArquivoRecebido).filter_by(competencia_id=competencia.id,sha256=digest).all()
-    for anterior in anteriores:
-        caminho = Path(anterior.caminho_arquivo)
-        if not caminho.is_absolute(): caminho = BACKEND_DIR / caminho
-        if caminho.resolve().is_relative_to(uploads_dir.resolve()) and caminho.is_file() and hash_arquivo(caminho)==digest:
-            destino.unlink(missing_ok=True)
-            auditar_arquivo(db, anterior, "reenviado", {"nome":arquivo.filename,"sha256":digest})
-            db.commit()
-            return anterior
-
-    registro = ArquivoRecebido(
-        competencia_id=competencia.id,
-        sha256=digest, tamanho_bytes=total_bytes,
-        nome_original=nome_original(arquivo.filename or original),
-        caminho_arquivo=caminho_armazenado,
-        tipo_arquivo=tipo_arquivo,
-        observacoes=observacoes,
-    )
-    db.add(registro)
     try:
+        if not total_bytes:
+            raise HTTPException(400, "O arquivo está vazio.")
+        digest = hash.hexdigest()
+        from app.seguranca.arquivos import validar_conteudo,nome_original
+        validar_conteudo(destino,Path(original).suffix.lower())
+        anteriores = db.query(ArquivoRecebido).filter_by(competencia_id=competencia.id,sha256=digest).all()
+        for anterior in anteriores:
+            caminho = Path(anterior.caminho_arquivo)
+            if not caminho.is_absolute(): caminho = BACKEND_DIR / caminho
+            if caminho.resolve().is_relative_to(uploads_dir.resolve()) and caminho.is_file() and hash_arquivo(caminho)==digest:
+                destino.unlink(missing_ok=True)
+                auditar_arquivo(db, anterior, "reenviado", {"nome":arquivo.filename,"sha256":digest})
+                db.commit()
+                return anterior
+
+        registro = ArquivoRecebido(
+            competencia_id=competencia.id,
+            sha256=digest, tamanho_bytes=total_bytes,
+            nome_original=nome_original(arquivo.filename or original),
+            caminho_arquivo=caminho_armazenado,
+            tipo_arquivo=tipo_arquivo,
+            observacoes=observacoes,
+        )
+        db.add(registro)
         db.flush()
         db.add(DocumentoEvidencia(arquivo_id=registro.id, caminho_relativo=destino.relative_to(uploads_dir).as_posix(),
             nome_original=registro.nome_original, sha256=digest,tamanho_bytes=total_bytes,origem="upload_original"))
         auditar_arquivo(db, registro, "recebido", {"sha256":digest,"tamanho_bytes":total_bytes})
         db.commit()
+    except HTTPException:
+        db.rollback()
+        destino.unlink(missing_ok=True)
+        raise
     except Exception as exc:
         db.rollback()
         destino.unlink(missing_ok=True)
